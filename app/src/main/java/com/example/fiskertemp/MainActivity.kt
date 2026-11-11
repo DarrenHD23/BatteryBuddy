@@ -344,6 +344,18 @@ class MainActivity : Activity() {
     private lateinit var logView: TextView
     private lateinit var statusView: TextView
     private lateinit var dotView: View
+    private lateinit var canDot: View
+    private lateinit var canStatusView: TextView
+    private lateinit var canInfoView: TextView
+    private lateinit var dongleCard: LinearLayout
+    private lateinit var canCard: LinearLayout
+    private lateinit var advCard: LinearLayout
+    private lateinit var readAllBtn: Button
+    private lateinit var pollBtn: Button
+    private var useCan = false
+    private var pulse: PulseCan? = null
+    @Volatile private var canSnap = CanSnapshot()
+    private val ui = Handler(Looper.getMainLooper())
     private lateinit var tempGauge: TempGaugeView
     private lateinit var rangeBar: RangeBarView
     private var lastTempC: Double? = null
@@ -356,7 +368,8 @@ class MainActivity : Activity() {
         title = "Fisker Battery Buddy"
         useFahrenheit = getSharedPreferences("prefs", MODE_PRIVATE).getBoolean("fahrenheit", false)
         buildUi()
-        ensurePermissions()
+        val saved = getSharedPreferences("prefs", MODE_PRIVATE).getString("source", null)
+        applySource(when (saved) { "pulse" -> true; "dongle" -> false; else -> PulseCan.available() })
     }
 
     // ------------------------------------------------------------------ UI
@@ -448,6 +461,7 @@ class MainActivity : Activity() {
         }
 
         val conn = card()
+        dongleCard = conn
         dotView = View(this)
         paintDot(false)
         val arrow = TextView(this).apply { text = "\u25B4"; textSize = 18f; setTextColor(Color.WHITE) }
@@ -471,6 +485,22 @@ class MainActivity : Activity() {
         conn.add(connBody, 0)
         root.addView(conn)
 
+        val can = card()
+        canCard = can
+        canDot = View(this)
+        canDot.background = dotDrawable(false)
+        val canHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            addView(canDot, LinearLayout.LayoutParams(dp(12), dp(12)).apply { rightMargin = dp(10) })
+            addView(label("Pulse CAN bus", 18f, true))
+        }
+        can.add(canHeader, 0)
+        canInfoView = TextView(this).apply { textSize = 14f; setTextColor(Color.WHITE); text = "Waiting for the car..." }
+        canStatusView = TextView(this).apply { textSize = 12f; setTextColor(Color.parseColor("#E6FFFFFF")); text = "" }
+        can.add(canInfoView, 10)
+        can.add(canStatusView, 4)
+        root.addView(can)
+
         val reads = card()
         reads.add(label("Battery readings", 18f, true), 0)
         tempGauge = TempGaugeView(this).apply { setReading(null, useFahrenheit) }
@@ -480,8 +510,10 @@ class MainActivity : Activity() {
         rangeBar = RangeBarView(this).apply { setReading(null, useFahrenheit) }
         reads.addView(rangeBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(90)).apply { topMargin = dp(4) })
         reads.add(resultView, 10)
-        reads.add(button("Read all values") { Thread { readAll() }.start() }, 14)
-        reads.add(button("Start / stop polling (1 s)") { togglePolling() })
+        readAllBtn = button("Read all values") { Thread { readAll() }.start() }
+        pollBtn = button("Start / stop polling (1 s)") { togglePolling() }
+        reads.add(readAllBtn, 14)
+        reads.add(pollBtn)
         root.addView(reads)
 
         advancedBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
@@ -499,6 +531,7 @@ class MainActivity : Activity() {
         advancedBox.add(button("Read once") { Thread { readOnce() }.start() }, 10)
 
         val adv = card()
+        advCard = adv
         adv.add(button("Advanced settings") {
             advancedBox.visibility = if (advancedBox.visibility == View.GONE) View.VISIBLE else View.GONE
         }, 0)
@@ -562,6 +595,13 @@ class MainActivity : Activity() {
         rg.setOnCheckedChangeListener { _, checkedId -> setFahrenheit(checkedId == rf.id) }
         box.add(rg, 6)
 
+        box.add(TextView(this).apply { text = "Data source"; textSize = 14f; setTextColor(Color.DKGRAY) }, 20)
+        val sd = RadioButton(this).apply { text = "vLinker dongle (Bluetooth)"; id = View.generateViewId(); isChecked = !useCan }
+        val sp = RadioButton(this).apply { text = "Pulse CAN bus (run this app on the Pulse)"; id = View.generateViewId(); isChecked = useCan }
+        val sg = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL; addView(sd); addView(sp) }
+        sg.setOnCheckedChangeListener { _, checkedId -> applySource(checkedId == sp.id) }
+        box.add(sg, 6)
+
         // --- Background colour
         box.add(TextView(this).apply { text = "Background colour"; textSize = 14f; setTextColor(Color.DKGRAY) }, 20)
         lateinit var dialog: AlertDialog
@@ -575,6 +615,10 @@ class MainActivity : Activity() {
             }
             box.add(b, 10)
         }
+        box.add(TextView(this).apply {
+            text = "This project uses software from Haibin Wen and SUNNYPILOT LLC and is licensed under a custom license requiring permission for use."
+            textSize = 11f; setTextColor(Color.GRAY)
+        }, 24)
         // ScrollView so nothing is cut off on small screens
         val scroller = ScrollView(this).apply { addView(box) }
         dialog = AlertDialog.Builder(this).setTitle("Settings").setView(scroller)
@@ -582,11 +626,64 @@ class MainActivity : Activity() {
         dialog.show()
     }
 
-    private fun paintDot(on: Boolean) {
-        dotView.background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(Color.parseColor(if (on) "#2ECC71" else "#E74C3C"))
-            setStroke(dp(1), Color.WHITE)
+    private fun dotDrawable(on: Boolean) = GradientDrawable().apply {
+        shape = GradientDrawable.OVAL
+        setColor(Color.parseColor(if (on) "#2ECC71" else "#E74C3C"))
+        setStroke(dp(1), Color.WHITE)
+    }
+
+    private fun paintDot(on: Boolean) { dotView.background = dotDrawable(on) }
+
+    // ------------------------------------------------------- Pulse CAN source
+    private val canTick = object : Runnable {
+        override fun run() {
+            renderCan()
+            if (useCan) ui.postDelayed(this, 500)
+        }
+    }
+
+    private fun renderCan() {
+        val p = pulse ?: return
+        val s = canSnap
+        val live = System.currentTimeMillis() - p.lastChangeAt < 3000
+        canDot.background = dotDrawable(live)
+        canInfoView.text = if (!live) "No changing frames from the car yet (car asleep, or the reader isn't running)"
+            else if (s.packVolts == null) "Car awake. Voltage and current not received (the Pulse's CAN filters may need root)"
+            else "Car awake: frames are updating"
+        if (s.avgTempC != lastTempC) { lastTempC = s.avgTempC; showTemp(s.avgTempC, useFahrenheit) }
+        val demand = when (s.thermalDemand) { 0 -> "starting up"; 1 -> "heating"; 2 -> "cooling"; 3 -> "cycling"; else -> "--" }
+        fun tc(c: Double?) = if (c == null) "--" else fmt(c, "\u00B0C", 1)
+        resultView.textSize = 16f
+        resultView.text = listOf(
+            "Cell temp, coolest / hottest: ${tc(s.cellMinC)} / ${tc(s.cellMaxC)}",
+            "State of charge: ${s.socUsable?.let { "$it %" } ?: "--"}",
+            "Pack voltage: ${s.packVolts?.let { String.format("%.1f V", it) } ?: "--"}",
+            "Pack current: ${s.packAmps?.let { String.format("%.1f A", it) } ?: "--"}",
+            "Thermal management: $demand",
+        ).joinToString("\n")
+    }
+
+    private fun applySource(pulseMode: Boolean) {
+        useCan = pulseMode
+        getSharedPreferences("prefs", MODE_PRIVATE).edit().putString("source", if (pulseMode) "pulse" else "dongle").apply()
+        dongleCard.visibility = if (pulseMode) View.GONE else View.VISIBLE
+        advCard.visibility = if (pulseMode) View.GONE else View.VISIBLE
+        readAllBtn.visibility = if (pulseMode) View.GONE else View.VISIBLE
+        pollBtn.visibility = if (pulseMode) View.GONE else View.VISIBLE
+        canCard.visibility = if (pulseMode) View.VISIBLE else View.GONE
+        lastTempC = null
+        renderLast = null
+        showTemp(null, useFahrenheit)
+        resultView.text = ""
+        ui.removeCallbacks(canTick)
+        if (pulseMode) {
+            close()                                   // let go of the dongle
+            val p = pulse ?: PulseCan(this, { m -> log(m) }, { snap -> canSnap = snap }).also { pulse = it }
+            p.start()
+            ui.post(canTick)
+        } else {
+            pulse?.stop()
+            ensurePermissions()
         }
     }
 
@@ -595,7 +692,10 @@ class MainActivity : Activity() {
         if (::dotView.isInitialized) runOnUiThread { paintDot(on) }
     }
 
-    private fun log(s: String) = runOnUiThread { logView.append(s + "\n"); statusView.text = "Status: $s" }
+    private fun log(s: String) = runOnUiThread {
+        logView.append(s + "\n"); statusView.text = "Status: $s"
+        if (::canStatusView.isInitialized) canStatusView.text = s
+    }
 
     private fun refreshDeviceSpinner() {
         val names = devices.map { "${it.name} (${it.address})" }
@@ -616,7 +716,7 @@ class MainActivity : Activity() {
         else log("Bluetooth permission denied.")
     }
 
-    private fun adapter(): BluetoothAdapter? = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
+    private fun adapter(): BluetoothAdapter? = (getSystemService(BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
 
     private fun loadPairedDevices() {
         val ad = adapter()
@@ -773,7 +873,7 @@ class MainActivity : Activity() {
         setConnected(false)
     }
 
-    override fun onDestroy() { close(); super.onDestroy() }
+    override fun onDestroy() { pulse?.stop(); ui.removeCallbacksAndMessages(null); close(); super.onDestroy() }
 
     /** Send an AT or OBD command; read until the ELM '>' prompt (3 s timeout). */
     @Synchronized
