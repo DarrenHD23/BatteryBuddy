@@ -272,8 +272,21 @@ class MainActivity : Activity() {
         root.addView(adv)
 
         val logCard = card()
-        logCard.add(label("Log (press and hold to copy)", 14f, true), 0)
-        logCard.add(logView, 6)
+        val logArrow = TextView(this).apply { text = "\u25B4"; textSize = 18f; setTextColor(Color.WHITE) }
+        val logBody = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val logHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            addView(label("Log (press and hold to copy)", 14f, true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(logArrow)
+            setOnClickListener {
+                val open = logBody.visibility == View.GONE
+                logBody.visibility = if (open) View.VISIBLE else View.GONE
+                logArrow.text = if (open) "\u25B4" else "\u25BE"
+            }
+        }
+        logCard.add(logHeader, 0)
+        logBody.add(logView, 6)
+        logCard.add(logBody, 0)
         root.addView(logCard)
 
         rootScroll = ScrollView(this).apply { addView(root) }
