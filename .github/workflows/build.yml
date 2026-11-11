@@ -5,6 +5,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Build CAN helper for the Pulse (arm64)
+        run: |
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          cd canbridge
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o ../app/src/main/jniLibs/arm64-v8a/libcanbridge.so main.go
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
