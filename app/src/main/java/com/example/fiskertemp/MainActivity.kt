@@ -40,7 +40,14 @@ import android.os.Handler
 import android.os.Looper
 import android.app.AlertDialog
 import android.content.res.ColorStateList
+import android.animation.ValueAnimator
+import android.content.Context
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.SweepGradient
+import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
@@ -84,6 +91,114 @@ val THEMES = listOf(
     AppTheme("Slate Grey", Color.parseColor("#232526"), Color.parseColor("#6E7B8B")),
 )
 
+/**
+ * Circular battery-temperature gauge. The ring fills clockwise from the top and its
+ * colour runs blue -> green -> yellow -> orange -> red along the ring, so the end of the
+ * filled arc is the colour for the current temperature. Scale is always in Celsius;
+ * only the number in the middle switches to Fahrenheit.
+ */
+class TempGaugeView(ctx: Context) : View(ctx) {
+    // temperature (C) -> how much of the ring is filled
+    private val fillPts = listOf(-10.0 to 0.02, 0.0 to 0.05, 15.0 to 0.30, 22.5 to 0.50,
+        30.0 to 0.80, 40.0 to 0.95, 45.0 to 1.0)
+    // temperature (C) -> colour
+    private val colorPts = listOf(0.0 to Color.parseColor("#2979FF"), 7.5 to Color.parseColor("#00BFA5"),
+        15.0 to Color.parseColor("#FFD600"), 22.5 to Color.parseColor("#FF9100"),
+        30.0 to Color.parseColor("#FF5722"), 40.0 to Color.parseColor("#E53935"))
+
+    private var celsius: Double? = null
+    private var fahrenheit = false
+    private var shown = 0f
+    private var anim: ValueAnimator? = null
+
+    private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Color.argb(55, 255, 255, 255) }
+    private val arc = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+    private val big = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD }
+    private val small = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(230, 255, 255, 255); textAlign = Paint.Align.CENTER }
+    private val rect = RectF()
+
+    fun fractionFor(c: Double): Float {
+        if (c <= fillPts.first().first) return fillPts.first().second.toFloat()
+        if (c >= fillPts.last().first) return 1f
+        for (i in 0 until fillPts.size - 1) {
+            val (t0, f0) = fillPts[i]; val (t1, f1) = fillPts[i + 1]
+            if (c <= t1) return (f0 + (f1 - f0) * (c - t0) / (t1 - t0)).toFloat()
+        }
+        return 1f
+    }
+
+    private fun tempFor(f: Double): Double {
+        if (f <= fillPts.first().second) return fillPts.first().first
+        for (i in 0 until fillPts.size - 1) {
+            val (t0, f0) = fillPts[i]; val (t1, f1) = fillPts[i + 1]
+            if (f <= f1) return t0 + (t1 - t0) * (f - f0) / (f1 - f0)
+        }
+        return fillPts.last().first
+    }
+
+    private fun colorAt(c: Double): Int {
+        if (c <= colorPts.first().first) return colorPts.first().second
+        if (c >= colorPts.last().first) return colorPts.last().second
+        for (i in 0 until colorPts.size - 1) {
+            val (t0, c0) = colorPts[i]; val (t1, c1) = colorPts[i + 1]
+            if (c <= t1) {
+                val k = ((c - t0) / (t1 - t0)).toFloat()
+                return Color.rgb(
+                    (Color.red(c0) + (Color.red(c1) - Color.red(c0)) * k).toInt(),
+                    (Color.green(c0) + (Color.green(c1) - Color.green(c0)) * k).toInt(),
+                    (Color.blue(c0) + (Color.blue(c1) - Color.blue(c0)) * k).toInt())
+            }
+        }
+        return colorPts.last().second
+    }
+
+    /** Pass null for "no reading". */
+    fun setReading(c: Double?, useF: Boolean) {
+        celsius = c; fahrenheit = useF
+        val target = if (c == null) 0f else fractionFor(c)
+        anim?.cancel()
+        anim = ValueAnimator.ofFloat(shown, target).apply {
+            duration = 500
+            addUpdateListener { shown = it.animatedValue as Float; invalidate() }
+            start()
+        }
+        invalidate()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        val n = 72
+        val colors = IntArray(n) { colorAt(tempFor(it / (n - 1).toDouble())) }
+        val pos = FloatArray(n) { it / (n - 1).toFloat() }
+        arc.shader = SweepGradient(w / 2f, h / 2f, colors, pos)
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val w = width.toFloat(); val h = height.toFloat()
+        val stroke = w * 0.075f
+        val r = minOf(w, h) / 2f - stroke
+        val cx = w / 2f; val cy = h / 2f
+        track.strokeWidth = stroke; arc.strokeWidth = stroke
+        rect.set(cx - r, cy - r, cx + r, cy + r)
+        canvas.drawCircle(cx, cy, r, track)
+        if (shown > 0.001f) {
+            canvas.save()
+            canvas.rotate(-90f, cx, cy)                 // start the fill at 12 o'clock
+            canvas.drawArc(rect, 0f, 360f * shown, false, arc)
+            canvas.restore()
+        }
+        val c = celsius
+        val txt = if (c == null) "--" else if (fahrenheit) String.format("%.1f\u00B0F", c * 9.0 / 5.0 + 32.0)
+                  else String.format("%.1f\u00B0C", c)
+        big.textSize = r * 0.5f
+        val tw = big.measureText(txt)
+        if (tw > r * 1.6f) big.textSize = big.textSize * r * 1.6f / tw
+        val fm = big.fontMetrics
+        canvas.drawText(txt, cx, cy - (fm.ascent + fm.descent) / 2f - r * 0.08f, big)
+        small.textSize = r * 0.16f
+        canvas.drawText("Battery temp", cx, cy + r * 0.42f, small)
+    }
+}
+
 /** Byte queue fed by BLE notifications; only read when available() > 0. */
 private class QueueInputStream : InputStream() {
     private val q = ConcurrentLinkedQueue<Int>()
@@ -119,6 +234,8 @@ class MainActivity : Activity() {
     private lateinit var logView: TextView
     private lateinit var statusView: TextView
     private lateinit var dotView: View
+    private lateinit var tempGauge: TempGaugeView
+    private var lastTempC: Double? = null
     @Volatile private var connected = false
     private lateinit var protocolField: EditText
     private val devices = mutableListOf<BluetoothDevice>()
@@ -206,7 +323,7 @@ class MainActivity : Activity() {
         signedBox = CheckBox(this).apply {
             text = "Signed value"; setTextColor(Color.WHITE); buttonTintList = ColorStateList.valueOf(Color.WHITE)
         }
-        resultView = TextView(this).apply { textSize = 28f; text = "--"; setTextColor(Color.WHITE); gravity = Gravity.CENTER }
+        resultView = TextView(this).apply { textSize = 16f; text = ""; setTextColor(Color.WHITE); gravity = Gravity.CENTER }
         logView = TextView(this).apply {
             textSize = 12f; setTextIsSelectable(true); text = "Log:\n"; setTextColor(Color.parseColor("#E6FFFFFF"))
         }
@@ -245,7 +362,11 @@ class MainActivity : Activity() {
 
         val reads = card()
         reads.add(label("Battery readings", 18f, true), 0)
-        reads.add(resultView, 14)
+        tempGauge = TempGaugeView(this).apply { setReading(null, useFahrenheit) }
+        reads.addView(tempGauge, LinearLayout.LayoutParams(dp(230), dp(230)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(12)
+        })
+        reads.add(resultView, 10)
         reads.add(button("Read all values") { Thread { readAll() }.start() }, 14)
         reads.add(button("Start / stop polling (1 s)") { togglePolling() })
         root.addView(reads)
@@ -584,6 +705,7 @@ class MainActivity : Activity() {
     private fun setFahrenheit(on: Boolean) {
         useFahrenheit = on
         getSharedPreferences("prefs", MODE_PRIVATE).edit().putBoolean("fahrenheit", on).apply()
+        tempGauge.setReading(lastTempC, on)
         renderLast?.let { runOnUiThread { it() } }      // refresh what is already on screen
     }
 
@@ -594,7 +716,11 @@ class MainActivity : Activity() {
             byteIndexField.text.toString().toIntOrNull() ?: 0, byteLenField.text.toString().toIntOrNull() ?: 1,
             scaleField.text.toString().toDoubleOrNull() ?: 1.0, offsetField.text.toString().toDoubleOrNull() ?: 0.0,
             signedBox.isChecked)
-        if (v != null) {
+        val isTemp = PRESETS.getOrNull(presetSpinner.selectedItemPosition)?.name == "Battery temp"
+        if (isTemp) {
+            lastTempC = v
+            runOnUiThread { tempGauge.setReading(v, useFahrenheit) }
+        } else if (v != null) {
             renderLast = { resultView.textSize = 28f; resultView.text = fmt(v, unit, 1) }
             runOnUiThread { renderLast?.invoke() }
         }
@@ -603,8 +729,10 @@ class MainActivity : Activity() {
     private fun readAll() {
         val header = headerField.text.toString().trim(); val filter = filterField.text.toString().trim()
         val rows = mutableListOf<() -> String>()
+        var tempC: Double? = null
         for (p in PRESETS) {
             val v = readValue(header, filter, p.request, p.byteIndex, p.byteLen, p.scale, p.offset, p.signed)
+            if (p.name == "Battery temp") { tempC = v; continue }     // shown in the gauge
             if (v != null) rows += { p.name + ": " + fmt(v, p.unit, 2) }
             else if (p.name.startsWith("12V")) {
                 // Fallback: adapter's own supply voltage on OBD pin 16 (~\u00B10.2 V)
@@ -612,7 +740,8 @@ class MainActivity : Activity() {
             } else rows += { "${p.name}: no data" }
         }
         renderLast = { resultView.text = rows.joinToString("\n") { it() }; resultView.textSize = 16f }
-        runOnUiThread { renderLast?.invoke() }
+        lastTempC = tempC
+        runOnUiThread { tempGauge.setReading(tempC, useFahrenheit); renderLast?.invoke() }
     }
 
     /** One read-only request. Returns the decoded value, or null on failure. */
