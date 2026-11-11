@@ -98,6 +98,7 @@ class MainActivity : Activity() {
     private lateinit var signedBox: CheckBox
     private lateinit var resultView: TextView
     private lateinit var logView: TextView
+    private lateinit var statusView: TextView
     private val devices = mutableListOf<BluetoothDevice>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -140,18 +141,16 @@ class MainActivity : Activity() {
         val pollBtn = Button(this).apply { text = "Start / stop polling (1 s)"; setOnClickListener { togglePolling() } }
 
         resultView = TextView(this).apply { textSize = 28f; text = "--" }
-        logView = TextView(this).apply { textSize = 12f }
-        val scroll = ScrollView(this).apply { addView(logView) }
+        logView = TextView(this).apply { textSize = 12f; setTextIsSelectable(true); text = "Log:\n" }
+        statusView = TextView(this).apply { textSize = 14f; setPadding(0, 8, 0, 8); text = "Status: not connected" }
 
-        listOf(deviceSpinner, scanBtn, connectBtn, presetSpinner, headerField, filterField, requestField,
-            byteIndexField, byteLenField, scaleField, offsetField, signedBox, readBtn, allBtn, pollBtn, resultView)
+        listOf(deviceSpinner, scanBtn, connectBtn, statusView, presetSpinner, headerField, filterField, requestField,
+            byteIndexField, byteLenField, scaleField, offsetField, signedBox, readBtn, allBtn, pollBtn, resultView, logView)
             .forEach { root.addView(it, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT) }
-        root.addView(scroll, ViewGroup.LayoutParams.MATCH_PARENT, 0)
-        (scroll.layoutParams as LinearLayout.LayoutParams).weight = 1f
-        setContentView(root)
+        setContentView(ScrollView(this).apply { addView(root) })
     }
 
-    private fun log(s: String) = runOnUiThread { logView.append(s + "\n") }
+    private fun log(s: String) = runOnUiThread { logView.append(s + "\n"); statusView.text = "Status: $s" }
 
     private fun refreshDeviceSpinner() {
         val names = devices.map { "${it.name} (${it.address})" }
@@ -211,22 +210,24 @@ class MainActivity : Activity() {
     private fun connect() {
         val dev = devices.getOrNull(deviceSpinner.selectedItemPosition) ?: return log("No device selected.")
         Thread {
-            close()
-            adapter()?.cancelDiscovery()
-            val name = dev.name.orEmpty()
-            val bleOnly = name.contains("ios", true) || dev.type == BluetoothDevice.DEVICE_TYPE_LE
-            var ok = false
-            if (!bleOnly) ok = connectClassic(dev)
-            if (!ok) ok = connectBle(dev)
-            if (!ok) { log("Could not connect over Classic or BLE."); return@Thread }
-            log("Connected to $name")
             try {
+                close()
+                adapter()?.cancelDiscovery()
+                val name = dev.name.orEmpty()
+                log("Connecting to $name (${dev.address}) ...")
+                val bleOnly = name.contains("ios", true) || dev.type == BluetoothDevice.DEVICE_TYPE_LE
+                var ok = false
+                if (!bleOnly) ok = connectClassic(dev)
+                if (!ok) ok = connectBle(dev)
+                if (!ok) { log("FAILED: could not connect over Classic or BLE."); return@Thread }
+                log("Connected to $name")
                 // ELM327/STN init: reset, echo off, linefeeds off, spaces off, headers off,
                 // auto-format CAN on, protocol auto
                 for (c in listOf("ATZ", "ATE0", "ATL0", "ATS0", "ATH0", "ATCAF1", "ATSP0")) {
                     log("> $c  <  ${send(c)}")
                 }
-            } catch (e: Exception) { log("Init failed: ${e.message}") }
+                log("Adapter ready.")
+            } catch (t: Throwable) { log("Connect error: ${t.javaClass.simpleName}: ${t.message}") }
         }.start()
     }
 
@@ -241,6 +242,13 @@ class MainActivity : Activity() {
                 return true
             } catch (e: Exception) { log("SPP ${if (secure) "secure" else "insecure"} failed: ${e.message}") }
         }
+        try {   // last resort: raw RFCOMM channel 1
+            val s = dev.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType).invoke(dev, 1) as BluetoothSocket
+            s.connect()
+            socket = s; input = s.inputStream; output = s.outputStream
+            log("Classic RFCOMM channel 1 connected.")
+            return true
+        } catch (e: Exception) { log("RFCOMM ch.1 failed: ${e.message}") }
         return false
     }
 
