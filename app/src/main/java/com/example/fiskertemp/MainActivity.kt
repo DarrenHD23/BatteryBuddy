@@ -118,6 +118,8 @@ class MainActivity : Activity() {
     private lateinit var resultView: TextView
     private lateinit var logView: TextView
     private lateinit var statusView: TextView
+    private lateinit var dotView: View
+    @Volatile private var connected = false
     private lateinit var protocolField: EditText
     private val devices = mutableListOf<BluetoothDevice>()
 
@@ -218,11 +220,27 @@ class MainActivity : Activity() {
         }
 
         val conn = card()
-        conn.add(label("Connection", 18f, true), 0)
-        conn.add(deviceSpinner, 10)
-        conn.add(button("Scan BLE for vLinker") { scanBle() })
-        conn.add(button("Connect") { connect() })
-        conn.add(statusView, 10)
+        dotView = View(this)
+        paintDot(false)
+        val arrow = TextView(this).apply { text = "\u25B4"; textSize = 18f; setTextColor(Color.WHITE) }
+        val connBody = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            addView(dotView, LinearLayout.LayoutParams(dp(12), dp(12)).apply { rightMargin = dp(10) })
+            addView(label("Connection", 18f, true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(arrow)
+            setOnClickListener {
+                val open = connBody.visibility == View.GONE
+                connBody.visibility = if (open) View.VISIBLE else View.GONE
+                arrow.text = if (open) "\u25B4" else "\u25BE"
+            }
+        }
+        conn.add(header, 0)
+        connBody.add(deviceSpinner, 10)
+        connBody.add(button("Scan BLE for vLinker") { scanBle() })
+        connBody.add(button("Connect") { connect() })
+        connBody.add(statusView, 10)
+        conn.add(connBody, 0)
         root.addView(conn)
 
         val reads = card()
@@ -317,6 +335,19 @@ class MainActivity : Activity() {
         dialog.show()
     }
 
+    private fun paintDot(on: Boolean) {
+        dotView.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(Color.parseColor(if (on) "#2ECC71" else "#E74C3C"))
+            setStroke(dp(1), Color.WHITE)
+        }
+    }
+
+    private fun setConnected(on: Boolean) {
+        connected = on
+        if (::dotView.isInitialized) runOnUiThread { paintDot(on) }
+    }
+
     private fun log(s: String) = runOnUiThread { logView.append(s + "\n"); statusView.text = "Status: $s" }
 
     private fun refreshDeviceSpinner() {
@@ -387,7 +418,8 @@ class MainActivity : Activity() {
                 var ok = false
                 if (!bleOnly) ok = connectClassic(dev)
                 if (!ok) ok = connectBle(dev)
-                if (!ok) { log("FAILED: could not connect over Classic or BLE."); return@Thread }
+                if (!ok) { setConnected(false); log("FAILED: could not connect over Classic or BLE."); return@Thread }
+                setConnected(true)
                 log("Connected to $name")
                 // ELM327/STN init: reset, echo off, linefeeds off, spaces off, headers off,
                 // auto-format CAN on, fixed protocol (no slow auto-search), 1 s ECU timeout
@@ -395,7 +427,7 @@ class MainActivity : Activity() {
                     log("> $c  <  ${send(c)}")
                 }
                 log("Adapter ready.")
-            } catch (t: Throwable) { log("Connect error: ${t.javaClass.simpleName}: ${t.message}") }
+            } catch (t: Throwable) { setConnected(false); log("Connect error: ${t.javaClass.simpleName}: ${t.message}") }
         }.start()
     }
 
@@ -432,7 +464,7 @@ class MainActivity : Activity() {
         val cb = object : BluetoothGattCallback() {
             override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
                 if (newState == BluetoothProfile.STATE_CONNECTED) gatt.discoverServices()
-                else if (newState == BluetoothProfile.STATE_DISCONNECTED) log("BLE disconnected")
+                else if (newState == BluetoothProfile.STATE_DISCONNECTED) { setConnected(false); log("BLE disconnected") }
             }
             override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
                 var notify: BluetoothGattCharacteristic? = null
@@ -491,6 +523,7 @@ class MainActivity : Activity() {
         try { socket?.close() } catch (_: Exception) {}
         try { gatt?.close() } catch (_: Exception) {}
         socket = null; gatt = null; input = null; output = null
+        setConnected(false)
     }
 
     override fun onDestroy() { close(); super.onDestroy() }
@@ -498,6 +531,12 @@ class MainActivity : Activity() {
     /** Send an AT or OBD command; read until the ELM '>' prompt (3 s timeout). */
     @Synchronized
     private fun send(cmd: String): String {
+        try { return sendRaw(cmd) }
+        catch (e: java.io.IOException) { setConnected(false); throw e }
+    }
+
+    @Synchronized
+    private fun sendRaw(cmd: String): String {
         val out = output ?: throw IllegalStateException("Not connected")
         val inp = input ?: throw IllegalStateException("Not connected")
         while (inp.available() > 0) inp.read()          // flush stale bytes
