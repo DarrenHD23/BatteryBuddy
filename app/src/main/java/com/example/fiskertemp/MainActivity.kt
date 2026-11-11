@@ -138,7 +138,7 @@ class TempGaugeView(ctx: Context) : View(ctx) {
         return fillPts.last().first
     }
 
-    fun colorAt(c: Double): Int {
+    private fun colorAt(c: Double): Int {
         if (c <= colorPts.first().first) return colorPts.first().second
         if (c >= colorPts.last().first) return colorPts.last().second
         for (i in 0 until colorPts.size - 1) {
@@ -202,19 +202,21 @@ class TempGaugeView(ctx: Context) : View(ctx) {
 }
 
 /**
- * Horizontal gradient bar (blue at 0 C -> red at 40 C) with a marker at the current battery
- * temperature and an estimated range impact. The impact numbers are rough estimates:
+ * Estimated range impact bar. The scale is in PERCENT, not temperature: -20% on the left
+ * (red, biggest loss) to 0% on the right (green, no loss). The marker sits at the estimated
+ * range impact for the current battery temperature. The impact numbers are rough estimates:
  * given points are 0 C -20%, 10 C -10%, 20-25 C 0%, 30 C -2%, 40 C -12%; everything in
  * between is a straight line and values outside 0-40 C are extended at about 1% per degree.
  */
-class RangeBarView(ctx: Context, private val colorAt: (Double) -> Int) : View(ctx) {
+class RangeBarView(ctx: Context) : View(ctx) {
     private val impactPts = listOf(-20.0 to -40.0, -10.0 to -30.0, 0.0 to -20.0, 10.0 to -10.0,
         20.0 to 0.0, 25.0 to 0.0, 30.0 to -2.0, 40.0 to -12.0, 50.0 to -22.0)
-    private val minC = 0.0
-    private val maxC = 40.0
+    private val minPct = -20.0
+    private val maxPct = 0.0
+    private val barStops = listOf(0f to Color.parseColor("#E53935"), 0.33f to Color.parseColor("#FF9100"),
+        0.66f to Color.parseColor("#FFD600"), 1f to Color.parseColor("#43A047"))
 
-    private var celsius: Double? = null
-    private var fahrenheit = false
+    private var impact: Double? = null
     private var pos = 0f
     private var anim: ValueAnimator? = null
     private var shader: LinearGradient? = null
@@ -241,10 +243,24 @@ class RangeBarView(ctx: Context, private val colorAt: (Double) -> Int) : View(ct
         return impactPts.last().second
     }
 
-    /** Pass null for "no reading". */
-    fun setReading(c: Double?, useF: Boolean) {
-        celsius = c; fahrenheit = useF
-        val target = if (c == null) 0f else ((c - minC) / (maxC - minC)).coerceIn(0.0, 1.0).toFloat()
+    private fun barColorAt(f: Float): Int {
+        for (i in 0 until barStops.size - 1) {
+            val (f0, c0) = barStops[i]; val (f1, c1) = barStops[i + 1]
+            if (f <= f1) {
+                val k = ((f - f0) / (f1 - f0)).coerceIn(0f, 1f)
+                return Color.rgb(
+                    (Color.red(c0) + (Color.red(c1) - Color.red(c0)) * k).toInt(),
+                    (Color.green(c0) + (Color.green(c1) - Color.green(c0)) * k).toInt(),
+                    (Color.blue(c0) + (Color.blue(c1) - Color.blue(c0)) * k).toInt())
+            }
+        }
+        return barStops.last().second
+    }
+
+    /** Takes the battery temperature in Celsius (null = no reading). The unit setting does not affect this bar. */
+    fun setReading(c: Double?, @Suppress("UNUSED_PARAMETER") useF: Boolean) {
+        impact = c?.let { impactFor(it) }
+        val target = impact?.let { ((it - minPct) / (maxPct - minPct)).coerceIn(0.0, 1.0).toFloat() } ?: 0f
         anim?.cancel()
         anim = ValueAnimator.ofFloat(pos, target).apply {
             duration = 500
@@ -255,9 +271,8 @@ class RangeBarView(ctx: Context, private val colorAt: (Double) -> Int) : View(ct
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        val n = 41
-        val colors = IntArray(n) { colorAt(minC + (maxC - minC) * it / (n - 1)) }
-        val p = FloatArray(n) { it / (n - 1).toFloat() }
+        val colors = IntArray(barStops.size) { barStops[it].second }
+        val p = FloatArray(barStops.size) { barStops[it].first }
         val pad = dp(18f)
         shader = LinearGradient(pad, 0f, w - pad, 0f, colors, p, android.graphics.Shader.TileMode.CLAMP)
     }
@@ -266,11 +281,11 @@ class RangeBarView(ctx: Context, private val colorAt: (Double) -> Int) : View(ct
         val w = width.toFloat()
         val barL = dp(18f); val barR = w - dp(18f)
         val barH = dp(10f); val barCy = dp(52f)
-        val c = celsius
+        val v = impact
 
-        val impactTxt = if (c == null) "--" else {
-            val v = Math.round(impactFor(c)).toInt()
-            if (v == 0) "0%" else if (v > 0) "+$v%" else "-${-v}%"
+        val impactTxt = if (v == null) "--" else {
+            val r = Math.round(v).toInt()
+            if (r == 0) "0%" else if (r > 0) "+$r%" else "-${-r}%"
         }
         title.textSize = sp(14f)
         canvas.drawText("Estimated range impact: $impactTxt", w / 2f, dp(22f), title)
@@ -279,21 +294,18 @@ class RangeBarView(ctx: Context, private val colorAt: (Double) -> Int) : View(ct
         rect.set(barL, barCy - barH / 2f, barR, barCy + barH / 2f)
         canvas.drawRoundRect(rect, barH / 2f, barH / 2f, bar)
 
-        if (c != null) {
+        if (v != null) {
             val x = barL + (barR - barL) * pos
-            knobInner.color = colorAt(c.coerceIn(minC, maxC))
+            knobInner.color = barColorAt(pos)
             canvas.drawCircle(x, barCy, dp(11f), knobOuter)
             canvas.drawCircle(x, barCy, dp(7f), knobInner)
         }
 
         tick.textSize = sp(11f)
         val y = barCy + dp(30f)
-        val l0 = if (fahrenheit) "32\u00B0F" else "0\u00B0C"
-        val l1 = if (fahrenheit) "68\u00B0F" else "20\u00B0C"
-        val l2 = if (fahrenheit) "104\u00B0F" else "40\u00B0C"
-        tick.textAlign = Paint.Align.LEFT;   canvas.drawText(l0, barL, y, tick)
-        tick.textAlign = Paint.Align.CENTER; canvas.drawText(l1, w / 2f, y, tick)
-        tick.textAlign = Paint.Align.RIGHT;  canvas.drawText(l2, barR, y, tick)
+        tick.textAlign = Paint.Align.LEFT;   canvas.drawText("-20%", barL, y, tick)
+        tick.textAlign = Paint.Align.CENTER; canvas.drawText("-10%", w / 2f, y, tick)
+        tick.textAlign = Paint.Align.RIGHT;  canvas.drawText("0%", barR, y, tick)
     }
 }
 
@@ -465,7 +477,7 @@ class MainActivity : Activity() {
         reads.addView(tempGauge, LinearLayout.LayoutParams(dp(230), dp(230)).apply {
             gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(12)
         })
-        rangeBar = RangeBarView(this, tempGauge::colorAt).apply { setReading(null, useFahrenheit) }
+        rangeBar = RangeBarView(this).apply { setReading(null, useFahrenheit) }
         reads.addView(rangeBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(90)).apply { topMargin = dp(4) })
         reads.add(resultView, 10)
         reads.add(button("Read all values") { Thread { readAll() }.start() }, 14)
