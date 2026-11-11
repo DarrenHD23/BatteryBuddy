@@ -38,6 +38,15 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.app.AlertDialog
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
+import android.view.Gravity
+import android.view.Menu
+import android.view.MenuItem
+import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import java.io.InputStream
@@ -63,6 +72,16 @@ val PRESETS = listOf(
     Preset("Cell V max",       "222137", 0, 2, 1.0,   0.0,   false, "mV"),
     Preset("Cell V min",       "222138", 0, 2, 1.0,   0.0,   false, "mV"),
     Preset("12V battery (unconfirmed)", "222130", 0, 2, 0.001, 0.0, false, "V"),
+)
+
+/** Gradient background themes selectable in Settings. */
+data class AppTheme(val name: String, val top: Int, val bottom: Int)
+
+val THEMES = listOf(
+    AppTheme("Ocean Blue", Color.parseColor("#1E3C72"), Color.parseColor("#2A98D8")),
+    AppTheme("Royal Purple", Color.parseColor("#41295A"), Color.parseColor("#9D50BB")),
+    AppTheme("Rose Pink", Color.parseColor("#C2185B"), Color.parseColor("#FF80AB")),
+    AppTheme("Slate Grey", Color.parseColor("#232526"), Color.parseColor("#6E7B8B")),
 )
 
 /** Byte queue fed by BLE notifications; only read when available() > 0. */
@@ -109,54 +128,187 @@ class MainActivity : Activity() {
     }
 
     // ------------------------------------------------------------------ UI
+    private var themeIndex = 0
+    private lateinit var rootScroll: ScrollView
+    private lateinit var advancedBox: LinearLayout
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    private fun roundedBg(alpha: Int, radiusDp: Int = 16): GradientDrawable = GradientDrawable().apply {
+        setColor(Color.argb(alpha, 255, 255, 255)); cornerRadius = dp(radiusDp).toFloat()
+    }
+
+    private fun LinearLayout.add(v: View, topDp: Int = 8) {
+        addView(v, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            .apply { topMargin = dp(topDp) })
+    }
+
+    private fun card(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        background = roundedBg(40)
+        setPadding(dp(16), dp(16), dp(16), dp(16))
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            .apply { bottomMargin = dp(14) }
+    }
+
+    private fun label(t: String, size: Float = 13f, bold: Boolean = false): TextView = TextView(this).apply {
+        text = t; textSize = size; setTextColor(Color.parseColor("#E6FFFFFF"))
+        if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
+    }
+
+    private fun button(t: String, onClick: () -> Unit): Button = Button(this).apply {
+        text = t; isAllCaps = false; textSize = 15f; setTextColor(Color.WHITE)
+        background = roundedBg(70, 12)
+        setOnClickListener { onClick() }
+    }
+
     private fun field(hint: String, default: String = ""): EditText = EditText(this).apply {
-        this.hint = hint; setText(default); setSingleLine()
+        this.hint = hint; setText(default); setSingleLine(); textSize = 14f
+        setTextColor(Color.WHITE); setHintTextColor(Color.parseColor("#99FFFFFF"))
+        background = roundedBg(30, 10); setPadding(dp(12), dp(10), dp(12), dp(10))
+    }
+
+    private fun whiteAdapter(items: List<String>): ArrayAdapter<String> {
+        val a = object : ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, items) {
+            override fun getView(pos: Int, cv: View?, parent: ViewGroup): View =
+                (super.getView(pos, cv, parent) as TextView).apply { setTextColor(Color.WHITE) }
+            override fun getDropDownView(pos: Int, cv: View?, parent: ViewGroup): View =
+                (super.getDropDownView(pos, cv, parent) as TextView).apply {
+                    setTextColor(Color.BLACK); setPadding(dp(16), dp(12), dp(16), dp(12))
+                }
+        }
+        a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        return a
     }
 
     private fun buildUi() {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(32, 32, 32, 32)
-        }
-        deviceSpinner = Spinner(this)
+        deviceSpinner = Spinner(this).apply { background = roundedBg(30, 10); setPadding(dp(8), dp(10), dp(8), dp(10)) }
         presetSpinner = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, PRESETS.map { it.name })
+            adapter = whiteAdapter(PRESETS.map { it.name })
+            background = roundedBg(30, 10); setPadding(dp(8), dp(10), dp(8), dp(10))
             onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(p: AdapterView<*>?, v: android.view.View?, pos: Int, id: Long) = applyPreset(PRESETS[pos])
+                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) = applyPreset(PRESETS[pos])
                 override fun onNothingSelected(p: AdapterView<*>?) {}
             }
         }
-        protocolField = field("ELM protocol number (6 = CAN 11-bit 500 kbit/s)", "6")
+        protocolField = field("ELM protocol number", "6")
         headerField = field("ECU request ID (hex)", "7E1")
         filterField = field("Response ID filter (optional hex)", "7E9")
         requestField = field("Request (hex), e.g. 22xxxx or 01xx")
-        byteIndexField = field("First data byte index (0 = first byte after DID)", "0")
+        byteIndexField = field("First data byte index", "0")
         byteLenField = field("Number of bytes (1 or 2)", "1")
         scaleField = field("Scale (multiply)", "1")
         offsetField = field("Offset (added after scaling)", "0")
-        signedBox = CheckBox(this).apply { text = "Signed value" }
+        signedBox = CheckBox(this).apply {
+            text = "Signed value"; setTextColor(Color.WHITE); buttonTintList = ColorStateList.valueOf(Color.WHITE)
+        }
+        resultView = TextView(this).apply { textSize = 28f; text = "--"; setTextColor(Color.WHITE); gravity = Gravity.CENTER }
+        logView = TextView(this).apply {
+            textSize = 12f; setTextIsSelectable(true); text = "Log:\n"; setTextColor(Color.parseColor("#E6FFFFFF"))
+        }
+        statusView = TextView(this).apply {
+            textSize = 14f; text = "Status: not connected"; setTextColor(Color.WHITE)
+        }
 
-        val scanBtn = Button(this).apply { text = "Scan BLE for vLinker"; setOnClickListener { scanBle() } }
-        val connectBtn = Button(this).apply { text = "Connect"; setOnClickListener { connect() } }
-        val readBtn = Button(this).apply { text = "Read once"; setOnClickListener { Thread { readOnce() }.start() } }
-        val allBtn = Button(this).apply { text = "Read all values"; setOnClickListener { Thread { readAll() }.start() } }
-        val pollBtn = Button(this).apply { text = "Start / stop polling (1 s)"; setOnClickListener { togglePolling() } }
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(24))
+        }
 
-        resultView = TextView(this).apply { textSize = 28f; text = "--" }
-        logView = TextView(this).apply { textSize = 12f; setTextIsSelectable(true); text = "Log:\n" }
-        statusView = TextView(this).apply { textSize = 14f; setPadding(0, 8, 0, 8); text = "Status: not connected" }
+        val conn = card()
+        conn.add(label("Connection", 18f, true), 0)
+        conn.add(deviceSpinner, 10)
+        conn.add(button("Scan BLE for vLinker") { scanBle() })
+        conn.add(button("Connect") { connect() })
+        conn.add(statusView, 10)
+        root.addView(conn)
 
-        listOf(deviceSpinner, scanBtn, connectBtn, statusView, protocolField, presetSpinner, headerField, filterField, requestField,
-            byteIndexField, byteLenField, scaleField, offsetField, signedBox, readBtn, allBtn, pollBtn, resultView, logView)
-            .forEach { root.addView(it, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT) }
-        setContentView(ScrollView(this).apply { addView(root) })
+        val reads = card()
+        reads.add(label("Battery readings", 18f, true), 0)
+        reads.add(resultView, 14)
+        reads.add(button("Read all values") { Thread { readAll() }.start() }, 14)
+        reads.add(button("Start / stop polling (1 s)") { togglePolling() })
+        root.addView(reads)
+
+        advancedBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
+        fun addField(l: String, f: View) { advancedBox.add(label(l), 12); advancedBox.add(f, 3) }
+        addField("ELM protocol (6 = CAN 11-bit 500 kbit/s)", protocolField)
+        addField("Reading to load", presetSpinner)
+        addField("ECU request ID (hex)", headerField)
+        addField("Response filter (hex)", filterField)
+        addField("Request (hex)", requestField)
+        addField("First data byte index (0 = first byte after the ID)", byteIndexField)
+        addField("Number of bytes", byteLenField)
+        addField("Scale", scaleField)
+        addField("Offset", offsetField)
+        advancedBox.add(signedBox, 10)
+        advancedBox.add(button("Read once") { Thread { readOnce() }.start() }, 10)
+
+        val adv = card()
+        adv.add(button("Advanced settings") {
+            advancedBox.visibility = if (advancedBox.visibility == View.GONE) View.VISIBLE else View.GONE
+        }, 0)
+        adv.add(advancedBox, 0)
+        root.addView(adv)
+
+        val logCard = card()
+        logCard.add(label("Log (press and hold to copy)", 14f, true), 0)
+        logCard.add(logView, 6)
+        root.addView(logCard)
+
+        rootScroll = ScrollView(this).apply { addView(root) }
+        setContentView(rootScroll)
+        applyTheme(getSharedPreferences("prefs", MODE_PRIVATE).getInt("theme", 0).coerceIn(0, THEMES.size - 1))
+    }
+
+    // ------------------------------------------------------- Theme / settings
+    private fun applyTheme(i: Int) {
+        themeIndex = i
+        val t = THEMES[i]
+        rootScroll.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(t.top, t.bottom))
+        window.statusBarColor = t.top
+        window.navigationBarColor = t.bottom
+        actionBar?.setBackgroundDrawable(ColorDrawable(t.top))
+        getSharedPreferences("prefs", MODE_PRIVATE).edit().putInt("theme", i).apply()
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menu.add(0, 1, 0, "Settings").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        if (item.itemId == 1) { showSettings(); return true }
+        return super.onOptionsItemSelected(item)
+    }
+
+    private fun showSettings() {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(8))
+        }
+        box.add(TextView(this).apply { text = "Background colour"; textSize = 14f; setTextColor(Color.DKGRAY) }, 0)
+        lateinit var dialog: AlertDialog
+        THEMES.forEachIndexed { i, t ->
+            val b = Button(this).apply {
+                text = t.name + if (i == themeIndex) "  \u2713" else ""
+                isAllCaps = false; setTextColor(Color.WHITE)
+                background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(t.top, t.bottom))
+                    .apply { cornerRadius = dp(12).toFloat() }
+                setOnClickListener { applyTheme(i); dialog.dismiss() }
+            }
+            box.add(b, 10)
+        }
+        dialog = AlertDialog.Builder(this).setTitle("Settings").setView(box)
+            .setNegativeButton("Close", null).create()
+        dialog.show()
     }
 
     private fun log(s: String) = runOnUiThread { logView.append(s + "\n"); statusView.text = "Status: $s" }
 
     private fun refreshDeviceSpinner() {
         val names = devices.map { "${it.name} (${it.address})" }
-        deviceSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, names)
+        deviceSpinner.adapter = whiteAdapter(names)
     }
 
     // ---------------------------------------------------------- Permissions
