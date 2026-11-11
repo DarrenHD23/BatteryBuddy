@@ -99,6 +99,7 @@ class MainActivity : Activity() {
     private lateinit var resultView: TextView
     private lateinit var logView: TextView
     private lateinit var statusView: TextView
+    private lateinit var protocolField: EditText
     private val devices = mutableListOf<BluetoothDevice>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -125,6 +126,7 @@ class MainActivity : Activity() {
                 override fun onNothingSelected(p: AdapterView<*>?) {}
             }
         }
+        protocolField = field("ELM protocol number (6 = CAN 11-bit 500 kbit/s)", "6")
         headerField = field("ECU request ID (hex)", "7E1")
         filterField = field("Response ID filter (optional hex)", "7E9")
         requestField = field("Request (hex), e.g. 22xxxx or 01xx")
@@ -144,7 +146,7 @@ class MainActivity : Activity() {
         logView = TextView(this).apply { textSize = 12f; setTextIsSelectable(true); text = "Log:\n" }
         statusView = TextView(this).apply { textSize = 14f; setPadding(0, 8, 0, 8); text = "Status: not connected" }
 
-        listOf(deviceSpinner, scanBtn, connectBtn, statusView, presetSpinner, headerField, filterField, requestField,
+        listOf(deviceSpinner, scanBtn, connectBtn, statusView, protocolField, presetSpinner, headerField, filterField, requestField,
             byteIndexField, byteLenField, scaleField, offsetField, signedBox, readBtn, allBtn, pollBtn, resultView, logView)
             .forEach { root.addView(it, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT) }
         setContentView(ScrollView(this).apply { addView(root) })
@@ -209,6 +211,7 @@ class MainActivity : Activity() {
     // ----------------------------------------------------------- Connection
     private fun connect() {
         val dev = devices.getOrNull(deviceSpinner.selectedItemPosition) ?: return log("No device selected.")
+        val proto = protocolField.text.toString().trim().ifEmpty { "6" }
         Thread {
             try {
                 close()
@@ -222,8 +225,8 @@ class MainActivity : Activity() {
                 if (!ok) { log("FAILED: could not connect over Classic or BLE."); return@Thread }
                 log("Connected to $name")
                 // ELM327/STN init: reset, echo off, linefeeds off, spaces off, headers off,
-                // auto-format CAN on, protocol auto
-                for (c in listOf("ATZ", "ATE0", "ATL0", "ATS0", "ATH0", "ATCAF1", "ATSP0")) {
+                // auto-format CAN on, fixed protocol (no slow auto-search), 1 s ECU timeout
+                for (c in listOf("ATZ", "ATE0", "ATL0", "ATS0", "ATH0", "ATCAF1", "ATSP$proto", "ATSTFF")) {
                     log("> $c  <  ${send(c)}")
                 }
                 log("Adapter ready.")
@@ -335,7 +338,7 @@ class MainActivity : Activity() {
         while (inp.available() > 0) inp.read()          // flush stale bytes
         out.write((cmd + "\r").toByteArray()); out.flush()
         val sb = StringBuilder()
-        val deadline = System.currentTimeMillis() + (if (cmd.startsWith("ATZ")) 5000 else 3000)
+        val deadline = System.currentTimeMillis() + (if (cmd.startsWith("ATZ")) 5000 else if (cmd.startsWith("AT")) 3000 else 8000)
         while (System.currentTimeMillis() < deadline) {
             if (inp.available() > 0) {
                 val ch = inp.read().toChar()
@@ -410,7 +413,7 @@ class MainActivity : Activity() {
      * Handles ELM327 multi-line ISO-TP output ("014", "0:...", "1:...").
      */
     private fun extractPayload(raw: String, req: String): List<Int>? {
-        val lines = raw.split("\n").map { it.replace(" ", "").uppercase() }.filter { it.isNotEmpty() }
+        val lines = raw.split("\n").map { it.replace(" ", "").uppercase() }.filter { it.isNotEmpty() && !it.contains("SEARCHING") && !it.contains("BUSINIT") }
         if (lines.any { it.contains("NODATA") || it.contains("ERROR") || it.contains("UNABLE") }) return null
 
         val hex = if (lines.any { Regex("^[0-9A-F]:").containsMatchIn(it) }) {
