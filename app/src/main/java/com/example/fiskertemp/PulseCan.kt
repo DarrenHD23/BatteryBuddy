@@ -31,6 +31,9 @@ data class CanSnapshot(
     val sohPct: Int? = null,           // % (0x2F5, byte 5)
     val packVolts: Double? = null,     // V (0xE9 on IBUS2, bytes 6-7)  needs the chip filters opened
     val packAmps: Double? = null,      // A (0xE9 on IBUS2, bytes 4-5, signed)
+    val climateKw: Double? = null,     // total power the climate system draws, kW (0x1A9 on IBUS2, bytes 2-3)
+    val compState: Int? = null,        // heat-pump compressor: 0 standby, 1 working, 2 fault (0x491 on IBUS2, byte 2)
+    val compWatts: Double? = null,     // heat-pump compressor power, W (0x491 on IBUS2, bytes 6-7)
 )
 
 class PulseCan(
@@ -94,7 +97,7 @@ class PulseCan(
             val startedAt = System.currentTimeMillis()
             try {
                 // receive only: no "tx:" arguments
-                val args = listOf(bin, "$b1=382,2F5", "$b2=0E9")
+                val args = listOf(bin, "$b1=382,2F5", "$b2=0E9,1A9,491")
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
@@ -179,6 +182,14 @@ class PulseCan(
             val cur = if (rawCur >= 0x8000) rawCur - 0x10000 else rawCur
             val volts = ((b[6] shl 8) or b[7]) * 0.01
             return s.copy(packAmps = cur * 0.05, packVolts = volts)
+        }
+        // 0x1A9 ECC_0x1A9 (IBUS2, 100 ms): power requested by the climate system's HV parts, 0.01 kW
+        if (bus == 2 && id == 0x1A9) {
+            return s.copy(climateKw = ((b[2] shl 8) or b[3]) * 0.01)
+        }
+        // 0x491 EAS_0x491 (IBUS2, 100 ms): the A/C (heat pump) compressor. Power 0.2 W per bit
+        if (bus == 2 && id == 0x491) {
+            return s.copy(compState = (b[2] shr 5) and 3, compWatts = ((b[6] shl 8) or b[7]) * 0.2)
         }
         return null
     }
