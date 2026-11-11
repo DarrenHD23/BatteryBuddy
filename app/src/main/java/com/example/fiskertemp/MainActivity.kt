@@ -44,7 +44,9 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.util.TypedValue
 import android.graphics.RectF
 import android.graphics.SweepGradient
 import android.graphics.Typeface
@@ -136,7 +138,7 @@ class TempGaugeView(ctx: Context) : View(ctx) {
         return fillPts.last().first
     }
 
-    private fun colorAt(c: Double): Int {
+    fun colorAt(c: Double): Int {
         if (c <= colorPts.first().first) return colorPts.first().second
         if (c >= colorPts.last().first) return colorPts.last().second
         for (i in 0 until colorPts.size - 1) {
@@ -199,6 +201,102 @@ class TempGaugeView(ctx: Context) : View(ctx) {
     }
 }
 
+/**
+ * Horizontal gradient bar (blue at 0 C -> red at 40 C) with a marker at the current battery
+ * temperature and an estimated range impact. The impact numbers are rough estimates:
+ * given points are 0 C -20%, 10 C -10%, 20-25 C 0%, 30 C -2%, 40 C -12%; everything in
+ * between is a straight line and values outside 0-40 C are extended at about 1% per degree.
+ */
+class RangeBarView(ctx: Context, private val colorAt: (Double) -> Int) : View(ctx) {
+    private val impactPts = listOf(-20.0 to -40.0, -10.0 to -30.0, 0.0 to -20.0, 10.0 to -10.0,
+        20.0 to 0.0, 25.0 to 0.0, 30.0 to -2.0, 40.0 to -12.0, 50.0 to -22.0)
+    private val minC = 0.0
+    private val maxC = 40.0
+
+    private var celsius: Double? = null
+    private var fahrenheit = false
+    private var pos = 0f
+    private var anim: ValueAnimator? = null
+    private var shader: LinearGradient? = null
+
+    private val bar = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val knobOuter = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+    private val knobInner = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val title = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE; textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD
+    }
+    private val tick = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(220, 255, 255, 255) }
+    private val rect = RectF()
+
+    private fun dp(v: Float) = v * resources.displayMetrics.density
+    private fun sp(v: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, v, resources.displayMetrics)
+
+    fun impactFor(c: Double): Double {
+        if (c <= impactPts.first().first) return impactPts.first().second
+        if (c >= impactPts.last().first) return impactPts.last().second
+        for (i in 0 until impactPts.size - 1) {
+            val (t0, v0) = impactPts[i]; val (t1, v1) = impactPts[i + 1]
+            if (c <= t1) return v0 + (v1 - v0) * (c - t0) / (t1 - t0)
+        }
+        return impactPts.last().second
+    }
+
+    /** Pass null for "no reading". */
+    fun setReading(c: Double?, useF: Boolean) {
+        celsius = c; fahrenheit = useF
+        val target = if (c == null) 0f else ((c - minC) / (maxC - minC)).coerceIn(0.0, 1.0).toFloat()
+        anim?.cancel()
+        anim = ValueAnimator.ofFloat(pos, target).apply {
+            duration = 500
+            addUpdateListener { pos = it.animatedValue as Float; invalidate() }
+            start()
+        }
+        invalidate()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        val n = 41
+        val colors = IntArray(n) { colorAt(minC + (maxC - minC) * it / (n - 1)) }
+        val p = FloatArray(n) { it / (n - 1).toFloat() }
+        val pad = dp(18f)
+        shader = LinearGradient(pad, 0f, w - pad, 0f, colors, p, android.graphics.Shader.TileMode.CLAMP)
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val w = width.toFloat()
+        val barL = dp(18f); val barR = w - dp(18f)
+        val barH = dp(10f); val barCy = dp(52f)
+        val c = celsius
+
+        val impactTxt = if (c == null) "--" else {
+            val v = Math.round(impactFor(c)).toInt()
+            if (v == 0) "0%" else if (v > 0) "+$v%" else "-${-v}%"
+        }
+        title.textSize = sp(14f)
+        canvas.drawText("Estimated range impact: $impactTxt", w / 2f, dp(22f), title)
+
+        bar.shader = shader
+        rect.set(barL, barCy - barH / 2f, barR, barCy + barH / 2f)
+        canvas.drawRoundRect(rect, barH / 2f, barH / 2f, bar)
+
+        if (c != null) {
+            val x = barL + (barR - barL) * pos
+            knobInner.color = colorAt(c.coerceIn(minC, maxC))
+            canvas.drawCircle(x, barCy, dp(11f), knobOuter)
+            canvas.drawCircle(x, barCy, dp(7f), knobInner)
+        }
+
+        tick.textSize = sp(11f)
+        val y = barCy + dp(30f)
+        val l0 = if (fahrenheit) "32\u00B0F" else "0\u00B0C"
+        val l1 = if (fahrenheit) "68\u00B0F" else "20\u00B0C"
+        val l2 = if (fahrenheit) "104\u00B0F" else "40\u00B0C"
+        tick.textAlign = Paint.Align.LEFT;   canvas.drawText(l0, barL, y, tick)
+        tick.textAlign = Paint.Align.CENTER; canvas.drawText(l1, w / 2f, y, tick)
+        tick.textAlign = Paint.Align.RIGHT;  canvas.drawText(l2, barR, y, tick)
+    }
+}
+
 /** Byte queue fed by BLE notifications; only read when available() > 0. */
 private class QueueInputStream : InputStream() {
     private val q = ConcurrentLinkedQueue<Int>()
@@ -235,6 +333,7 @@ class MainActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var dotView: View
     private lateinit var tempGauge: TempGaugeView
+    private lateinit var rangeBar: RangeBarView
     private var lastTempC: Double? = null
     @Volatile private var connected = false
     private lateinit var protocolField: EditText
@@ -366,6 +465,8 @@ class MainActivity : Activity() {
         reads.addView(tempGauge, LinearLayout.LayoutParams(dp(230), dp(230)).apply {
             gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(12)
         })
+        rangeBar = RangeBarView(this, tempGauge::colorAt).apply { setReading(null, useFahrenheit) }
+        reads.addView(rangeBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(90)).apply { topMargin = dp(4) })
         reads.add(resultView, 10)
         reads.add(button("Read all values") { Thread { readAll() }.start() }, 14)
         reads.add(button("Start / stop polling (1 s)") { togglePolling() })
@@ -702,10 +803,15 @@ class MainActivity : Activity() {
         if (unit == "\u00B0C" && useFahrenheit) String.format("%.${decimals}f \u00B0F", v * 9.0 / 5.0 + 32.0)
         else String.format("%.${decimals}f %s", v, unit)
 
+    private fun showTemp(c: Double?, f: Boolean) {
+        tempGauge.setReading(c, f)
+        rangeBar.setReading(c, f)
+    }
+
     private fun setFahrenheit(on: Boolean) {
         useFahrenheit = on
         getSharedPreferences("prefs", MODE_PRIVATE).edit().putBoolean("fahrenheit", on).apply()
-        tempGauge.setReading(lastTempC, on)
+        showTemp(lastTempC, on)
         renderLast?.let { runOnUiThread { it() } }      // refresh what is already on screen
     }
 
@@ -719,7 +825,7 @@ class MainActivity : Activity() {
         val isTemp = PRESETS.getOrNull(presetSpinner.selectedItemPosition)?.name == "Battery temp"
         if (isTemp) {
             lastTempC = v
-            runOnUiThread { tempGauge.setReading(v, useFahrenheit) }
+            runOnUiThread { showTemp(v, useFahrenheit) }
         } else if (v != null) {
             renderLast = { resultView.textSize = 28f; resultView.text = fmt(v, unit, 1) }
             runOnUiThread { renderLast?.invoke() }
@@ -741,7 +847,7 @@ class MainActivity : Activity() {
         }
         renderLast = { resultView.text = rows.joinToString("\n") { it() }; resultView.textSize = 16f }
         lastTempC = tempC
-        runOnUiThread { tempGauge.setReading(tempC, useFahrenheit); renderLast?.invoke() }
+        runOnUiThread { showTemp(tempC, useFahrenheit); renderLast?.invoke() }
     }
 
     /** One read-only request. Returns the decoded value, or null on failure. */
