@@ -13,7 +13,8 @@
 
     <application
         android:allowBackup="false"
-        android:label="Fisker Battery"
+        android:icon="@mipmap/ic_launcher"
+        android:label="Fisker Battery Buddy"
         android:theme="@android:style/Theme.Material.Light.DarkActionBar">
         <activity
             android:name=".MainActivity"
