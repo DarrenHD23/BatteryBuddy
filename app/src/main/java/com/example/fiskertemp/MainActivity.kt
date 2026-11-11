@@ -660,7 +660,24 @@ class MainActivity : Activity() {
             "Pack voltage: ${s.packVolts?.let { String.format("%.1f V", it) } ?: "--"}",
             "Pack current: ${s.packAmps?.let { String.format("%.1f A", it) } ?: "--"}",
             "Thermal management: $demand",
+            heatLine(s),
         ).joinToString("\n")
+    }
+
+    private fun heatLine(s: CanSnapshot): String {
+        val comp = s.compWatts
+        val pump = when {
+            comp == null -> "heat pump: --"
+            s.compState == 2 -> "heat pump: FAULT"
+            comp > 20 -> String.format("heat pump ON %.2f kW", comp / 1000)
+            else -> "heat pump off"
+        }
+        val total = s.climateKw?.let { String.format("%.2f kW", it) } ?: "--"
+        val other = if (s.climateKw != null && comp != null) {
+            val k = maxOf(0.0, s.climateKw - comp / 1000)
+            String.format("%.2f kW", k) + if (k >= 0.3) " (likely PTC heater)" else ""
+        } else "--"
+        return "Climate total: $total\n$pump\nOther climate load: $other"
     }
 
     private fun applySource(pulseMode: Boolean) {
