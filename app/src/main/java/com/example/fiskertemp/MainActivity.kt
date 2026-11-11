@@ -123,6 +123,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        useFahrenheit = getSharedPreferences("prefs", MODE_PRIVATE).getBoolean("fahrenheit", false)
         buildUi()
         ensurePermissions()
     }
@@ -299,6 +300,12 @@ class MainActivity : Activity() {
             }
             box.add(b, 10)
         }
+        box.add(TextView(this).apply { text = "Temperature unit"; textSize = 14f; setTextColor(Color.DKGRAY) }, 20)
+        val rc = RadioButton(this).apply { text = "Celsius (\u00B0C)"; id = View.generateViewId(); isChecked = !useFahrenheit }
+        val rf = RadioButton(this).apply { text = "Fahrenheit (\u00B0F)"; id = View.generateViewId(); isChecked = useFahrenheit }
+        val rg = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL; addView(rc); addView(rf) }
+        rg.setOnCheckedChangeListener { _, checkedId -> setFahrenheit(checkedId == rf.id) }
+        box.add(rg, 6)
         dialog = AlertDialog.Builder(this).setTitle("Settings").setView(box)
             .setNegativeButton("Close", null).create()
         dialog.show()
@@ -508,6 +515,20 @@ class MainActivity : Activity() {
         offsetField.setText(p.offset.toString()); signedBox.isChecked = p.signed
     }
 
+    // Temperatures are decoded in °C; this converts for display only.
+    private var useFahrenheit = false
+    private var renderLast: (() -> Unit)? = null
+
+    private fun fmt(v: Double, unit: String, decimals: Int): String =
+        if (unit == "\u00B0C" && useFahrenheit) String.format("%.${decimals}f \u00B0F", v * 9.0 / 5.0 + 32.0)
+        else String.format("%.${decimals}f %s", v, unit)
+
+    private fun setFahrenheit(on: Boolean) {
+        useFahrenheit = on
+        getSharedPreferences("prefs", MODE_PRIVATE).edit().putBoolean("fahrenheit", on).apply()
+        renderLast?.let { runOnUiThread { it() } }      // refresh what is already on screen
+    }
+
     private fun readOnce() {
         val unit = PRESETS.getOrNull(presetSpinner.selectedItemPosition)?.unit ?: ""
         val v = readValue(headerField.text.toString().trim(), filterField.text.toString().trim(),
@@ -515,21 +536,25 @@ class MainActivity : Activity() {
             byteIndexField.text.toString().toIntOrNull() ?: 0, byteLenField.text.toString().toIntOrNull() ?: 1,
             scaleField.text.toString().toDoubleOrNull() ?: 1.0, offsetField.text.toString().toDoubleOrNull() ?: 0.0,
             signedBox.isChecked)
-        if (v != null) runOnUiThread { resultView.textSize = 28f; resultView.text = String.format("%.1f %s", v, unit) }
+        if (v != null) {
+            renderLast = { resultView.textSize = 28f; resultView.text = fmt(v, unit, 1) }
+            runOnUiThread { renderLast?.invoke() }
+        }
     }
 
     private fun readAll() {
         val header = headerField.text.toString().trim(); val filter = filterField.text.toString().trim()
-        val lines = mutableListOf<String>()
+        val rows = mutableListOf<() -> String>()
         for (p in PRESETS) {
             val v = readValue(header, filter, p.request, p.byteIndex, p.byteLen, p.scale, p.offset, p.signed)
-            if (v != null) lines += String.format("%s: %.2f %s", p.name, v, p.unit)
+            if (v != null) rows += { p.name + ": " + fmt(v, p.unit, 2) }
             else if (p.name.startsWith("12V")) {
-                // Fallback: adapter's own supply voltage on OBD pin 16 (~±0.2 V)
-                try { lines += "12V (ATRV fallback): " + send("ATRV") } catch (e: Exception) { log("ATRV failed") }
-            } else lines += "${p.name}: no data"
+                // Fallback: adapter's own supply voltage on OBD pin 16 (~\u00B10.2 V)
+                try { val t = send("ATRV"); rows += { "12V (ATRV fallback): $t" } } catch (e: Exception) { log("ATRV failed") }
+            } else rows += { "${p.name}: no data" }
         }
-        runOnUiThread { resultView.text = lines.joinToString("\n"); resultView.textSize = 16f }
+        renderLast = { resultView.text = rows.joinToString("\n") { it() }; resultView.textSize = 16f }
+        runOnUiThread { renderLast?.invoke() }
     }
 
     /** One read-only request. Returns the decoded value, or null on failure. */
