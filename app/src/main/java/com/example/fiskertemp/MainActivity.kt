@@ -123,6 +123,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        title = "Fisker Battery Buddy"
         useFahrenheit = getSharedPreferences("prefs", MODE_PRIVATE).getBoolean("fahrenheit", false)
         buildUi()
         ensurePermissions()
@@ -288,7 +289,16 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(8), dp(20), dp(8))
         }
-        box.add(TextView(this).apply { text = "Background colour"; textSize = 14f; setTextColor(Color.DKGRAY) }, 0)
+        // --- Temperature unit (first, so it is always visible)
+        box.add(TextView(this).apply { text = "Temperature unit"; textSize = 14f; setTextColor(Color.DKGRAY) }, 0)
+        val rc = RadioButton(this).apply { text = "Celsius (\u00B0C)"; id = View.generateViewId(); isChecked = !useFahrenheit }
+        val rf = RadioButton(this).apply { text = "Fahrenheit (\u00B0F)"; id = View.generateViewId(); isChecked = useFahrenheit }
+        val rg = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL; addView(rc); addView(rf) }
+        rg.setOnCheckedChangeListener { _, checkedId -> setFahrenheit(checkedId == rf.id) }
+        box.add(rg, 6)
+
+        // --- Background colour
+        box.add(TextView(this).apply { text = "Background colour"; textSize = 14f; setTextColor(Color.DKGRAY) }, 20)
         lateinit var dialog: AlertDialog
         THEMES.forEachIndexed { i, t ->
             val b = Button(this).apply {
@@ -300,13 +310,9 @@ class MainActivity : Activity() {
             }
             box.add(b, 10)
         }
-        box.add(TextView(this).apply { text = "Temperature unit"; textSize = 14f; setTextColor(Color.DKGRAY) }, 20)
-        val rc = RadioButton(this).apply { text = "Celsius (\u00B0C)"; id = View.generateViewId(); isChecked = !useFahrenheit }
-        val rf = RadioButton(this).apply { text = "Fahrenheit (\u00B0F)"; id = View.generateViewId(); isChecked = useFahrenheit }
-        val rg = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL; addView(rc); addView(rf) }
-        rg.setOnCheckedChangeListener { _, checkedId -> setFahrenheit(checkedId == rf.id) }
-        box.add(rg, 6)
-        dialog = AlertDialog.Builder(this).setTitle("Settings").setView(box)
+        // ScrollView so nothing is cut off on small screens
+        val scroller = ScrollView(this).apply { addView(box) }
+        dialog = AlertDialog.Builder(this).setTitle("Settings").setView(scroller)
             .setNegativeButton("Close", null).create()
         dialog.show()
     }
