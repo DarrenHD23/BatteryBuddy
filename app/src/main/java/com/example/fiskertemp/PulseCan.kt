@@ -31,6 +31,8 @@ data class CanSnapshot(
     val sohPct: Int? = null,           // % (0x2F5, byte 5)
     val packVolts: Double? = null,     // V (0xE9 on IBUS2, bytes 6-7)  needs the chip filters opened
     val packAmps: Double? = null,      // A (0xE9 on IBUS2, bytes 4-5, signed)
+    val limit: Int? = null,            // road speed limit the car knows, in limitMph units (0x311 on IBUS2, byte 6); null = none
+    val limitMph: Boolean = false,     // true if that limit is in mph, false for km/h (0x311 byte 3 bit 6)
     val hold: Boolean? = null,         // auto hold is holding the car (0x332 on IBUS2, byte 2 bit 2)
     val ready: Boolean? = null,        // READY lamp: ready to drive (0x234 on IBUS1, byte 1 bit 4)
     val capKwh: Double? = null,        // energy left in the HV battery, kWh (0x580 on IBUS2, bytes 6-7, 0.01)
@@ -162,7 +164,7 @@ class PulseCan(
                 // receive only: no "tx:" arguments
                 val why = openFilters()
                 onStatus(if (why == null) "CAN filters opened for climate frames" else "CAN filters not changed: $why")
-                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD", "$b2=0E9,1A9,491,210,351,504,580,582,332")
+                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD", "$b2=0E9,1A9,491,210,351,504,580,582,332,311")
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
@@ -288,6 +290,11 @@ class PulseCan(
             fun map(v: Int): Int? = when (v) { 1, 4, 5, 7 -> 1; 2, 6 -> 2; 3 -> 3; else -> null }
             val col = if (c in 1..7) map(c) else map(sh.takeIf { it in 1..3 } ?: 0)
             return s.copy(lightColor = col)
+        }
+        // 0x311 ADAS_0x311 (IBUS2, 20 ms): ADAS_TSRSpeedLimit (byte 6; 0 and 255 mean none) and ADAS_SpeedLimitUnit (0 km/h, 1 mph)
+        if (bus == 2 && id == 0x311) {
+            val lim = b[6]
+            return s.copy(limit = if (lim in 1..254) lim else null, limitMph = ((b[3] shr 6) and 1) == 1)
         }
         // 0x332 ESP_0x332 (IBUS2, 50 ms): ESP_ActvIndcn_AVH, auto vehicle hold active (1 = holding the car)
         if (bus == 2 && id == 0x332) {
