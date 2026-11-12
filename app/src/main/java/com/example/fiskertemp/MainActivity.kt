@@ -646,10 +646,6 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("dashDefault", on).apply() }
         }, 4)
         box.add(CheckBox(this).apply {
-            text = "Show debug line on the dashboard"; isChecked = prefs().getBoolean("debug", true)
-            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("debug", on).apply() }
-        }, 0)
-        box.add(CheckBox(this).apply {
             text = "Flip power direction (if drive shows as negative)"; isChecked = prefs().getBoolean("flipPower", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("flipPower", on).apply() }
         }, 0)
@@ -756,22 +752,26 @@ class MainActivity : Activity() {
     private var signSeenAt = 0L
     private var signText = ""
     private var introDone = false
-    private lateinit var dashDebug: TextView
-    private var dbgMinA = 0.0
-    private var dbgMaxA = 0.0
     private var dashDay = false
     private var dayPending = false
     private var dayPendingSince = 0L
     private lateinit var dashRow: StatusStripView
     private lateinit var dashGaugeRow: LinearLayout
     private lateinit var lowerTabs: LinearLayout
-    private val lowerNames = listOf("Maps", "Spotify")
-    private val lowerPkgs = listOf("com.google.android.apps.maps", "com.spotify.music")
+    private lateinit var lowerBox: LinearLayout
+    private lateinit var resBtn: TextView
+    private var screenH = 0       // 1920 or 1784 once known
+    private var pulsePkg: String? = null
+    private val lowerNames = listOf("Maps", "Spotify", "Pulse")
+    private val lowerPkgs = listOf("com.google.android.apps.maps", "com.spotify.music", "")
     private var lowerIdx = 0
     private val swipe by lazy {
         android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
             override fun onFling(e1: android.view.MotionEvent?, e2: android.view.MotionEvent, vx: Float, vy: Float): Boolean {
                 if (e1 == null) return false
+                val rowLoc = IntArray(2)
+                dashRow.getLocationOnScreen(rowLoc)
+                if (e1.rawY >= rowLoc[1]) return false      // started on the readouts at the bottom
                 val dx = e2.x - e1.x
                 val dy = e2.y - e1.y
                 val d = resources.displayMetrics.density
@@ -785,7 +785,7 @@ class MainActivity : Activity() {
     }
 
     override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
-        if (dashShown) swipe.onTouchEvent(ev)      // only watches: touches still reach the buttons
+        if (dashShown && !StatusStripView.dragging) swipe.onTouchEvent(ev)      // only watches: touches still reach the buttons
         return super.dispatchTouchEvent(ev)
     }
     private var layoutMode = -1
@@ -823,7 +823,7 @@ class MainActivity : Activity() {
         dashPowerGauge = ArcGaugeView(this, false, 0.2f) { t -> grad(t) }
             .apply { topLabel = "CLIMATE"; title = "POWER"; unit = "kW"; bottomLabel = "CHARGE" }
         dashSpeedGauge = ArcGaugeView(this, true, 0f) { t -> grad(t) }
-            .apply { topLabel = "BATTERY TEMP"; title = "SPEED"; unit = "km/h"; bottomLabel = "BATTERY" }
+            .apply { topLabel = "BATTERY TEMP"; title = "SPEED"; unit = "km/h"; bottomLabel = "BATTERY HEATING/COOLING" }
         val light = Typeface.create("sans-serif-light", Typeface.NORMAL)
         dashSign = SpeedSignView(this).apply { alpha = 0f }
         dashLight = TrafficLightView(this).apply { alpha = 0f }
@@ -832,7 +832,9 @@ class MainActivity : Activity() {
         }
         dashRow = StatusStripView(this).apply {
             plain = true
-            setOnLongClickListener { pulse?.resetDrive(); Toast.makeText(context, "Regen counter reset", Toast.LENGTH_SHORT).show(); true }
+            setOrder(prefs().getString("rowOrder", "")!!.split("|").filter { it.isNotEmpty() })
+            onOrder = { prefs().edit().putString("rowOrder", it.joinToString("|")).apply() }
+            onDoubleTap = { t -> if (t == "Regen") { pulse?.resetDrive(); Toast.makeText(context, "Regen counter reset", Toast.LENGTH_SHORT).show() } }
         }
         dashHeading = TextView(this).apply {
             textSize = 20f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif-light", Typeface.ITALIC); gravity = Gravity.CENTER
@@ -844,13 +846,10 @@ class MainActivity : Activity() {
             background = GradientDrawable().apply { setColor(Color.parseColor("#E53935")); cornerRadius = dp(16).toFloat() }
         }
         dashMode = TextView(this).apply {
-            textSize = 18f; setTextColor(Color.WHITE); gravity = Gravity.CENTER; visibility = View.INVISIBLE; text = "EARTH"
-            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD_ITALIC); letterSpacing = 0.12f
-            setPadding(dp(16), dp(6), dp(16), dp(6))
-        }
-        dashDebug = TextView(this).apply {
-            textSize = 11f; setTextColor(Color.argb(150, 160, 160, 170)); gravity = Gravity.CENTER
-            setOnLongClickListener { dbgMinA = 0.0; dbgMaxA = 0.0; true }
+            textSize = 14f; setTextColor(Color.WHITE); gravity = Gravity.CENTER; visibility = View.INVISIBLE; text = "EARTH"
+            typeface = Typeface.create("sans-serif", Typeface.NORMAL); letterSpacing = 0.12f
+            minWidth = dp(120)
+            setPadding(dp(16), dp(5), dp(16), dp(5))
         }
         val mid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
@@ -859,7 +858,6 @@ class MainActivity : Activity() {
             addView(dashBrake, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
             addView(dashHeading, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
             addView(dashSign, LinearLayout.LayoutParams(dp(64), dp(64)).apply { topMargin = dp(8) })
-            addView(dashDebug, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         }
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -869,9 +867,18 @@ class MainActivity : Activity() {
         }
         dashGaugeRow = row
         f.addView(row, FrameLayout.LayoutParams(-1, -1).apply { setMargins(dp(8), dp(8), dp(8), dp(114)) })
-        dashStrip = StatusStripView(this)
+        dashStrip = StatusStripView(this).apply {
+            setOrder(prefs().getString("stripOrder", "")!!.split("|").filter { it.isNotEmpty() })
+            onOrder = { prefs().edit().putString("stripOrder", it.joinToString("|")).apply() }
+        }
         f.addView(dashRow, FrameLayout.LayoutParams(-1, dp(46), Gravity.BOTTOM).apply { setMargins(dp(170), 0, dp(130), dp(76)) })
         f.addView(dashStrip, FrameLayout.LayoutParams(-1, dp(62), Gravity.BOTTOM).apply { setMargins(dp(170), 0, dp(130), dp(8)) })
+        resBtn = TextView(this).apply {
+            text = "Screen"; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+            setPadding(dp(12), dp(3), dp(12), dp(3))
+            background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(12).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
+            setOnClickListener { toggleScreenSize() }
+        }
         lowerTabs = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(18).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
@@ -879,16 +886,21 @@ class MainActivity : Activity() {
             lowerNames.forEachIndexed { i, name ->
                 addView(TextView(context).apply {
                     text = name; textSize = 14f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
-                    setPadding(dp(14), dp(5), dp(14), dp(5))
+                    setPadding(dp(11), dp(5), dp(11), dp(5))
                     setOnClickListener { openLower(i) }
                 })
             }
         }
         lowerIdx = prefs().getInt("lowerApp", 0).coerceIn(0, lowerNames.size - 1)
         paintLowerTabs()
-        f.addView(lowerTabs, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(10), dp(12), 0) })
+        lowerBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(resBtn, LinearLayout.LayoutParams(-2, -2))
+            addView(lowerTabs, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) })
+        }
+        f.addView(lowerBox, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(10), 0, 0, dp(190)) })
         f.addOnLayoutChangeListener { v, _, top, _, bottom, _, _, _, _ -> adaptDashLayout((v.width / resources.displayMetrics.density).toInt(), ((bottom - top) / resources.displayMetrics.density).toInt()) }
-        f.addView(dashMode, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { setMargins(dp(12), dp(12), 0, 0) })
+        f.addView(dashMode, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(10), dp(12), 0) })
         return f
     }
 
@@ -942,11 +954,14 @@ class MainActivity : Activity() {
         val rowH = if (short) 38 else 46
         val stripBottom = if (narrow) 64 else 8        // on a narrow screen the strip sits above the buttons
         val rowBottom = stripBottom + stripH + 4
-        val gaugeBottom = rowBottom + rowH + 6
+        val lowerBottom = rowBottom + rowH + 4          // the screen-size button and Maps/Spotify/Pulse sit above the info row
+        val gaugeBottom = lowerBottom + 74
         val sideL = if (narrow) 8 else 170
         val sideR = if (narrow) 8 else 130
         (dashStrip.layoutParams as FrameLayout.LayoutParams).apply { height = dp(stripH); setMargins(dp(sideL), 0, dp(sideR), dp(stripBottom)) }
         (dashRow.layoutParams as FrameLayout.LayoutParams).apply { height = dp(rowH); setMargins(dp(sideL), 0, dp(sideR), dp(rowBottom)) }
+        (lowerBox.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(10), 0, 0, dp(lowerBottom)) }
+        lowerBox.requestLayout()
         (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), dp(if (short) 4 else 8), dp(8), dp(gaugeBottom)) }
         (dashLight.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (short) 30 else 42); height = dp(if (short) 64 else 88) }
         (dashSign.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (short) 48 else 64); height = dp(if (short) 48 else 64) }
@@ -960,14 +975,68 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Open app number [i] (0 Maps, 1 Spotify) in the other half of the screen. Needs this app to already be in split screen. */
-    private fun openLower(i: Int) {
-        if (!isInMultiWindowMode) {
-            Toast.makeText(this, "Put this app in split screen first (top part), then pick Maps or Spotify", Toast.LENGTH_LONG).show()
-            return
+    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+
+    /** Run a command as root; returns what it printed ("" if there is no root or it failed). */
+    private fun rootRun(cmd: String): String = try {
+        val p = ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start()
+        val out = p.inputStream.bufferedReader().readText()
+        if (!p.waitFor(8, java.util.concurrent.TimeUnit.SECONDS)) { p.destroy(); "" } else out
+    } catch (e: Exception) { "" }
+
+    private fun findPulse(): String? {
+        pulsePkg?.let { return it }
+        val pm = packageManager
+        val main = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        for (ri in pm.queryIntentActivities(main, 0)) {
+            val label = ri.loadLabel(pm).toString().lowercase()
+            val pkg = ri.activityInfo.packageName
+            if (pkg != packageName && (label.contains("pulse") || label.contains("oceanlink"))) { pulsePkg = pkg; return pkg }
         }
+        return null
+    }
+
+    /** Turn on the helper that can put this app into split screen (needs root once, to enable it). */
+    private fun ensureSplitService(): Boolean {
+        if (SplitService.instance != null) return true
+        val me = "$packageName/${SplitService::class.java.name}"
+        val cur = rootRun("settings get secure enabled_accessibility_services").trim()
+        val others = if (cur.isEmpty() || cur == "null") emptyList() else cur.split(":").filter { it.isNotEmpty() && it != me }
+        rootRun("settings put secure enabled_accessibility_services ${others.joinToString(":").ifEmpty { "null" }}")
+        Thread.sleep(300)
+        rootRun("settings put secure enabled_accessibility_services ${(others + me).joinToString(":")}; settings put secure accessibility_enabled 1")
+        repeat(25) { if (SplitService.instance != null) return true; Thread.sleep(150) }
+        return SplitService.instance != null
+    }
+
+    /** Open app number [i] (0 Maps, 1 Spotify, 2 Pulse) in the lower half. If this app is not in split screen yet, put it there first. */
+    private fun openLower(i: Int) {
+        if (isInMultiWindowMode) { launchLower(i); return }
+        Toast.makeText(this, "Switching to split screen\u2026", Toast.LENGTH_SHORT).show()
+        Thread {
+            val ok = ensureSplitService()
+            ui.post {
+                if (!ok) {
+                    toast("Could not start split screen automatically. Use the Pulse's split-screen controls (this app on top), then tap again.")
+                } else {
+                    SplitService.instance?.splitScreen()
+                    waitForSplit(i, 0)
+                }
+            }
+        }.start()
+    }
+
+    private fun waitForSplit(i: Int, tries: Int) {
+        if (isInMultiWindowMode) { ui.postDelayed({ launchLower(i) }, 500); return }
+        if (tries >= 25) { toast("Split screen did not start. Use the Pulse's split-screen controls, then tap again."); return }
+        ui.postDelayed({ waitForSplit(i, tries + 1) }, 200)
+    }
+
+    private fun launchLower(i: Int) {
+        val pkg = if (i == 2) findPulse() else lowerPkgs[i]
+        if (pkg == null) { toast("The Pulse app was not found on this device"); return }
         val flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT
-        val tries = mutableListOf(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(lowerPkgs[i]))
+        val tries = mutableListOf(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(pkg))
         if (i == 0) tries.add(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=")))
         for (t in tries) {
             try {
@@ -978,7 +1047,26 @@ class MainActivity : Activity() {
                 return
             } catch (e: Exception) { /* try the next one */ }
         }
-        Toast.makeText(this, "${lowerNames[i]} was not found on this device", Toast.LENGTH_LONG).show()
+        toast("${lowerNames[i]} was not found on this device")
+    }
+
+    /** Read the screen size (wm size) and show it on the button. */
+    private fun refreshScreenSize() {
+        Thread {
+            val out = rootRun("wm size")
+            val m = Regex("Override size: *(\\d+)x(\\d+)").find(out) ?: Regex("Physical size: *(\\d+)x(\\d+)").find(out)
+            val h = m?.groupValues?.get(2)?.toIntOrNull() ?: 0
+            runOnUiThread { screenH = h; resBtn.text = if (h == 0) "Screen size" else "Screen: 1080 \u00D7 $h  \u21C5" }
+        }.start()
+    }
+
+    /** Switch between the full 1080x1920 and the 1080x1784 screen. */
+    private fun toggleScreenSize() {
+        val target = if (screenH == 1784) 1920 else 1784
+        Thread {
+            rootRun("wm size 1080x$target")
+            refreshScreenSize()
+        }.start()
     }
 
     private fun showDashboard(on: Boolean) {
@@ -993,6 +1081,7 @@ class MainActivity : Activity() {
             window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
                 View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
             updateDashTheme(true)
+            refreshScreenSize()
             if (!introDone) {
                 introDone = true
                 ui.postDelayed({ dashPowerGauge.intro(); dashSpeedGauge.intro() }, 400)
@@ -1041,16 +1130,6 @@ class MainActivity : Activity() {
 
         dashBrake.visibility = if (s.brakeBcm ?: s.brakeVcu ?: false) View.VISIBLE else View.INVISIBLE
         updateDashTheme()
-        val amps = s.packAmps
-        if (amps != null) { if (amps < dbgMinA) dbgMinA = amps; if (amps > dbgMaxA) dbgMaxA = amps }
-        if (prefs().getBoolean("debug", true) && !compact) {
-            dashDebug.text = "debug: " + (amps?.let { String.format("%.1f A", it) } ?: "-- A") +
-                "  " + (s.packVolts?.let { String.format("%.0f V", it) } ?: "-- V") +
-                "  " + (s.speedKmh?.let { String.format("%.0f km/h", it) } ?: "-- km/h") +
-                "\nmin/max " + String.format("%.0f / %.0f A", dbgMinA, dbgMaxA) +
-                "  flip " + (if (prefs().getBoolean("flipPower", false)) "on" else "off")
-            dashDebug.visibility = View.VISIBLE
-        } else dashDebug.visibility = View.GONE
         fun t(c: Double?) = if (c == null) "--" else fmt(c, "\u00B0C", 0)
         dashStrip.setItems(listOf(
             "HV Cap" to (s.capKwh?.let { String.format("%.1f kWh", it) } ?: "--"),
@@ -1728,21 +1807,122 @@ class TrafficLightView(ctx: Context) : View(ctx) {
     }
 }
 
-/** A row of titled readouts under a line that runs across the top and tapers down at both ends. */
+/** A row of titled readouts under a line that runs across the top and tapers down at both ends.
+ *  Press and hold a readout, then drag it sideways to move it; the new order goes to [onOrder]. */
 class StatusStripView(ctx: Context) : View(ctx) {
     var day = false
     var plain = false     // no outline or panel, just the readouts and dividers
+    var onOrder: ((List<String>) -> Unit)? = null
+    var onDoubleTap: ((String) -> Unit)? = null
     private var items: List<Pair<String, String>> = emptyList()
+    private var order = mutableListOf<String>()
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val div = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 1f }
     private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
     private val path = android.graphics.Path()
+    private val rect = RectF()
     private val light = Typeface.create("sans-serif-light", Typeface.NORMAL)
     private val medium = Typeface.create("sans-serif-medium", Typeface.NORMAL)
 
+    private var dragTitle: String? = null
+    private var dragX = 0f
+    private var downX = 0f
+    private var downY = 0f
+    private var moved = false
+    private var lastTapAt = 0L
+    private var lastTapTitle: String? = null
+    private val longPress = Runnable { startDrag() }
+
+    companion object {
+        /** True while a readout is being dragged (the dashboard's swipe gesture stays out of the way). */
+        @Volatile var dragging = false
+    }
+
+    fun setOrder(saved: List<String>) { order = saved.toMutableList(); invalidate() }
+
     fun setItems(list: List<Pair<String, String>>) {
         if (list != items) { items = list; invalidate() }
+    }
+
+    /** The items in the order the user chose; new ones go at the end. */
+    private fun shown(): List<Pair<String, String>> {
+        val byTitle = items.associateBy { it.first }
+        val out = ArrayList<Pair<String, String>>()
+        for (t in order) byTitle[t]?.let { out.add(it) }
+        for (p in items) if (order.none { o -> o == p.first }) out.add(p)
+        return out
+    }
+
+    private fun geometry(): FloatArray {            // x0, column width, taper
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val n = maxOf(items.size, 1)
+        val taper = if (plain) 0f else minOf(h * 0.55f, w * 0.06f)
+        val inner = if (plain) w else w - taper * 1.2f
+        val x0 = if (plain) 0f else taper * 0.6f
+        return floatArrayOf(x0, inner / n, taper)
+    }
+
+    private fun colAt(x: Float): Int {
+        val g = geometry()
+        return ((x - g[0]) / g[1]).toInt().coerceIn(0, maxOf(items.size - 1, 0))
+    }
+
+    private fun startDrag() {
+        val list = shown()
+        if (list.isEmpty()) return
+        order = list.map { it.first }.toMutableList()
+        dragTitle = order[colAt(downX).coerceIn(0, order.size - 1)]
+        dragX = downX
+        dragging = true
+        parent?.requestDisallowInterceptTouchEvent(true)
+        performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+        invalidate()
+    }
+
+    private fun endDrag() {
+        dragTitle = null
+        dragging = false
+        onOrder?.invoke(order.toList())
+        invalidate()
+    }
+
+    override fun onTouchEvent(e: android.view.MotionEvent): Boolean {
+        val slop = 10f * resources.displayMetrics.density
+        when (e.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                downX = e.x; downY = e.y; moved = false
+                postDelayed(longPress, 450)
+            }
+            android.view.MotionEvent.ACTION_MOVE -> {
+                if (dragTitle != null) {
+                    dragX = e.x
+                    val cur = order.indexOf(dragTitle)
+                    val tgt = colAt(dragX).coerceIn(0, order.size - 1)
+                    if (cur >= 0 && tgt != cur) { order.removeAt(cur); order.add(tgt, dragTitle!!) }
+                    invalidate()
+                } else if (Math.abs(e.x - downX) > slop || Math.abs(e.y - downY) > slop) {
+                    moved = true
+                    removeCallbacks(longPress)
+                }
+            }
+            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                removeCallbacks(longPress)
+                if (dragTitle != null) endDrag()
+                else if (e.actionMasked == android.view.MotionEvent.ACTION_UP && !moved) {
+                    val list = shown()
+                    val i = colAt(e.x)
+                    if (i in list.indices) {
+                        val title = list[i].first
+                        val now = System.currentTimeMillis()
+                        if (title == lastTapTitle && now - lastTapAt < 450) { lastTapTitle = null; onDoubleTap?.invoke(title) }
+                        else { lastTapTitle = title; lastTapAt = now }
+                    }
+                }
+            }
+        }
+        return true
     }
 
     private fun fit(s: String, size: Float, maxW: Float, tf: Typeface, color: Int, x: Float, y: Float, c: Canvas) {
@@ -1752,11 +1932,20 @@ class StatusStripView(ctx: Context) : View(ctx) {
         c.drawText(s, x, y, txt)
     }
 
+    private fun drawItem(c: Canvas, p: Pair<String, String>, cx: Float, colW: Float, h: Float, ink: Int, grey: Int) {
+        fit(p.first.uppercase(), h * 0.19f, colW * 0.92f, light, grey, cx, h * 0.40f, c)
+        fit(p.second, h * 0.36f, colW * 0.92f, medium, ink, cx, h * 0.82f, c)
+    }
+
     override fun onDraw(c: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
-        if (w <= 0f || h <= 0f || items.isEmpty()) return
-        val taper = if (plain) 0f else minOf(h * 0.55f, w * 0.06f)
+        val list = shown()
+        if (w <= 0f || h <= 0f || list.isEmpty()) return
+        val g = geometry()
+        val x0 = g[0]
+        val colW = g[1]
+        val taper = g[2]
         val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
         val grey = if (day) Color.argb(160, 20, 32, 46) else Color.argb(150, 255, 255, 255)
         val accent = Color.parseColor("#2AA8FF")
@@ -1770,24 +1959,27 @@ class StatusStripView(ctx: Context) : View(ctx) {
         line.shader = LinearGradient(0f, 0f, w, 0f,
             intArrayOf(Color.argb(0, 42, 168, 255), accent, Color.parseColor("#8E5CFF"), accent, Color.argb(0, 42, 168, 255)),
             floatArrayOf(0f, 0.2f, 0.5f, 0.8f, 1f), android.graphics.Shader.TileMode.CLAMP)
-        // faint panel under the line
         val panel = android.graphics.Path(path).apply { lineTo(0f, h - 2f); close() }
         fill.shader = LinearGradient(0f, 0f, 0f, h,
             if (day) intArrayOf(Color.argb(28, 42, 120, 200), Color.argb(0, 42, 120, 200)) else intArrayOf(Color.argb(40, 42, 168, 255), Color.argb(0, 42, 168, 255)),
             null, android.graphics.Shader.TileMode.CLAMP)
         if (!plain) { c.drawPath(panel, fill); c.drawPath(path, line) }
         line.shader = null
-        // sections
-        val n = items.size
-        val inner = if (plain) w else w - taper * 1.2f
-        val x0 = if (plain) 0f else taper * 0.6f
-        val colW = inner / n
         div.color = if (day) Color.argb(40, 20, 32, 46) else Color.argb(45, 255, 255, 255)
-        for ((i, it) in items.withIndex()) {
-            val cx = x0 + colW * (i + 0.5f)
-            fit(it.first.uppercase(), h * 0.19f, colW * 0.92f, light, grey, cx, h * 0.40f, c)
-            fit(it.second, h * 0.36f, colW * 0.92f, medium, ink, cx, h * 0.82f, c)
+        var dragged: Pair<String, String>? = null
+        for ((i, p) in list.withIndex()) {
+            if (p.first == dragTitle) { dragged = p; continue }
+            drawItem(c, p, x0 + colW * (i + 0.5f), colW, h, ink, grey)
             if (i > 0) c.drawLine(x0 + colW * i, h * 0.28f, x0 + colW * i, h * 0.90f, div)
+        }
+        // the readout being dragged follows the finger, lifted on a highlight
+        dragged?.let { p ->
+            val cx = dragX.coerceIn(x0 + colW * 0.5f, x0 + colW * (list.size - 0.5f))
+            fill.shader = null
+            fill.color = if (day) Color.argb(40, 42, 120, 200) else Color.argb(60, 42, 168, 255)
+            rect.set(cx - colW * 0.48f, h * 0.12f, cx + colW * 0.48f, h * 0.96f)
+            c.drawRoundRect(rect, 12f, 12f, fill)
+            drawItem(c, p, cx, colW, h, ink, grey)
         }
     }
 }
