@@ -35,6 +35,7 @@ data class CanSnapshot(
     val limit: Int? = null,            // road speed limit the car knows, in limitMph units (0x311 on IBUS2, byte 6); null = none
     val limitMph: Boolean = false,     // true if that limit is in mph, false for km/h (0x311 byte 3 bit 6)
     val hold: Boolean? = null,         // auto hold is holding the car (0x332 on IBUS2, byte 2 bit 2)
+    val holdEsp: Boolean? = null,      // ESP is holding the car with brake pressure (0x1B8 on IBUS1, byte 2 bit 0)
     val ready: Boolean? = null,        // READY lamp: ready to drive (0x234 on IBUS1, byte 1 bit 4)
     val capKwh: Double? = null,        // energy left in the HV battery, kWh (0x580 on IBUS2, bytes 6-7, 0.01)
     val cabinC: Double? = null,        // cabin temperature, C (0x582 on IBUS2, byte 0, 0.5 per bit, -48)
@@ -166,7 +167,7 @@ class PulseCan(
                 // receive only: no "tx:" arguments
                 val why = openFilters()
                 onStatus(if (why == null) "CAN filters opened for climate frames" else "CAN filters not changed: $why")
-                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD", "$b2=0E9,1A9,210,351,504,580,582,332,311")
+                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD,1B8", "$b2=0E9,1A9,210,351,504,580,582,332,311")
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
@@ -298,6 +299,10 @@ class PulseCan(
         if (bus == 2 && id == 0x311) {
             val lim = b[6]
             return s.copy(limit = if (lim in 1..254) lim else null, limitMph = ((b[3] shr 6) and 1) == 1)
+        }
+        // 0x1B8 ESP_0x1B8 (IBUS1, 20 ms): ESP_ActvVehHldFlg, the car is actively held by brake pressure
+        if (bus == 1 && id == 0x1B8) {
+            return s.copy(holdEsp = (b[2] and 1) == 1)
         }
         // 0x332 ESP_0x332 (IBUS2, 50 ms): ESP_ActvIndcn_AVH, auto vehicle hold active (1 = holding the car)
         if (bus == 2 && id == 0x332) {
