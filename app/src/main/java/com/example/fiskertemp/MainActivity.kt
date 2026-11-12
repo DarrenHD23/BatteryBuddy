@@ -42,6 +42,8 @@ import android.app.AlertDialog
 import android.content.res.ColorStateList
 import android.animation.ValueAnimator
 import android.content.Context
+import android.net.Uri
+import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
@@ -761,6 +763,10 @@ class MainActivity : Activity() {
     private var dayPending = false
     private var dayPendingSince = 0L
     private lateinit var dashRow: StatusStripView
+    private lateinit var dashGaugeRow: LinearLayout
+    private lateinit var mapsBtn: Button
+    private var layoutMode = -1
+    private var compact = false
     private lateinit var dashHeading: TextView
     private lateinit var dashMode: TextView
     private lateinit var dashBrake: TextView
@@ -838,10 +844,19 @@ class MainActivity : Activity() {
             addView(mid, LinearLayout.LayoutParams(0, -1, 0.7f))
             addView(dashSpeedGauge, LinearLayout.LayoutParams(0, -1, 1.15f))
         }
+        dashGaugeRow = row
         f.addView(row, FrameLayout.LayoutParams(-1, -1).apply { setMargins(dp(8), dp(8), dp(8), dp(114)) })
         dashStrip = StatusStripView(this)
         f.addView(dashRow, FrameLayout.LayoutParams(-1, dp(46), Gravity.BOTTOM).apply { setMargins(dp(170), 0, dp(130), dp(76)) })
         f.addView(dashStrip, FrameLayout.LayoutParams(-1, dp(62), Gravity.BOTTOM).apply { setMargins(dp(170), 0, dp(130), dp(8)) })
+        mapsBtn = Button(this).apply {
+            text = "Maps"; isAllCaps = false; setTextColor(Color.WHITE); textSize = 14f
+            background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(18).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
+            setPadding(dp(16), 0, dp(16), 0); minHeight = 0; minimumHeight = 0
+            setOnClickListener { openMapsBelow() }
+        }
+        f.addView(mapsBtn, FrameLayout.LayoutParams(-2, dp(36), Gravity.TOP or Gravity.END).apply { setMargins(0, dp(10), dp(12), 0) })
+        f.addOnLayoutChangeListener { v, _, top, _, bottom, _, _, _, _ -> adaptDashLayout((v.width / resources.displayMetrics.density).toInt(), ((bottom - top) / resources.displayMetrics.density).toInt()) }
         f.addView(dashMode, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { setMargins(dp(12), dp(12), 0, 0) })
         return f
     }
@@ -881,6 +896,47 @@ class MainActivity : Activity() {
         dashLightDist.setTextColor(if (day) Color.argb(200, 20, 32, 46) else Color.argb(200, 255, 255, 255))
         dashRow.day = day; dashRow.invalidate()
         dashSpeedGauge.refresh(); dashPowerGauge.refresh()
+    }
+
+    /** Fit the dashboard to the window it is in: a narrow (portrait) screen, or a short split-screen part. */
+    private fun adaptDashLayout(wDp: Int, hDp: Int) {
+        if (wDp <= 0 || hDp <= 0) return
+        val narrow = wDp < 800
+        val short = hDp < 460
+        val mode = (if (narrow) 1 else 0) + (if (short) 2 else 0)
+        if (mode == layoutMode) return
+        layoutMode = mode
+        compact = short
+        val stripH = if (short) 50 else 62
+        val rowH = if (short) 38 else 46
+        val stripBottom = if (narrow) 64 else 8        // on a narrow screen the strip sits above the buttons
+        val rowBottom = stripBottom + stripH + 4
+        val gaugeBottom = rowBottom + rowH + 6
+        val sideL = if (narrow) 8 else 170
+        val sideR = if (narrow) 8 else 130
+        (dashStrip.layoutParams as FrameLayout.LayoutParams).apply { height = dp(stripH); setMargins(dp(sideL), 0, dp(sideR), dp(stripBottom)) }
+        (dashRow.layoutParams as FrameLayout.LayoutParams).apply { height = dp(rowH); setMargins(dp(sideL), 0, dp(sideR), dp(rowBottom)) }
+        (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), dp(if (short) 4 else 8), dp(8), dp(gaugeBottom)) }
+        (dashLight.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (short) 30 else 42); height = dp(if (short) 64 else 88) }
+        (dashSign.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (short) 48 else 64); height = dp(if (short) 48 else 64) }
+        dashStrip.requestLayout(); dashRow.requestLayout(); dashGaugeRow.requestLayout(); dashLight.requestLayout(); dashSign.requestLayout()
+    }
+
+    /** Open Google Maps in the other half of the screen. Needs this app to already be in split screen. */
+    private fun openMapsBelow() {
+        if (!isInMultiWindowMode) {
+            Toast.makeText(this, "Put this app in split screen first (top part), then tap Maps", Toast.LENGTH_LONG).show()
+            return
+        }
+        val flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT
+        val tries = listOf(
+            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage("com.google.android.apps.maps"),
+            Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=")),
+        )
+        for (i in tries) {
+            try { i.addFlags(flags); startActivity(i); return } catch (e: Exception) { /* try the next one */ }
+        }
+        Toast.makeText(this, "Google Maps was not found on this device", Toast.LENGTH_LONG).show()
     }
 
     private fun showDashboard(on: Boolean) {
@@ -945,7 +1001,7 @@ class MainActivity : Activity() {
         updateDashTheme()
         val amps = s.packAmps
         if (amps != null) { if (amps < dbgMinA) dbgMinA = amps; if (amps > dbgMaxA) dbgMaxA = amps }
-        if (prefs().getBoolean("debug", true)) {
+        if (prefs().getBoolean("debug", true) && !compact) {
             dashDebug.text = "debug: " + (amps?.let { String.format("%.1f A", it) } ?: "-- A") +
                 "  " + (s.packVolts?.let { String.format("%.0f V", it) } ?: "-- V") +
                 "  " + (s.speedKmh?.let { String.format("%.0f km/h", it) } ?: "-- km/h") +
