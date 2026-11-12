@@ -764,7 +764,30 @@ class MainActivity : Activity() {
     private var dayPendingSince = 0L
     private lateinit var dashRow: StatusStripView
     private lateinit var dashGaugeRow: LinearLayout
-    private lateinit var mapsBtn: Button
+    private lateinit var lowerTabs: LinearLayout
+    private val lowerNames = listOf("Maps", "Spotify")
+    private val lowerPkgs = listOf("com.google.android.apps.maps", "com.spotify.music")
+    private var lowerIdx = 0
+    private val swipe by lazy {
+        android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
+            override fun onFling(e1: android.view.MotionEvent?, e2: android.view.MotionEvent, vx: Float, vy: Float): Boolean {
+                if (e1 == null) return false
+                val dx = e2.x - e1.x
+                val dy = e2.y - e1.y
+                val d = resources.displayMetrics.density
+                if (Math.abs(dx) > dp(90) && Math.abs(dx) > Math.abs(dy) * 1.5f && Math.abs(vx) > 500 * d) {
+                    // finger moves left: next app; right: previous
+                    openLower((lowerIdx + (if (dx < 0) 1 else lowerNames.size - 1)) % lowerNames.size)
+                }
+                return false
+            }
+        })
+    }
+
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (dashShown) swipe.onTouchEvent(ev)      // only watches: touches still reach the buttons
+        return super.dispatchTouchEvent(ev)
+    }
     private var layoutMode = -1
     private var compact = false
     private lateinit var dashHeading: TextView
@@ -849,13 +872,21 @@ class MainActivity : Activity() {
         dashStrip = StatusStripView(this)
         f.addView(dashRow, FrameLayout.LayoutParams(-1, dp(46), Gravity.BOTTOM).apply { setMargins(dp(170), 0, dp(130), dp(76)) })
         f.addView(dashStrip, FrameLayout.LayoutParams(-1, dp(62), Gravity.BOTTOM).apply { setMargins(dp(170), 0, dp(130), dp(8)) })
-        mapsBtn = Button(this).apply {
-            text = "Maps"; isAllCaps = false; setTextColor(Color.WHITE); textSize = 14f
+        lowerTabs = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
             background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(18).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
-            setPadding(dp(16), 0, dp(16), 0); minHeight = 0; minimumHeight = 0
-            setOnClickListener { openMapsBelow() }
+            setPadding(dp(3), dp(3), dp(3), dp(3))
+            lowerNames.forEachIndexed { i, name ->
+                addView(TextView(context).apply {
+                    text = name; textSize = 14f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+                    setPadding(dp(14), dp(5), dp(14), dp(5))
+                    setOnClickListener { openLower(i) }
+                })
+            }
         }
-        f.addView(mapsBtn, FrameLayout.LayoutParams(-2, dp(36), Gravity.TOP or Gravity.END).apply { setMargins(0, dp(10), dp(12), 0) })
+        lowerIdx = prefs().getInt("lowerApp", 0).coerceIn(0, lowerNames.size - 1)
+        paintLowerTabs()
+        f.addView(lowerTabs, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(10), dp(12), 0) })
         f.addOnLayoutChangeListener { v, _, top, _, bottom, _, _, _, _ -> adaptDashLayout((v.width / resources.displayMetrics.density).toInt(), ((bottom - top) / resources.displayMetrics.density).toInt()) }
         f.addView(dashMode, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { setMargins(dp(12), dp(12), 0, 0) })
         return f
@@ -922,21 +953,32 @@ class MainActivity : Activity() {
         dashStrip.requestLayout(); dashRow.requestLayout(); dashGaugeRow.requestLayout(); dashLight.requestLayout(); dashSign.requestLayout()
     }
 
-    /** Open Google Maps in the other half of the screen. Needs this app to already be in split screen. */
-    private fun openMapsBelow() {
+    private fun paintLowerTabs() {
+        for (i in 0 until lowerTabs.childCount) {
+            lowerTabs.getChildAt(i).background = if (i == lowerIdx)
+                GradientDrawable().apply { setColor(Color.parseColor("#2AA8FF")); cornerRadius = dp(15).toFloat() } else null
+        }
+    }
+
+    /** Open app number [i] (0 Maps, 1 Spotify) in the other half of the screen. Needs this app to already be in split screen. */
+    private fun openLower(i: Int) {
         if (!isInMultiWindowMode) {
-            Toast.makeText(this, "Put this app in split screen first (top part), then tap Maps", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Put this app in split screen first (top part), then pick Maps or Spotify", Toast.LENGTH_LONG).show()
             return
         }
         val flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT
-        val tries = listOf(
-            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage("com.google.android.apps.maps"),
-            Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=")),
-        )
-        for (i in tries) {
-            try { i.addFlags(flags); startActivity(i); return } catch (e: Exception) { /* try the next one */ }
+        val tries = mutableListOf(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(lowerPkgs[i]))
+        if (i == 0) tries.add(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=")))
+        for (t in tries) {
+            try {
+                t.addFlags(flags); startActivity(t)
+                lowerIdx = i
+                prefs().edit().putInt("lowerApp", i).apply()
+                paintLowerTabs()
+                return
+            } catch (e: Exception) { /* try the next one */ }
         }
-        Toast.makeText(this, "Google Maps was not found on this device", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "${lowerNames[i]} was not found on this device", Toast.LENGTH_LONG).show()
     }
 
     private fun showDashboard(on: Boolean) {
