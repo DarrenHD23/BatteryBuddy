@@ -716,6 +716,8 @@ class MainActivity : Activity() {
     private lateinit var dashClock: TextClock
     private lateinit var dashDate: TextClock
     private lateinit var dashInfo: TextView
+    private lateinit var dashHeading: TextView
+    private lateinit var dashMode: TextView
     private var dashShown = false
 
     private fun prefs() = getSharedPreferences("prefs", MODE_PRIVATE)
@@ -736,18 +738,17 @@ class MainActivity : Activity() {
                 (Color.green(a) + (Color.green(b) - Color.green(a)) * k).toInt(),
                 (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * k).toInt())
         }
-        // speed: blue, then violet and pink as it rises
-        dashSpeedGauge = ArcGaugeView(this, false, 0f) { x ->
-            if (x < 0.5f) mix(blue, violet, x / 0.5f) else mix(violet, pink, (x - 0.5f) / 0.5f)
-        }.apply { topLabel = "BATTERY TEMP"; title = "SPEED"; unit = "km/h"; bottomLabel = "HEAT PUMP" }
-        // power: green for regen, then blue through violet and pink to red
-        dashPowerGauge = ArcGaugeView(this, true, 0.2f) { t ->
-            when {
-                t < 0.33f -> mix(blue, violet, t / 0.33f)
-                t < 0.66f -> mix(violet, pink, (t - 0.33f) / 0.33f)
-                else -> mix(pink, red, (t - 0.66f) / 0.34f)
-            }
-        }.apply { topLabel = "CLIMATE"; title = "POWER"; unit = "kW"; bottomLabel = "CHARGE" }
+        // one shared gradient for both gauges, spread over the part that is filled: cyan, blue, violet, pink, red
+        val stops = intArrayOf(Color.parseColor("#22D3EE"), blue, violet, pink, red)
+        fun grad(t: Float): Int {
+            val k = t.coerceIn(0f, 1f) * (stops.size - 1)
+            val i = minOf(k.toInt(), stops.size - 2)
+            return mix(stops[i], stops[i + 1], k - i)
+        }
+        dashPowerGauge = ArcGaugeView(this, false, 0.2f) { t -> grad(t) }
+            .apply { topLabel = "CLIMATE"; title = "POWER"; unit = "kW"; bottomLabel = "CHARGE" }
+        dashSpeedGauge = ArcGaugeView(this, true, 0f) { t -> grad(t) }
+            .apply { topLabel = "BATTERY TEMP"; title = "SPEED"; unit = "km/h"; bottomLabel = "HEAT PUMP" }
         val light = Typeface.create("sans-serif-light", Typeface.NORMAL)
         dashClock = TextClock(this).apply {
             textSize = 46f; setTextColor(Color.WHITE); typeface = light; includeFontPadding = false
@@ -760,18 +761,29 @@ class MainActivity : Activity() {
         dashInfo = TextView(this).apply {
             textSize = 15f; setTextColor(Color.argb(200, 120, 190, 255)); typeface = light; gravity = Gravity.CENTER
             setLineSpacing(0f, 1.25f)
+            setOnLongClickListener { pulse?.resetDrive(); Toast.makeText(context, "Regen counter reset", Toast.LENGTH_SHORT).show(); true }
+        }
+        dashHeading = TextView(this).apply {
+            textSize = 30f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif-light", Typeface.ITALIC); gravity = Gravity.CENTER
+        }
+        dashMode = TextView(this).apply {
+            textSize = 20f; setTextColor(Color.WHITE); gravity = Gravity.CENTER; visibility = View.INVISIBLE; text = "EARTH"
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD_ITALIC); letterSpacing = 0.12f
+            setPadding(dp(22), dp(6), dp(22), dp(6))
         }
         val mid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
             addView(dashClock, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
             addView(dashDate, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
-            addView(dashInfo, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(36) })
+            addView(dashMode, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(18) })
+            addView(dashHeading, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) })
+            addView(dashInfo, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) })
         }
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(dashSpeedGauge, LinearLayout.LayoutParams(0, -1, 1.15f))
-            addView(mid, LinearLayout.LayoutParams(0, -1, 0.7f))
             addView(dashPowerGauge, LinearLayout.LayoutParams(0, -1, 1.15f))
+            addView(mid, LinearLayout.LayoutParams(0, -1, 0.7f))
+            addView(dashSpeedGauge, LinearLayout.LayoutParams(0, -1, 1.15f))
         }
         f.addView(row, FrameLayout.LayoutParams(-1, -1).apply { setMargins(dp(8), dp(8), dp(8), dp(64)) })
         return f
@@ -809,7 +821,7 @@ class MainActivity : Activity() {
         val spd = s.speedKmh?.let { if (mph) it * 0.621371 else it }
         dashSpeedGauge.valueText = spd?.let { String.format("%.0f", it) } ?: "--"
         dashSpeedGauge.unit = if (mph) "mph" else "km/h"
-        dashSpeedGauge.setFraction(spd?.let { (it / (if (mph) 125.0 else 200.0)).toFloat() })
+        dashSpeedGauge.setFraction(spd?.let { Math.sqrt((it / (if (mph) 100.0 else 160.0)).coerceIn(0.0, 1.0)).toFloat() })
         dashSpeedGauge.topValue = s.avgTempC?.let { fmt(it, "\u00B0C", 0) } ?: "--"
         val comp = s.compWatts
         dashSpeedGauge.bottomValue = when {
@@ -824,15 +836,36 @@ class MainActivity : Activity() {
         val a = s.packAmps
         val kw = if (v != null && a != null) v * a / 1000.0 * (if (prefs().getBoolean("flipPower", false)) -1 else 1) else null
         dashPowerGauge.valueText = kw?.let { String.format("%.0f", it) } ?: "--"
-        dashPowerGauge.setFraction(kw?.let { ((it + 80.0) / 400.0).toFloat() })
+        dashPowerGauge.setFraction(kw?.let {
+            // square-root scale so everyday power fills a good part of the arc; zero sits at 20%
+            if (it >= 0) (0.2 + 0.8 * Math.sqrt((it / 250.0).coerceIn(0.0, 1.0))).toFloat()
+            else (0.2 - 0.2 * Math.sqrt((-it / 80.0).coerceIn(0.0, 1.0))).toFloat()
+        })
         dashPowerGauge.topValue = s.climateKw?.let { String.format("%.1f kW", it) } ?: "--"
         dashPowerGauge.bottomValue = s.socUsable?.let { "$it %" } ?: "--"
         dashPowerGauge.barFrac = s.socUsable?.let { it / 100f }
         dashPowerGauge.refresh()
 
+        val dm = s.driveMode
+        if (dm == null) dashMode.visibility = View.INVISIBLE else {
+            val (name, col) = when (dm) {
+                0 -> "EARTH" to "#4FC3F7"
+                1 -> "FUN" to "#8E5CFF"
+                else -> "HYPER" to "#FF8A1F"
+            }
+            dashMode.text = name
+            dashMode.background = GradientDrawable().apply { setColor(Color.parseColor(col)); cornerRadius = dp(20).toFloat() }
+            dashMode.visibility = View.VISIBLE
+        }
+        val hd = s.headingDeg
+        dashHeading.text = if (hd == null) "" else {
+            val names = arrayOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+            "${names[((hd + 22.5) / 45.0).toInt() % 8]}  ${hd.toInt()}\u00B0"
+        }
         val demand = when (s.thermalDemand) { 0 -> "starting up"; 1 -> "heating"; 2 -> "cooling"; 3 -> "cycling"; else -> "--" }
         fun tc(c: Double?) = if (c == null) "--" else fmt(c, "\u00B0C", 0)
-        dashInfo.text = "Cells ${tc(s.cellMinC)} \u2013 ${tc(s.cellMaxC)}\nThermal: $demand"
+        pulse?.flipPower = prefs().getBoolean("flipPower", false)
+        dashInfo.text = "Regen ${String.format("%.2f", s.regenKwh)} kWh\nCells ${tc(s.cellMinC)} \u2013 ${tc(s.cellMaxC)}\nThermal: $demand"
     }
 
     private fun applySource(pulseMode: Boolean) {
@@ -1279,8 +1312,8 @@ class ArcGaugeView(ctx: Context, private val mirrored: Boolean, private val zero
         rect.set(cx - r - stroke * 0.5f, cy - r - stroke * 0.5f, cx + r + stroke * 0.5f, cy + r + stroke * 0.5f)
         c.drawArc(rect, start - dir * 6f, dir * (sweep + 12f), false, arc)
         rect.set(cx - rr, cy - rr, cx + rr, cy + rr)
-        val n = 24
-        val gap = 1.8f
+        val n = 48
+        val gap = 1.2f
         val lo = if (has) minOf(zeroFrac, shown) else 0f
         val hi = if (has) maxOf(zeroFrac, shown) else 0f
         for (i in 0 until n) {
