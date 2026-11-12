@@ -713,8 +713,11 @@ class MainActivity : Activity() {
     private lateinit var dashBtn: Button
     private lateinit var dashSpeedGauge: ArcGaugeView
     private lateinit var dashPowerGauge: ArcGaugeView
-    private lateinit var dashClock: TextClock
-    private lateinit var dashDate: TextClock
+    private lateinit var dashLight: TrafficLightView
+    private lateinit var dashLightDist: TextView
+    private var lightColor = 0
+    private var lightSeenAt = 0L
+    private var lightShown = false
     private lateinit var dashInfo: TextView
     private lateinit var dashHeading: TextView
     private lateinit var dashMode: TextView
@@ -751,13 +754,9 @@ class MainActivity : Activity() {
         dashSpeedGauge = ArcGaugeView(this, true, 0f) { t -> grad(t) }
             .apply { topLabel = "BATTERY TEMP"; title = "SPEED"; unit = "km/h"; bottomLabel = "HEAT PUMP" }
         val light = Typeface.create("sans-serif-light", Typeface.NORMAL)
-        dashClock = TextClock(this).apply {
-            textSize = 34f; setTextColor(Color.WHITE); typeface = light; includeFontPadding = false; maxLines = 1; setSingleLine(true)
-            format12Hour = "h:mm a"; format24Hour = "HH:mm"; gravity = Gravity.CENTER
-        }
-        dashDate = TextClock(this).apply {
-            textSize = 15f; setTextColor(Color.argb(170, 255, 255, 255)); typeface = light
-            format12Hour = "EEE, MMM d"; format24Hour = "EEE, MMM d"; gravity = Gravity.CENTER
+        dashLight = TrafficLightView(this).apply { alpha = 0f }
+        dashLightDist = TextView(this).apply {
+            textSize = 15f; setTextColor(Color.argb(200, 255, 255, 255)); typeface = light; gravity = Gravity.CENTER; alpha = 0f
         }
         dashInfo = TextView(this).apply {
             textSize = 15f; setTextColor(Color.argb(200, 120, 190, 255)); typeface = light; gravity = Gravity.CENTER
@@ -774,16 +773,15 @@ class MainActivity : Activity() {
             background = GradientDrawable().apply { setColor(Color.parseColor("#E53935")); cornerRadius = dp(16).toFloat() }
         }
         dashMode = TextView(this).apply {
-            textSize = 20f; setTextColor(Color.WHITE); gravity = Gravity.CENTER; visibility = View.INVISIBLE; text = "EARTH"
+            textSize = 18f; setTextColor(Color.WHITE); gravity = Gravity.CENTER; visibility = View.INVISIBLE; text = "EARTH"
             typeface = Typeface.create("sans-serif-medium", Typeface.BOLD_ITALIC); letterSpacing = 0.12f
-            setPadding(dp(22), dp(6), dp(22), dp(6))
+            setPadding(dp(16), dp(6), dp(16), dp(6))
         }
         val mid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
-            addView(dashClock, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
-            addView(dashDate, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+            addView(dashLight, LinearLayout.LayoutParams(dp(46), dp(100)).apply { topMargin = dp(6) })
+            addView(dashLightDist, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
             addView(dashBrake, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
-            addView(dashMode, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(10) })
             addView(dashHeading, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
             addView(dashInfo, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         }
@@ -794,6 +792,7 @@ class MainActivity : Activity() {
             addView(dashSpeedGauge, LinearLayout.LayoutParams(0, -1, 1.15f))
         }
         f.addView(row, FrameLayout.LayoutParams(-1, -1).apply { setMargins(dp(8), dp(8), dp(8), dp(64)) })
+        f.addView(dashMode, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { setMargins(dp(12), dp(12), 0, 0) })
         return f
     }
 
@@ -855,6 +854,17 @@ class MainActivity : Activity() {
         dashPowerGauge.refresh()
 
         dashBrake.visibility = if (s.brakeBcm ?: s.brakeVcu ?: false) View.VISIBLE else View.INVISIBLE
+        val nowMs = System.currentTimeMillis()
+        val lc = s.lightColor
+        if (lc != null) { lightColor = lc; lightSeenAt = nowMs; dashLight.setColor(lc) }
+        val seen = lc != null || nowMs - lightSeenAt < 1500   // brief hold so one missed frame does not flicker
+        if (seen != lightShown) {
+            lightShown = seen
+            val to = if (seen) 1f else 0f
+            dashLight.animate().alpha(to).setDuration(if (seen) 200L else 700L).start()
+            dashLightDist.animate().alpha(to).setDuration(if (seen) 200L else 700L).start()
+        }
+        dashLightDist.text = s.lightDistM?.let { "$it m" } ?: ""
         val dm = s.driveMode
         if (dm == null) dashMode.visibility = View.INVISIBLE else {
             val (name, col) = when (dm) {
@@ -863,7 +873,7 @@ class MainActivity : Activity() {
                 else -> "HYPER" to "#FF8A1F"
             }
             dashMode.text = name
-            dashMode.background = GradientDrawable().apply { setColor(Color.parseColor(col)); cornerRadius = dp(20).toFloat() }
+            dashMode.background = GradientDrawable().apply { shape = GradientDrawable.RECTANGLE; setColor(Color.parseColor(col)) }
             dashMode.visibility = View.VISIBLE
         }
         val hd = s.headingDeg
@@ -1372,5 +1382,41 @@ class ArcGaugeView(ctx: Context, private val mirrored: Boolean, private val zero
             arc.style = Paint.Style.STROKE
         }
         arcCanvas = null
+    }
+}
+
+/** A traffic light: three lamps in a dark housing, with the active one lit. */
+class TrafficLightView(ctx: Context) : View(ctx) {
+    private var lit = 0     // 1 red, 2 amber, 3 green
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val rect = RectF()
+    private val cols = intArrayOf(Color.parseColor("#FF3B3B"), Color.parseColor("#FFB020"), Color.parseColor("#2ECC71"))
+
+    fun setColor(c: Int) { if (c != lit) { lit = c; invalidate() } }
+
+    override fun onDraw(c: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        p.style = Paint.Style.FILL
+        p.color = Color.argb(235, 18, 22, 30)
+        rect.set(0f, 0f, w, h)
+        c.drawRoundRect(rect, w * 0.3f, w * 0.3f, p)
+        p.style = Paint.Style.STROKE
+        p.strokeWidth = 2f
+        p.color = Color.argb(90, 255, 255, 255)
+        rect.set(1f, 1f, w - 1f, h - 1f)
+        c.drawRoundRect(rect, w * 0.3f, w * 0.3f, p)
+        p.style = Paint.Style.FILL
+        val r = w * 0.30f
+        for (i in 0..2) {
+            val cy = h * (0.19f + 0.31f * i)
+            val on = lit == i + 1
+            if (on) {
+                p.color = Color.argb(70, Color.red(cols[i]), Color.green(cols[i]), Color.blue(cols[i]))
+                c.drawCircle(w / 2, cy, r * 1.45f, p)
+            }
+            p.color = if (on) cols[i] else Color.argb(60, Color.red(cols[i]), Color.green(cols[i]), Color.blue(cols[i]))
+            c.drawCircle(w / 2, cy, r, p)
+        }
     }
 }
