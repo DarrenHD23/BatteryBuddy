@@ -741,6 +741,7 @@ class MainActivity : Activity() {
     private var lightSeenAt = 0L
     private var lightShown = false
     private lateinit var exitBtn: Button
+    private lateinit var dashStrip: StatusStripView
     private lateinit var dashDebug: TextView
     private var dbgMinA = 0.0
     private var dbgMaxA = 0.0
@@ -826,6 +827,8 @@ class MainActivity : Activity() {
             addView(dashSpeedGauge, LinearLayout.LayoutParams(0, -1, 1.15f))
         }
         f.addView(row, FrameLayout.LayoutParams(-1, -1).apply { setMargins(dp(8), dp(8), dp(8), dp(64)) })
+        dashStrip = StatusStripView(this)
+        f.addView(dashStrip, FrameLayout.LayoutParams(-1, dp(62), Gravity.BOTTOM).apply { setMargins(dp(170), 0, dp(130), dp(8)) })
         f.addView(dashMode, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { setMargins(dp(12), dp(12), 0, 0) })
         return f
     }
@@ -859,7 +862,7 @@ class MainActivity : Activity() {
         dashRoot.background = if (day)
             GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#FFFFFF"), Color.parseColor("#E6ECF4")))
         else GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#04070D"), Color.parseColor("#0B1626")))
-        dashSpeedGauge.day = day; dashPowerGauge.day = day
+        dashSpeedGauge.day = day; dashPowerGauge.day = day; dashStrip.day = day; dashStrip.invalidate()
         val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
         dashHeading.setTextColor(ink)
         dashLightDist.setTextColor(if (day) Color.argb(200, 20, 32, 46) else Color.argb(200, 255, 255, 255))
@@ -931,6 +934,16 @@ class MainActivity : Activity() {
                 "  flip " + (if (prefs().getBoolean("flipPower", false)) "on" else "off")
             dashDebug.visibility = View.VISIBLE
         } else dashDebug.visibility = View.GONE
+        fun t(c: Double?) = if (c == null) "--" else fmt(c, "\u00B0C", 0)
+        dashStrip.setItems(listOf(
+            "HV Cap" to (s.capKwh?.let { String.format("%.1f kWh", it) } ?: "--"),
+            "Cabin" to t(s.cabinC),
+            "Outside" to t(s.outsideC),
+            "Solar now" to (s.solarW?.let { "$it W" } ?: "--"),
+            "12V Battery" to (s.volts12?.let { String.format("%.1f V", it) } ?: "--"),
+            "12V SOH" to (s.soh12?.let { String.format("%.0f %%", it) } ?: "--"),
+            "12V SOC" to (s.soc12?.let { String.format("%.0f %%", it) } ?: "--"),
+        ))
         val nowMs = System.currentTimeMillis()
         val lc = s.lightColor
         if (lc != null) { lightColor = lc; lightSeenAt = nowMs; dashLight.setColor(lc) }
@@ -1497,6 +1510,70 @@ class TrafficLightView(ctx: Context) : View(ctx) {
             }
             p.color = if (on) cols[i] else Color.argb(60, Color.red(cols[i]), Color.green(cols[i]), Color.blue(cols[i]))
             c.drawCircle(w / 2, cy, r, p)
+        }
+    }
+}
+
+/** A row of titled readouts under a line that runs across the top and tapers down at both ends. */
+class StatusStripView(ctx: Context) : View(ctx) {
+    var day = false
+    private var items: List<Pair<String, String>> = emptyList()
+    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val div = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 1f }
+    private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
+    private val path = android.graphics.Path()
+    private val light = Typeface.create("sans-serif-light", Typeface.NORMAL)
+    private val medium = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+
+    fun setItems(list: List<Pair<String, String>>) {
+        if (list != items) { items = list; invalidate() }
+    }
+
+    private fun fit(s: String, size: Float, maxW: Float, tf: Typeface, color: Int, x: Float, y: Float, c: Canvas) {
+        txt.typeface = tf; txt.color = color; txt.textSize = size
+        val w = txt.measureText(s)
+        if (w > maxW) txt.textSize = size * maxW / w
+        c.drawText(s, x, y, txt)
+    }
+
+    override fun onDraw(c: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        if (w <= 0f || h <= 0f || items.isEmpty()) return
+        val taper = minOf(h * 0.55f, w * 0.06f)
+        val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
+        val grey = if (day) Color.argb(160, 20, 32, 46) else Color.argb(150, 255, 255, 255)
+        val accent = Color.parseColor("#2AA8FF")
+        // outline: down the left side, across the top, down the right side; fading towards the ends
+        path.reset()
+        path.moveTo(0f, h - 2f)
+        path.lineTo(taper, 3f)
+        path.lineTo(w - taper, 3f)
+        path.lineTo(w, h - 2f)
+        line.strokeWidth = 3f
+        line.shader = LinearGradient(0f, 0f, w, 0f,
+            intArrayOf(Color.argb(0, 42, 168, 255), accent, Color.parseColor("#8E5CFF"), accent, Color.argb(0, 42, 168, 255)),
+            floatArrayOf(0f, 0.2f, 0.5f, 0.8f, 1f), android.graphics.Shader.TileMode.CLAMP)
+        // faint panel under the line
+        val panel = android.graphics.Path(path).apply { lineTo(0f, h - 2f); close() }
+        fill.shader = LinearGradient(0f, 0f, 0f, h,
+            if (day) intArrayOf(Color.argb(28, 42, 120, 200), Color.argb(0, 42, 120, 200)) else intArrayOf(Color.argb(40, 42, 168, 255), Color.argb(0, 42, 168, 255)),
+            null, android.graphics.Shader.TileMode.CLAMP)
+        c.drawPath(panel, fill)
+        c.drawPath(path, line)
+        line.shader = null
+        // sections
+        val n = items.size
+        val inner = w - taper * 1.2f
+        val x0 = taper * 0.6f
+        val colW = inner / n
+        div.color = if (day) Color.argb(40, 20, 32, 46) else Color.argb(45, 255, 255, 255)
+        for ((i, it) in items.withIndex()) {
+            val cx = x0 + colW * (i + 0.5f)
+            fit(it.first.uppercase(), h * 0.19f, colW * 0.92f, light, grey, cx, h * 0.40f, c)
+            fit(it.second, h * 0.36f, colW * 0.92f, medium, ink, cx, h * 0.82f, c)
+            if (i > 0) c.drawLine(x0 + colW * i, h * 0.28f, x0 + colW * i, h * 0.90f, div)
         }
     }
 }
