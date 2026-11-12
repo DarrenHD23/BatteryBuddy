@@ -751,7 +751,7 @@ class MainActivity : Activity() {
             .apply { topLabel = "BATTERY TEMP"; title = "SPEED"; unit = "km/h"; bottomLabel = "HEAT PUMP" }
         val light = Typeface.create("sans-serif-light", Typeface.NORMAL)
         dashClock = TextClock(this).apply {
-            textSize = 46f; setTextColor(Color.WHITE); typeface = light; includeFontPadding = false
+            textSize = 34f; setTextColor(Color.WHITE); typeface = light; includeFontPadding = false; maxLines = 1; setSingleLine(true)
             format12Hour = "h:mm a"; format24Hour = "HH:mm"; gravity = Gravity.CENTER
         }
         dashDate = TextClock(this).apply {
@@ -764,7 +764,7 @@ class MainActivity : Activity() {
             setOnLongClickListener { pulse?.resetDrive(); Toast.makeText(context, "Regen counter reset", Toast.LENGTH_SHORT).show(); true }
         }
         dashHeading = TextView(this).apply {
-            textSize = 30f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif-light", Typeface.ITALIC); gravity = Gravity.CENTER
+            textSize = 20f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif-light", Typeface.ITALIC); gravity = Gravity.CENTER
         }
         dashMode = TextView(this).apply {
             textSize = 20f; setTextColor(Color.WHITE); gravity = Gravity.CENTER; visibility = View.INVISIBLE; text = "EARTH"
@@ -773,11 +773,11 @@ class MainActivity : Activity() {
         }
         val mid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
-            addView(dashClock, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
+            addView(dashClock, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
             addView(dashDate, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
-            addView(dashMode, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(18) })
-            addView(dashHeading, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) })
-            addView(dashInfo, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) })
+            addView(dashMode, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(10) })
+            addView(dashHeading, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+            addView(dashInfo, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         }
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
