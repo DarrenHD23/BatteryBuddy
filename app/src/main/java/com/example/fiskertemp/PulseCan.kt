@@ -29,6 +29,7 @@ data class CanSnapshot(
     val socUsable: Int? = null,        // % (0x2F5, byte 0)
     val socReal: Int? = null,          // % (0x2F5, byte 6)
     val sohPct: Int? = null,           // % (0x2F5, byte 5)
+    val packCapKwh: Double? = null,    // full pack capacity the BMS reports, kWh (0x2F5, bytes 3-4, 0.01)
     val packVolts: Double? = null,     // V (0xE9 on IBUS2, bytes 6-7)  needs the chip filters opened
     val packAmps: Double? = null,      // A (0xE9 on IBUS2, bytes 4-5, signed)
     val limit: Int? = null,            // road speed limit the car knows, in limitMph units (0x311 on IBUS2, byte 6); null = none
@@ -266,6 +267,7 @@ class PulseCan(
             return s.copy(
                 socUsable = b[0].takeIf { it <= 100 },
                 sohPct = b[5],
+                packCapKwh = ((b[3] shl 8) or b[4]).let { if (it == 0 || it == 0xFFFF) null else it * 0.01 },
                 socReal = b[6].takeIf { it <= 100 },
             )
         }
