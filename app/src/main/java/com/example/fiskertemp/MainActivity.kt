@@ -906,6 +906,8 @@ class MainActivity : Activity() {
             0 -> { dashSpeedGauge.bottomValue = "Starting"; dashSpeedGauge.bottomColor = null }
             else -> { dashSpeedGauge.bottomValue = "--"; dashSpeedGauge.bottomColor = null }
         }
+        dashSpeedGauge.hold = s.hold == true
+        dashSpeedGauge.ready = s.ready == true
         dashSpeedGauge.refresh()
 
         val v = s.packVolts
@@ -1366,6 +1368,8 @@ class ArcGaugeView(ctx: Context, private val mirrored: Boolean, private val zero
     var title = ""; var valueText = "--"; var unit = ""
     var bottomLabel = ""; var bottomValue = ""; var bottomColor: Int? = null
     var day = false
+    var hold = false
+    var ready = false
     var barFrac: Float? = null
     private var shown = 0f
     private var target = 0f
@@ -1403,6 +1407,36 @@ class ArcGaugeView(ctx: Context, private val mirrored: Boolean, private val zero
     }
 
     private var arcCanvas: Canvas? = null
+
+    /** The auto-hold symbol (an H in a circle between two arcs) with READY in green under it, in the open side of the gauge. */
+    private fun drawHoldAndReady(c: Canvas, x: Float, cy: Float, r: Float) {
+        if (!hold && !ready) return
+        val sym = if (day) Color.parseColor("#B5532F") else Color.parseColor("#F2CBB8")
+        val green = if (day) Color.parseColor("#2E9E1F") else Color.parseColor("#7CFF3A")
+        val rho = r * 0.13f
+        val y = if (ready) cy - r * 0.10f else cy
+        if (hold) {
+            arc.style = Paint.Style.STROKE
+            arc.strokeWidth = rho * 0.22f
+            arc.color = sym
+            c.drawCircle(x, y, rho, arc)
+            rect.set(x - rho * 1.45f, y - rho * 1.45f, x + rho * 1.45f, y + rho * 1.45f)
+            arc.strokeCap = Paint.Cap.ROUND
+            c.drawArc(rect, 145f, 70f, false, arc)    // "(" on the left
+            c.drawArc(rect, -35f, 70f, false, arc)    // ")" on the right
+            arc.strokeCap = Paint.Cap.BUTT
+            txt.typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            txt.textSize = rho * 1.25f
+            txt.color = sym
+            c.drawText("H", x, y + rho * 0.43f, txt)
+        }
+        if (ready) {
+            txt.typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
+            txt.textSize = r * 0.11f
+            txt.color = green
+            c.drawText("READY", x, (if (hold) y + rho * 2.5f else cy + r * 0.04f), txt)
+        }
+    }
 
     override fun onDraw(c: Canvas) {
         arcCanvas = c
@@ -1461,6 +1495,7 @@ class ArcGaugeView(ctx: Context, private val mirrored: Boolean, private val zero
         text(unit, cx, cy + r * 0.34f, r * 0.14f, Color.parseColor("#2AA8FF"), medium)
         text(bottomLabel, cx, cy + r * 0.50f, r * 0.085f, grey, light)
         text(bottomValue, cx, cy + r * 0.62f, r * 0.12f, bottomColor ?: ink, lightItalic)
+        drawHoldAndReady(c, cx - r * 0.74f, cy, r)
         val bf = barFrac
         if (bf != null) {
             val bw = r * 0.5f
