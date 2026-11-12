@@ -602,6 +602,41 @@ class MainActivity : Activity() {
         window.navigationBarColor = t.bottom
         actionBar?.setBackgroundDrawable(ColorDrawable(t.top))
         getSharedPreferences("prefs", MODE_PRIVATE).edit().putInt("theme", i).apply()
+        applyBgPic()
+    }
+
+    // ------------------------------------------------------- Background pictures (res/drawable-nodpi/bg_01 .. bg_15)
+    private val bgCount = 15
+    private var bgBitmap: android.graphics.Bitmap? = null
+    private var bgBitmapIdx = 0
+
+    private fun bgResId(n: Int) = resources.getIdentifier(String.format("bg_%02d", n), "drawable", packageName)
+
+    /** The chosen picture (1..bgCount) or 0 for none, as a drawable that fills any window size without stretching. */
+    private fun bgDrawable(scrim: Int): android.graphics.drawable.Drawable? {
+        val n = prefs().getInt("bgPic", 0)
+        if (n !in 1..bgCount) return null
+        if (bgBitmapIdx != n || bgBitmap == null) {
+            val id = bgResId(n)
+            if (id == 0) return null
+            bgBitmap = try { android.graphics.BitmapFactory.decodeResource(resources, id) } catch (e: Throwable) { null }
+            bgBitmapIdx = n
+        }
+        val bmp = bgBitmap ?: return null
+        return CoverDrawable(bmp, scrim)
+    }
+
+    private fun applyBgPic() {
+        if (!::rootScroll.isInitialized) return
+        bgDrawable(Color.argb(95, 0, 0, 0))?.let { rootScroll.background = it }
+        if (::dashRoot.isInitialized) applyDashTheme(dashDay)
+    }
+
+    private fun bgThumb(n: Int): android.graphics.Bitmap? {
+        val id = bgResId(n)
+        if (id == 0) return null
+        val o = android.graphics.BitmapFactory.Options().apply { inSampleSize = 8 }
+        return try { android.graphics.BitmapFactory.decodeResource(resources, id, o) } catch (e: Throwable) { null }
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -677,10 +712,34 @@ class MainActivity : Activity() {
                 isAllCaps = false; setTextColor(Color.WHITE)
                 background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(t.top, t.bottom))
                     .apply { cornerRadius = dp(12).toFloat() }
-                setOnClickListener { applyTheme(i); dialog.dismiss() }
+                setOnClickListener { prefs().edit().putInt("bgPic", 0).apply(); applyTheme(i); dialog.dismiss() }
             }
             box.add(b, 10)
         }
+
+        // --- Background picture
+        box.add(TextView(this).apply { text = "Background picture"; textSize = 14f; setTextColor(Color.DKGRAY) }, 20)
+        val picRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val curPic = prefs().getInt("bgPic", 0)
+        fun tile(n: Int): View {
+            val sel = n == curPic
+            val v: View = if (n == 0) TextView(this).apply {
+                text = "None"; gravity = Gravity.CENTER; textSize = 13f; setTextColor(Color.DKGRAY)
+                background = GradientDrawable().apply { setColor(Color.parseColor("#EEEEEE")); cornerRadius = dp(8).toFloat() }
+            } else ImageView(this).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                bgThumb(n)?.let { setImageBitmap(it) } ?: setBackgroundColor(Color.LTGRAY)
+            }
+            v.setOnClickListener { prefs().edit().putInt("bgPic", n).apply(); applyTheme(themeIndex); dialog.dismiss() }
+            return FrameLayout(this).apply {
+                setPadding(dp(3), dp(3), dp(3), dp(3))
+                background = GradientDrawable().apply { setColor(Color.TRANSPARENT); cornerRadius = dp(10).toFloat(); setStroke(dp(if (sel) 3 else 0), Color.parseColor("#2AA8FF")) }
+                addView(v, FrameLayout.LayoutParams(dp(68), dp(120)))
+            }
+        }
+        picRow.addView(tile(0))
+        for (n in 1..bgCount) if (bgResId(n) != 0) picRow.addView(tile(n))
+        box.add(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(picRow) }, 8)
         box.add(TextView(this).apply {
             text = "This project uses software from Haibin Wen and SUNNYPILOT LLC and is licensed under a custom license requiring permission for use."
             textSize = 11f; setTextColor(Color.GRAY)
@@ -957,7 +1016,7 @@ class MainActivity : Activity() {
     private fun applyDashTheme(day: Boolean) {
         dashRoot.background = if (day)
             GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#FFFFFF"), Color.parseColor("#E6ECF4")))
-        else GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#04070D"), Color.parseColor("#0B1626")))
+        else bgDrawable(Color.argb(120, 0, 0, 0)) ?: GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#04070D"), Color.parseColor("#0B1626")))
         dashSpeedGauge.day = day; dashPowerGauge.day = day; dashStrip.day = day; dashStrip.invalidate()
         val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
         dashHeading.setTextColor(ink)
@@ -2307,4 +2366,31 @@ class SpeedSignView(ctx: Context) : View(ctx) {
             fitText(c, number, cx, h * 0.84f, h * 0.38f, sw * 0.78f, bold)
         }
     }
+}
+
+/** A picture drawn to fill its bounds (cropped, never stretched), with a dark layer on top so text stays readable. */
+class CoverDrawable(private val bmp: android.graphics.Bitmap, private val scrim: Int) : android.graphics.drawable.Drawable() {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val src = android.graphics.Rect()
+
+    override fun draw(c: Canvas) {
+        val b = bounds
+        if (b.width() <= 0 || b.height() <= 0) return
+        val bw = bmp.width.toFloat()
+        val bh = bmp.height.toFloat()
+        val boundsRatio = b.width().toFloat() / b.height()
+        val cropW: Float
+        val cropH: Float
+        if (boundsRatio > bw / bh) { cropW = bw; cropH = bw / boundsRatio } else { cropH = bh; cropW = bh * boundsRatio }
+        val l = ((bw - cropW) / 2f).toInt()
+        val t = ((bh - cropH) / 2f).toInt()
+        src.set(l, t, l + cropW.toInt(), t + cropH.toInt())
+        c.drawBitmap(bmp, src, b, paint)
+        c.drawColor(scrim)
+    }
+
+    override fun setAlpha(alpha: Int) { paint.alpha = alpha }
+    override fun setColorFilter(cf: android.graphics.ColorFilter?) { paint.colorFilter = cf }
+    @Suppress("OVERRIDE_DEPRECATION")
+    override fun getOpacity(): Int = android.graphics.PixelFormat.OPAQUE
 }
