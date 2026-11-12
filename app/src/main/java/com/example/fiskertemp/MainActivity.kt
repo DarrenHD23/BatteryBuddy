@@ -625,6 +625,13 @@ class MainActivity : Activity() {
             updateDashTheme(true)
         }
         box.add(rtg, 6)
+        box.add(TextView(this).apply { text = "Speed limit sign style"; textSize = 14f; setTextColor(Color.DKGRAY) }, 20)
+        val curSign = prefs().getString("signStyle", "us")
+        val sus = RadioButton(this).apply { text = "USA / Canada (rectangle)"; id = View.generateViewId(); isChecked = curSign != "eu" }
+        val seu = RadioButton(this).apply { text = "Europe / UK (round, red ring)"; id = View.generateViewId(); isChecked = curSign == "eu" }
+        val sgp = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL; addView(sus); addView(seu) }
+        sgp.setOnCheckedChangeListener { _, checkedId -> prefs().edit().putString("signStyle", if (checkedId == seu.id) "eu" else "us").apply() }
+        box.add(sgp, 6)
         box.add(TextView(this).apply { text = "Speed unit"; textSize = 14f; setTextColor(Color.DKGRAY) }, 20)
         val kmh = RadioButton(this).apply { text = "km/h"; id = View.generateViewId(); isChecked = !speedMph() }
         val mph = RadioButton(this).apply { text = "mph"; id = View.generateViewId(); isChecked = speedMph() }
@@ -742,6 +749,10 @@ class MainActivity : Activity() {
     private var lightShown = false
     private lateinit var exitBtn: Button
     private lateinit var dashStrip: StatusStripView
+    private lateinit var dashSign: SpeedSignView
+    private var signShown = false
+    private var signSeenAt = 0L
+    private var signText = ""
     private lateinit var dashDebug: TextView
     private var dbgMinA = 0.0
     private var dbgMaxA = 0.0
@@ -784,6 +795,7 @@ class MainActivity : Activity() {
         dashSpeedGauge = ArcGaugeView(this, true, 0f) { t -> grad(t) }
             .apply { topLabel = "BATTERY TEMP"; title = "SPEED"; unit = "km/h"; bottomLabel = "BATTERY" }
         val light = Typeface.create("sans-serif-light", Typeface.NORMAL)
+        dashSign = SpeedSignView(this).apply { alpha = 0f }
         dashLight = TrafficLightView(this).apply { alpha = 0f }
         dashLightDist = TextView(this).apply {
             textSize = 15f; setTextColor(Color.argb(200, 255, 255, 255)); typeface = light; gravity = Gravity.CENTER; alpha = 0f
@@ -813,10 +825,11 @@ class MainActivity : Activity() {
         }
         val mid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
-            addView(dashLight, LinearLayout.LayoutParams(dp(46), dp(100)).apply { topMargin = dp(6) })
+            addView(dashLight, LinearLayout.LayoutParams(dp(42), dp(88)).apply { topMargin = dp(4) })
             addView(dashLightDist, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
             addView(dashBrake, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
             addView(dashHeading, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+            addView(dashSign, LinearLayout.LayoutParams(dp(64), dp(64)).apply { topMargin = dp(8) })
             addView(dashInfo, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             addView(dashDebug, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         }
@@ -947,6 +960,27 @@ class MainActivity : Activity() {
             "12V SOC" to (s.soc12?.let { String.format("%.0f %%", it) } ?: "--"),
         ))
         val nowMs = System.currentTimeMillis()
+        // speed limit sign: shown in the dashboard's own speed unit; fades in and out with the car's knowledge of the limit
+        val lim = s.limit
+        if (lim != null) {
+            val mphWanted = speedMph()
+            val shownLim = when {
+                s.limitMph == mphWanted -> lim
+                mphWanted -> Math.round(lim * 0.621371 / 5.0).toInt() * 5     // km/h -> mph, to the nearest 5
+                else -> Math.round(lim * 1.609344 / 5.0).toInt() * 5          // mph -> km/h, to the nearest 5
+            }
+            signText = shownLim.toString()
+            signSeenAt = nowMs
+            dashSign.number = signText
+            dashSign.metric = !mphWanted
+            dashSign.euro = prefs().getString("signStyle", "us") == "eu"
+            dashSign.invalidate()
+        }
+        val signSeen = lim != null || nowMs - signSeenAt < 1500
+        if (signSeen != signShown) {
+            signShown = signSeen
+            dashSign.animate().alpha(if (signSeen) 1f else 0f).setDuration(if (signSeen) 250L else 700L).start()
+        }
         val lc = s.lightColor
         if (lc != null) { lightColor = lc; lightSeenAt = nowMs; dashLight.setColor(lc) }
         val seen = lc != null || nowMs - lightSeenAt < 1500   // brief hold so one missed frame does not flicker
@@ -1609,6 +1643,59 @@ class StatusStripView(ctx: Context) : View(ctx) {
             fit(it.first.uppercase(), h * 0.19f, colW * 0.92f, light, grey, cx, h * 0.40f, c)
             fit(it.second, h * 0.36f, colW * 0.92f, medium, ink, cx, h * 0.82f, c)
             if (i > 0) c.drawLine(x0 + colW * i, h * 0.28f, x0 + colW * i, h * 0.90f, div)
+        }
+    }
+}
+
+/** A speed limit sign: a US/Canada rectangle, or a Euro/UK round sign with a red ring. */
+class SpeedSignView(ctx: Context) : View(ctx) {
+    var number = ""
+    var euro = false
+    var metric = true      // Canada says MAXIMUM (km/h); the US says SPEED LIMIT (mph)
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val rect = RectF()
+
+    private fun fitText(c: Canvas, s: String, cx: Float, base: Float, size: Float, maxW: Float, tf: Typeface) {
+        p.style = Paint.Style.FILL; p.textAlign = Paint.Align.CENTER; p.typeface = tf; p.color = Color.BLACK
+        p.textSize = size
+        val w = p.measureText(s)
+        if (w > maxW) p.textSize = size * maxW / w
+        c.drawText(s, cx, base, p)
+    }
+
+    override fun onDraw(c: Canvas) {
+        if (number.isEmpty()) return
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val bold = Typeface.create("sans-serif", Typeface.BOLD)
+        val cond = Typeface.create("sans-serif-condensed", Typeface.BOLD)
+        if (euro) {
+            val d = minOf(w, h)
+            val cx = w / 2
+            val cy = h / 2
+            p.style = Paint.Style.FILL; p.color = Color.WHITE
+            c.drawCircle(cx, cy, d / 2, p)
+            p.style = Paint.Style.STROKE; p.color = Color.parseColor("#D8202A"); p.strokeWidth = d * 0.13f
+            c.drawCircle(cx, cy, d / 2 - d * 0.065f, p)
+            val size = if (number.length >= 3) d * 0.34f else d * 0.46f
+            fitText(c, number, cx, cy + size * 0.35f, size, d * 0.66f, cond)
+        } else {
+            val sw = h * 0.80f
+            val x0 = (w - sw) / 2
+            p.style = Paint.Style.FILL; p.color = Color.WHITE
+            rect.set(x0, 0f, x0 + sw, h)
+            c.drawRoundRect(rect, sw * 0.12f, sw * 0.12f, p)
+            p.style = Paint.Style.STROKE; p.color = Color.BLACK; p.strokeWidth = sw * 0.05f
+            rect.set(x0 + sw * 0.07f, h * 0.05f, x0 + sw * 0.93f, h * 0.95f)
+            c.drawRoundRect(rect, sw * 0.08f, sw * 0.08f, p)
+            val cx = w / 2
+            if (metric) {
+                fitText(c, "MAXIMUM", cx, h * 0.27f, h * 0.15f, sw * 0.78f, bold)
+            } else {
+                fitText(c, "SPEED", cx, h * 0.25f, h * 0.15f, sw * 0.78f, bold)
+                fitText(c, "LIMIT", cx, h * 0.40f, h * 0.15f, sw * 0.78f, bold)
+            }
+            fitText(c, number, cx, h * 0.84f, h * 0.38f, sw * 0.78f, bold)
         }
     }
 }
