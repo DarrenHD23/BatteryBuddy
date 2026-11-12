@@ -752,7 +752,7 @@ class MainActivity : Activity() {
         dashPowerGauge = ArcGaugeView(this, false, 0.2f) { t -> grad(t) }
             .apply { topLabel = "CLIMATE"; title = "POWER"; unit = "kW"; bottomLabel = "CHARGE" }
         dashSpeedGauge = ArcGaugeView(this, true, 0f) { t -> grad(t) }
-            .apply { topLabel = "BATTERY TEMP"; title = "SPEED"; unit = "km/h"; bottomLabel = "HEAT PUMP" }
+            .apply { topLabel = "BATTERY TEMP"; title = "SPEED"; unit = "km/h"; bottomLabel = "BATTERY" }
         val light = Typeface.create("sans-serif-light", Typeface.NORMAL)
         dashLight = TrafficLightView(this).apply { alpha = 0f }
         dashLightDist = TextView(this).apply {
@@ -830,12 +830,13 @@ class MainActivity : Activity() {
         dashSpeedGauge.unit = if (mph) "mph" else "km/h"
         dashSpeedGauge.setFraction(spd?.let { Math.sqrt((it / (if (mph) 100.0 else 160.0)).coerceIn(0.0, 1.0)).toFloat() })
         dashSpeedGauge.topValue = s.avgTempC?.let { fmt(it, "\u00B0C", 0) } ?: "--"
-        val comp = s.compWatts
-        dashSpeedGauge.bottomValue = when {
-            comp == null -> "--"
-            s.compState == 2 -> "fault"
-            comp > 20 -> String.format("%.1f kW", comp / 1000)
-            else -> "off"
+        // high-voltage battery thermal state, from the BMS: heating orange, cooling blue
+        when (s.thermalDemand) {
+            1 -> { dashSpeedGauge.bottomValue = "Heating"; dashSpeedGauge.bottomColor = Color.parseColor("#FF8A1F") }
+            2 -> { dashSpeedGauge.bottomValue = "Cooling"; dashSpeedGauge.bottomColor = Color.parseColor("#2AA8FF") }
+            3 -> { dashSpeedGauge.bottomValue = "Idle"; dashSpeedGauge.bottomColor = Color.WHITE }
+            0 -> { dashSpeedGauge.bottomValue = "Starting"; dashSpeedGauge.bottomColor = Color.WHITE }
+            else -> { dashSpeedGauge.bottomValue = "--"; dashSpeedGauge.bottomColor = Color.WHITE }
         }
         dashSpeedGauge.refresh()
 
@@ -1273,7 +1274,7 @@ class SocBarView(ctx: Context) : View(ctx) {
 class ArcGaugeView(ctx: Context, private val mirrored: Boolean, private val zeroFrac: Float, private val colorAt: (Float) -> Int) : View(ctx) {
     var topLabel = ""; var topValue = ""
     var title = ""; var valueText = "--"; var unit = ""
-    var bottomLabel = ""; var bottomValue = ""
+    var bottomLabel = ""; var bottomValue = ""; var bottomColor = Color.WHITE
     var barFrac: Float? = null
     private var shown = 0f
     private var target = 0f
@@ -1367,7 +1368,7 @@ class ArcGaugeView(ctx: Context, private val mirrored: Boolean, private val zero
         text(valueText, cx, cy + r * 0.13f, r * 0.40f, Color.WHITE, lightItalic)
         text(unit, cx, cy + r * 0.34f, r * 0.14f, Color.parseColor("#2AA8FF"), medium)
         text(bottomLabel, cx, cy + r * 0.50f, r * 0.085f, grey, light)
-        text(bottomValue, cx, cy + r * 0.62f, r * 0.12f, Color.WHITE, lightItalic)
+        text(bottomValue, cx, cy + r * 0.62f, r * 0.12f, bottomColor, lightItalic)
         val bf = barFrac
         if (bf != null) {
             val bw = r * 0.5f
