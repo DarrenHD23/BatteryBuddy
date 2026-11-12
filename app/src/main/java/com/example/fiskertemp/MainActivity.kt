@@ -741,14 +741,11 @@ class MainActivity : Activity() {
             if (x < 0.5f) mix(blue, violet, x / 0.5f) else mix(violet, pink, (x - 0.5f) / 0.5f)
         }.apply { topLabel = "BATTERY TEMP"; title = "SPEED"; unit = "km/h"; bottomLabel = "HEAT PUMP" }
         // power: green for regen, then blue through violet and pink to red
-        dashPowerGauge = ArcGaugeView(this, true, 0.2f) { x ->
-            if (x < 0.2f) Color.parseColor("#2ECC71") else {
-                val t = (x - 0.2f) / 0.8f
-                when {
-                    t < 0.33f -> mix(blue, violet, t / 0.33f)
-                    t < 0.66f -> mix(violet, pink, (t - 0.33f) / 0.33f)
-                    else -> mix(pink, red, (t - 0.66f) / 0.34f)
-                }
+        dashPowerGauge = ArcGaugeView(this, true, 0.2f) { t ->
+            when {
+                t < 0.33f -> mix(blue, violet, t / 0.33f)
+                t < 0.66f -> mix(violet, pink, (t - 0.33f) / 0.33f)
+                else -> mix(pink, red, (t - 0.66f) / 0.34f)
             }
         }.apply { topLabel = "CLIMATE"; title = "POWER"; unit = "kW"; bottomLabel = "CHARGE" }
         val light = Typeface.create("sans-serif-light", Typeface.NORMAL)
@@ -1297,7 +1294,12 @@ class ArcGaugeView(ctx: Context, private val mirrored: Boolean, private val zero
             val s0 = maxOf(a0, lo * sweep)
             val s1 = minOf(a1, hi * sweep)
             if (has && s1 > s0) {
-                val col = colorAt((f0 + f1) / 2)
+                val rel = if (hi > lo) (((f0 + f1) / 2 - lo) / (hi - lo)).coerceIn(0f, 1f) else 0f
+                val col = if (shown < zeroFrac) {
+                    // regen: green fading to teal, away from the zero mark
+                    val k = 1f - rel
+                    Color.rgb((46 + (31 - 46) * k).toInt(), (204 + (163 - 204) * k).toInt(), (113 + (122 - 113) * k).toInt())
+                } else colorAt(rel)
                 arc.strokeWidth = stroke * 1.6f
                 arc.color = Color.argb(55, Color.red(col), Color.green(col), Color.blue(col))
                 c.drawArc(rect, start + dir * s0, dir * (s1 - s0), false, arc)
@@ -1307,17 +1309,17 @@ class ArcGaugeView(ctx: Context, private val mirrored: Boolean, private val zero
             }
         }
         val grey = Color.argb(150, 255, 255, 255)
-        text(topLabel, cx, cy - r * 0.62f, r * 0.085f, grey, light)
-        text(topValue, cx, cy - r * 0.50f, r * 0.12f, Color.WHITE, lightItalic)
-        text(title, cx, cy - r * 0.26f, r * 0.13f, grey, lightItalic)
-        text(valueText, cx, cy + r * 0.15f, r * 0.42f, Color.WHITE, lightItalic)
-        text(unit, cx, cy + r * 0.38f, r * 0.14f, Color.parseColor("#2AA8FF"), medium)
-        text(bottomLabel, cx, cy + r * 0.55f, r * 0.085f, grey, light)
-        text(bottomValue, cx, cy + r * 0.67f, r * 0.12f, Color.WHITE, lightItalic)
+        text(topLabel, cx, cy - r * 0.60f, r * 0.085f, grey, light)
+        text(topValue, cx, cy - r * 0.48f, r * 0.12f, Color.WHITE, lightItalic)
+        text(title, cx, cy - r * 0.25f, r * 0.13f, grey, lightItalic)
+        text(valueText, cx, cy + r * 0.13f, r * 0.40f, Color.WHITE, lightItalic)
+        text(unit, cx, cy + r * 0.34f, r * 0.14f, Color.parseColor("#2AA8FF"), medium)
+        text(bottomLabel, cx, cy + r * 0.50f, r * 0.085f, grey, light)
+        text(bottomValue, cx, cy + r * 0.62f, r * 0.12f, Color.WHITE, lightItalic)
         val bf = barFrac
         if (bf != null) {
-            val bw = r * 0.7f
-            val by = cy + r * 0.77f
+            val bw = r * 0.5f
+            val by = cy + r * 0.70f
             arc.style = Paint.Style.FILL
             arc.color = Color.argb(50, 255, 255, 255)
             rect.set(cx - bw / 2, by, cx + bw / 2, by + r * 0.045f)
