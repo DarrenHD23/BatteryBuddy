@@ -565,10 +565,17 @@ class MainActivity : Activity() {
             setPadding(dp(20), 0, dp(20), 0)
             setOnClickListener { showDashboard(!dashShown) }
         }
+        exitBtn = Button(this).apply {
+            text = "Exit App"; isAllCaps = false; setTextColor(Color.WHITE); textSize = 15f
+            background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(22).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
+            setPadding(dp(20), 0, dp(20), 0)
+            setOnClickListener { pulse?.stop(); finishAndRemoveTask() }
+        }
         val container = FrameLayout(this)
         container.addView(rootScroll, FrameLayout.LayoutParams(-1, -1))
         container.addView(dashRoot, FrameLayout.LayoutParams(-1, -1))
         container.addView(dashBtn, FrameLayout.LayoutParams(-2, dp(44), Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(16), 0, 0, dp(16)) })
+        container.addView(exitBtn, FrameLayout.LayoutParams(-2, dp(44), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(16), dp(16)) })
         setContentView(container)
         applyTheme(getSharedPreferences("prefs", MODE_PRIVATE).getInt("theme", 0).coerceIn(0, THEMES.size - 1))
     }
@@ -607,6 +614,17 @@ class MainActivity : Activity() {
         rg.setOnCheckedChangeListener { _, checkedId -> setFahrenheit(checkedId == rf.id) }
         box.add(rg, 6)
 
+        box.add(TextView(this).apply { text = "Dashboard theme"; textSize = 14f; setTextColor(Color.DKGRAY) }, 20)
+        val cur = prefs().getString("dispTheme", "night")
+        val rn = RadioButton(this).apply { text = "Night (dark)"; id = View.generateViewId(); isChecked = cur == "night" }
+        val rd = RadioButton(this).apply { text = "Day (light)"; id = View.generateViewId(); isChecked = cur == "day" }
+        val ra = RadioButton(this).apply { text = "Follow the headlights (on = night, off = day)"; id = View.generateViewId(); isChecked = cur == "auto" }
+        val rtg = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL; addView(rn); addView(rd); addView(ra) }
+        rtg.setOnCheckedChangeListener { _, checkedId ->
+            prefs().edit().putString("dispTheme", when (checkedId) { rd.id -> "day"; ra.id -> "auto"; else -> "night" }).apply()
+            updateDashTheme(true)
+        }
+        box.add(rtg, 6)
         box.add(TextView(this).apply { text = "Speed unit"; textSize = 14f; setTextColor(Color.DKGRAY) }, 20)
         val kmh = RadioButton(this).apply { text = "km/h"; id = View.generateViewId(); isChecked = !speedMph() }
         val mph = RadioButton(this).apply { text = "mph"; id = View.generateViewId(); isChecked = speedMph() }
@@ -718,6 +736,10 @@ class MainActivity : Activity() {
     private var lightColor = 0
     private var lightSeenAt = 0L
     private var lightShown = false
+    private lateinit var exitBtn: Button
+    private var dashDay = false
+    private var dayPending = false
+    private var dayPendingSince = 0L
     private lateinit var dashInfo: TextView
     private lateinit var dashHeading: TextView
     private lateinit var dashMode: TextView
@@ -803,6 +825,36 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Day or night for the dashboard, from the setting (and the headlights when set to follow them). */
+    private fun wantDay(): Boolean = when (prefs().getString("dispTheme", "night")) {
+        "day" -> true
+        "auto" -> canSnap.headlights == false   // lights off = day; on or unknown = night
+        else -> false
+    }
+
+    private fun updateDashTheme(force: Boolean = false) {
+        val want = wantDay()
+        val now = System.currentTimeMillis()
+        if (want != dayPending) { dayPending = want; dayPendingSince = now }
+        // headlights must hold their state for 1.5 s before the theme flips; a setting change is immediate
+        if (want != dashDay && (force || now - dayPendingSince > 1500 || prefs().getString("dispTheme", "night") != "auto")) {
+            dashDay = want
+            applyDashTheme(want)
+        }
+    }
+
+    private fun applyDashTheme(day: Boolean) {
+        dashRoot.background = if (day)
+            GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#FFFFFF"), Color.parseColor("#E6ECF4")))
+        else GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#04070D"), Color.parseColor("#0B1626")))
+        dashSpeedGauge.day = day; dashPowerGauge.day = day
+        val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
+        dashHeading.setTextColor(ink)
+        dashLightDist.setTextColor(if (day) Color.argb(200, 20, 32, 46) else Color.argb(200, 255, 255, 255))
+        dashInfo.setTextColor(if (day) Color.parseColor("#2A6FB0") else Color.argb(200, 120, 190, 255))
+        dashSpeedGauge.refresh(); dashPowerGauge.refresh()
+    }
+
     private fun showDashboard(on: Boolean) {
         dashShown = on
         ui.removeCallbacks(dashTick)
@@ -814,6 +866,7 @@ class MainActivity : Activity() {
             @Suppress("DEPRECATION")
             window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
                 View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            updateDashTheme(true)
             ui.post(dashTick)
         } else {
             actionBar?.show()
@@ -834,9 +887,9 @@ class MainActivity : Activity() {
         when (s.thermalDemand) {
             1 -> { dashSpeedGauge.bottomValue = "Heating"; dashSpeedGauge.bottomColor = Color.parseColor("#FF8A1F") }
             2 -> { dashSpeedGauge.bottomValue = "Cooling"; dashSpeedGauge.bottomColor = Color.parseColor("#2AA8FF") }
-            3 -> { dashSpeedGauge.bottomValue = "Idle"; dashSpeedGauge.bottomColor = Color.WHITE }
-            0 -> { dashSpeedGauge.bottomValue = "Starting"; dashSpeedGauge.bottomColor = Color.WHITE }
-            else -> { dashSpeedGauge.bottomValue = "--"; dashSpeedGauge.bottomColor = Color.WHITE }
+            3 -> { dashSpeedGauge.bottomValue = "Idle"; dashSpeedGauge.bottomColor = null }
+            0 -> { dashSpeedGauge.bottomValue = "Starting"; dashSpeedGauge.bottomColor = null }
+            else -> { dashSpeedGauge.bottomValue = "--"; dashSpeedGauge.bottomColor = null }
         }
         dashSpeedGauge.refresh()
 
@@ -855,6 +908,7 @@ class MainActivity : Activity() {
         dashPowerGauge.refresh()
 
         dashBrake.visibility = if (s.brakeBcm ?: s.brakeVcu ?: false) View.VISIBLE else View.INVISIBLE
+        updateDashTheme()
         val nowMs = System.currentTimeMillis()
         val lc = s.lightColor
         if (lc != null) { lightColor = lc; lightSeenAt = nowMs; dashLight.setColor(lc) }
@@ -1274,7 +1328,8 @@ class SocBarView(ctx: Context) : View(ctx) {
 class ArcGaugeView(ctx: Context, private val mirrored: Boolean, private val zeroFrac: Float, private val colorAt: (Float) -> Int) : View(ctx) {
     var topLabel = ""; var topValue = ""
     var title = ""; var valueText = "--"; var unit = ""
-    var bottomLabel = ""; var bottomValue = ""; var bottomColor = Color.WHITE
+    var bottomLabel = ""; var bottomValue = ""; var bottomColor: Int? = null
+    var day = false
     var barFrac: Float? = null
     private var shown = 0f
     private var target = 0f
@@ -1328,7 +1383,7 @@ class ArcGaugeView(ctx: Context, private val mirrored: Boolean, private val zero
         val sweep = 210f
         // thin outer ring
         arc.strokeWidth = 2f
-        arc.color = Color.argb(60, 255, 255, 255)
+        arc.color = if (day) Color.argb(70, 20, 32, 46) else Color.argb(60, 255, 255, 255)
         rect.set(cx - r - stroke * 0.5f, cy - r - stroke * 0.5f, cx + r + stroke * 0.5f, cy + r + stroke * 0.5f)
         c.drawArc(rect, start - dir * 6f, dir * (sweep + 12f), false, arc)
         rect.set(cx - rr, cy - rr, cx + rr, cy + rr)
@@ -1342,7 +1397,7 @@ class ArcGaugeView(ctx: Context, private val mirrored: Boolean, private val zero
             val a0 = f0 * sweep + gap / 2
             val a1 = f1 * sweep - gap / 2
             arc.strokeWidth = stroke
-            arc.color = Color.argb(46, 255, 255, 255)
+            arc.color = if (day) Color.argb(34, 20, 32, 46) else Color.argb(46, 255, 255, 255)
             c.drawArc(rect, start + dir * a0, dir * (a1 - a0), false, arc)
             val s0 = maxOf(a0, lo * sweep)
             val s1 = minOf(a1, hi * sweep)
@@ -1361,20 +1416,21 @@ class ArcGaugeView(ctx: Context, private val mirrored: Boolean, private val zero
                 c.drawArc(rect, start + dir * s0, dir * (s1 - s0), false, arc)
             }
         }
-        val grey = Color.argb(150, 255, 255, 255)
+        val grey = if (day) Color.argb(165, 20, 32, 46) else Color.argb(150, 255, 255, 255)
+        val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
         text(topLabel, cx, cy - r * 0.60f, r * 0.085f, grey, light)
-        text(topValue, cx, cy - r * 0.48f, r * 0.12f, Color.WHITE, lightItalic)
+        text(topValue, cx, cy - r * 0.48f, r * 0.12f, ink, lightItalic)
         text(title, cx, cy - r * 0.25f, r * 0.13f, grey, lightItalic)
-        text(valueText, cx, cy + r * 0.13f, r * 0.40f, Color.WHITE, lightItalic)
+        text(valueText, cx, cy + r * 0.13f, r * 0.40f, ink, lightItalic)
         text(unit, cx, cy + r * 0.34f, r * 0.14f, Color.parseColor("#2AA8FF"), medium)
         text(bottomLabel, cx, cy + r * 0.50f, r * 0.085f, grey, light)
-        text(bottomValue, cx, cy + r * 0.62f, r * 0.12f, bottomColor, lightItalic)
+        text(bottomValue, cx, cy + r * 0.62f, r * 0.12f, bottomColor ?: ink, lightItalic)
         val bf = barFrac
         if (bf != null) {
             val bw = r * 0.5f
             val by = cy + r * 0.70f
             arc.style = Paint.Style.FILL
-            arc.color = Color.argb(50, 255, 255, 255)
+            arc.color = if (day) Color.argb(34, 20, 32, 46) else Color.argb(50, 255, 255, 255)
             rect.set(cx - bw / 2, by, cx + bw / 2, by + r * 0.045f)
             c.drawRoundRect(rect, 6f, 6f, arc)
             arc.color = Color.parseColor("#2AA8FF")
