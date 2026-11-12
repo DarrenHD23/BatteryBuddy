@@ -31,6 +31,8 @@ data class CanSnapshot(
     val sohPct: Int? = null,           // % (0x2F5, byte 5)
     val packVolts: Double? = null,     // V (0xE9 on IBUS2, bytes 6-7)  needs the chip filters opened
     val packAmps: Double? = null,      // A (0xE9 on IBUS2, bytes 4-5, signed)
+    val brakeBcm: Boolean? = null,     // brake lamp output command (0x335 on IBUS1, byte 5 bit 7)
+    val brakeVcu: Boolean? = null,     // stop lamp request from the drive unit (0x234 on IBUS1, byte 1 bit 6)
     val driveMode: Int? = null,        // 0 Earth, 1 Fun, 2 Hyper (0x234 on IBUS1, byte 7 bits 5-3)
     val regenKwh: Double = 0.0,        // energy put back into the battery while moving, this drive (from 0xE9 and 0x318)
     val headingDeg: Double? = null,    // compass heading, degrees from north (0x179 on IBUS1, bytes 2-3, 0.01 per bit)
@@ -94,7 +96,7 @@ class PulseCan(
         val dir = File("/sys/module/mcp251x/parameters")
         if (!dir.isDirectory) return "no mcp251x driver parameters on this device"
         val plan = listOf(
-            Triple(0, "0x7FF,0x7FF", listOf(0x382, 0x2F5, 0x318, 0x179, 0x234, 0x234).joinToString(",")),
+            Triple(0, "0x7FF,0x7FF", listOf(0x382, 0x2F5, 0x318, 0x179, 0x234, 0x335).joinToString(",")),
             Triple(1, "0x7FF,0x7FF", listOf(0x0E9, 0x1A9, 0x491, 0x491, 0x491, 0x491).joinToString(",")),
         )
         fun dec(csv: String) = csv.split(',').joinToString(",") { Integer.decode(it.trim()).toString() }
@@ -142,7 +144,7 @@ class PulseCan(
                 // receive only: no "tx:" arguments
                 val why = openFilters()
                 onStatus(if (why == null) "CAN filters opened for climate frames" else "CAN filters not changed: $why")
-                val args = listOf(bin, "$b1=382,2F5,318,179,234", "$b2=0E9,1A9,491")
+                val args = listOf(bin, "$b1=382,2F5,318,179,234,335", "$b2=0E9,1A9,491")
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
@@ -221,7 +223,11 @@ class PulseCan(
         // 0x234 VCU_0x234 (IBUS1): VCU_DrvModSigFb 0 Eco (Earth), 1 Normal (Fun), 2 Sport (Hyper), 7 invalid
         if (bus == 1 && id == 0x234) {
             val m = (b[7] shr 3) and 7
-            return s.copy(driveMode = if (m <= 2) m else null)
+            return s.copy(driveMode = if (m <= 2) m else null, brakeVcu = ((b[1] shr 6) and 1) == 1)
+        }
+        // 0x335 BCM_0x335 (IBUS1): BCM_BrkLampOutpCmd, the brake lamp output command (1 = on)
+        if (bus == 1 && id == 0x335) {
+            return s.copy(brakeBcm = ((b[5] shr 7) and 1) == 1)
         }
         // 0x179 TBOX_0x179 (IBUS1, every 100 ms): vehicle heading, 0.01 degrees per bit
         if (bus == 1 && id == 0x179) {
