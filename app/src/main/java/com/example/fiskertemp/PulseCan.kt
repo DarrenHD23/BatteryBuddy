@@ -31,6 +31,7 @@ data class CanSnapshot(
     val sohPct: Int? = null,           // % (0x2F5, byte 5)
     val packVolts: Double? = null,     // V (0xE9 on IBUS2, bytes 6-7)  needs the chip filters opened
     val packAmps: Double? = null,      // A (0xE9 on IBUS2, bytes 4-5, signed)
+    val headlights: Boolean? = null,   // low beam, high beam or position lamps on (0x335 on IBUS1, byte 5 bits 6-3)
     val lightColor: Int? = null,       // traffic light the car sees ahead: 1 red, 2 amber, 3 green (0x210 on IBUS2); null = none
     val lightDistM: Int? = null,       // distance to it in metres (0x351 on IBUS2, byte 6)
     val brakeBcm: Boolean? = null,     // brake lamp output command (0x335 on IBUS1, byte 5 bit 7)
@@ -229,7 +230,8 @@ class PulseCan(
         }
         // 0x335 BCM_0x335 (IBUS1): BCM_BrkLampOutpCmd, the brake lamp output command (1 = on)
         if (bus == 1 && id == 0x335) {
-            return s.copy(brakeBcm = ((b[5] shr 7) and 1) == 1)
+            val lamps = ((b[5] shr 3) and 1) == 1 || ((b[5] shr 4) and 1) == 1 || ((b[5] shr 5) and 3) != 0
+            return s.copy(brakeBcm = ((b[5] shr 7) and 1) == 1, headlights = lamps)
         }
         // 0x179 TBOX_0x179 (IBUS1, every 100 ms): vehicle heading, 0.01 degrees per bit
         if (bus == 1 && id == 0x179) {
