@@ -834,8 +834,6 @@ class MainActivity : Activity() {
     private lateinit var lowerBox: LinearLayout
     private lateinit var resBtn: TextView
     private var screenH = 0       // 1920 or 1784 once known
-    private var pulsePkg: String? = null
-    private var oceanPkg: String? = null
     private val lowerNames = listOf("Maps", "Spotify", "Pulse", "Oceanscape")
     private val lowerPkgs = listOf("com.google.android.apps.maps", "com.spotify.music", "", "")
     private var lowerIdx = 0
@@ -1203,27 +1201,45 @@ class MainActivity : Activity() {
         if (!p.waitFor(8, java.util.concurrent.TimeUnit.SECONDS)) { p.destroy(); "" } else out
     } catch (e: Exception) { "" }
 
-    private fun findOceanscape(): String? {
-        oceanPkg?.let { return it }
+    private val appCache = HashMap<String, String>()
+
+    /** Find an installed app by its name or package name (any app, launcher icon or not). */
+    private fun findApp(key: String, words: List<String>): String? {
+        appCache[key]?.let { return it }
         val pm = packageManager
-        val main = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        for (ri in pm.queryIntentActivities(main, 0)) {
-            val pkg = ri.activityInfo.packageName
-            if (pkg != packageName && (ri.loadLabel(pm).toString().lowercase().contains("oceanscape") || pkg.lowercase().contains("oceanscape"))) { oceanPkg = pkg; return pkg }
+        val apps = try { pm.getInstalledApplications(0) } catch (e: Exception) { emptyList() }
+        var best: String? = null
+        for (ai in apps) {
+            if (ai.packageName == packageName) continue
+            val label = try { pm.getApplicationLabel(ai).toString().lowercase() } catch (e: Exception) { "" }
+            val pkgL = ai.packageName.lowercase()
+            if (words.any { label.contains(it) }) { best = ai.packageName; break }
+            if (best == null && words.any { pkgL.contains(it) }) best = ai.packageName
         }
-        return null
+        best?.let { appCache[key] = it }
+        return best
     }
 
-    private fun findPulse(): String? {
-        pulsePkg?.let { return it }
+    private fun findOceanscape(): String? = findApp("oceanscape", listOf("oceanscape"))
+    private fun findPulse(): String? = findApp("pulse", listOf("pulse", "oceanlink"))
+
+    /** Installed packages whose name or label mentions any of [words], for the "not found" message. */
+    private fun candidates(words: List<String>): String {
         val pm = packageManager
-        val main = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        for (ri in pm.queryIntentActivities(main, 0)) {
-            val label = ri.loadLabel(pm).toString().lowercase()
-            val pkg = ri.activityInfo.packageName
-            if (pkg != packageName && (label.contains("pulse") || label.contains("oceanlink"))) { pulsePkg = pkg; return pkg }
-        }
-        return null
+        val apps = try { pm.getInstalledApplications(0) } catch (e: Exception) { emptyList() }
+        return apps.filter { ai ->
+            val l = try { pm.getApplicationLabel(ai).toString().lowercase() } catch (e: Exception) { "" }
+            words.any { l.contains(it) || ai.packageName.lowercase().contains(it) }
+        }.joinToString(", ") { it.packageName }.ifEmpty { "none" }
+    }
+
+    /** The way to start [pkg]: its normal launcher entry, a TV/car style entry, or any main activity it has. */
+    private fun launchIntentFor(pkg: String): Intent? {
+        val pm = packageManager
+        pm.getLaunchIntentForPackage(pkg)?.let { return it }
+        pm.getLeanbackLaunchIntentForPackage(pkg)?.let { return it }
+        val any = pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).setPackage(pkg), 0).firstOrNull() ?: return null
+        return Intent(Intent.ACTION_MAIN).setClassName(pkg, any.activityInfo.name)
     }
 
     /** Turn on the helper that can put this app into split screen (needs root once, to enable it). */
@@ -1264,9 +1280,12 @@ class MainActivity : Activity() {
 
     private fun launchLower(i: Int) {
         val pkg = when (i) { 2 -> findPulse(); 3 -> findOceanscape(); else -> lowerPkgs[i] }
-        if (pkg == null) { toast("The ${lowerNames[i]} app was not found on this device"); return }
+        val words = if (i == 2) listOf("pulse", "oceanlink") else listOf("oceanscape")
+        if (pkg == null) { toast("The ${lowerNames[i]} app was not found on this device. Similar installed apps: " + (if (i >= 2) candidates(words + listOf("ocean", "fisker")) else "none")); return }
         val flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT
-        val tries = mutableListOf(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(pkg))
+        val tries = mutableListOf<Intent>()
+        launchIntentFor(pkg)?.let { tries.add(it) }
+        tries.add(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(pkg))
         if (i == 0) tries.add(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=")))
         for (t in tries) {
             try {
@@ -1277,7 +1296,12 @@ class MainActivity : Activity() {
                 return
             } catch (e: Exception) { /* try the next one */ }
         }
-        toast("${lowerNames[i]} was not found on this device")
+        // last resort: start it through root (it comes up as a normal window)
+        if (i >= 2) {
+            Thread { rootRun("monkey -p $pkg -c android.intent.category.LAUNCHER 1") }.start()
+            lowerIdx = i; prefs().edit().putInt("lowerApp", i).apply(); paintLowerTabs()
+            toast("Starting ${lowerNames[i]} ($pkg) through root")
+        } else toast("${lowerNames[i]} could not be started")
     }
 
     /** Read the screen size (wm size) and show it on the button. */
