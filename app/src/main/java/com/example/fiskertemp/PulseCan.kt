@@ -71,6 +71,36 @@ class PulseCan(
         }
     }
 
+    /**
+     * The Pulse's CAN chips only let through the IDs their acceptance filters allow, and the defaults
+     * block 0x491 (compressor). This programs exact filters for just the IDs this app reads
+     * (chip 0 = IBUS1, chip 1 = IBUS2), the same driver parameters the sunnypilot HwFilters code uses.
+     * It only changes what is RECEIVED; nothing is sent. Needs root. Returns null on success, else why not.
+     */
+    private fun openFilters(): String? {
+        val dir = File("/sys/module/mcp251x/parameters")
+        if (!dir.isDirectory) return "no mcp251x driver parameters on this device"
+        val plan = listOf(
+            Triple(0, "0x7FF,0x7FF", listOf(0x382, 0x2F5, 0x382, 0x382, 0x382, 0x382).joinToString(",")),
+            Triple(1, "0x7FF,0x7FF", listOf(0x0E9, 0x1A9, 0x491, 0x491, 0x491, 0x491).joinToString(",")),
+        )
+        fun dec(csv: String) = csv.split(',').joinToString(",") { Integer.decode(it.trim()).toString() }
+        val sb = StringBuilder()
+        for ((chip, mask, filt) in plan) {
+            sb.append("echo '${dec(mask)}' > ${dir.path}/rxb_mask_$chip; ")
+            sb.append("echo '${dec(filt)}' > ${dir.path}/rxb_filter_$chip; ")
+        }
+        sb.append("echo 1 > ${dir.path}/apply_filters")
+        return try {
+            val p = ProcessBuilder("su", "-c", sb.toString()).redirectErrorStream(true).start()
+            val out = p.inputStream.bufferedReader().readText()
+            if (!p.waitFor(8, java.util.concurrent.TimeUnit.SECONDS)) { p.destroy(); return "root shell timed out" }
+            if (out.contains("denied", true) || out.contains("not found", true) || p.exitValue() != 0) "root command failed: ${out.trim()}" else null
+        } catch (e: Exception) {
+            "no root shell (${e.message})"
+        }
+    }
+
     @Synchronized
     fun start() {
         if (running) return
@@ -97,6 +127,8 @@ class PulseCan(
             val startedAt = System.currentTimeMillis()
             try {
                 // receive only: no "tx:" arguments
+                val why = openFilters()
+                onStatus(if (why == null) "CAN filters opened for climate frames" else "CAN filters not changed: $why")
                 val args = listOf(bin, "$b1=382,2F5", "$b2=0E9,1A9,491")
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
