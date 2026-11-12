@@ -31,6 +31,9 @@ data class CanSnapshot(
     val sohPct: Int? = null,           // % (0x2F5, byte 5)
     val packVolts: Double? = null,     // V (0xE9 on IBUS2, bytes 6-7)  needs the chip filters opened
     val packAmps: Double? = null,      // A (0xE9 on IBUS2, bytes 4-5, signed)
+    val driveMode: Int? = null,        // 0 Earth, 1 Fun, 2 Hyper (0x234 on IBUS1, byte 7 bits 5-3)
+    val regenKwh: Double = 0.0,        // energy put back into the battery while moving, this drive (from 0xE9 and 0x318)
+    val headingDeg: Double? = null,    // compass heading, degrees from north (0x179 on IBUS1, bytes 2-3, 0.01 per bit)
     val speedKmh: Double? = null,      // vehicle speed, km/h (0x318 on IBUS1, bytes 5-6, 0.1 per bit)
     val climateKw: Double? = null,     // total power the climate system draws, kW (0x1A9 on IBUS2, bytes 2-3)
     val compState: Int? = null,        // heat-pump compressor: 0 standby, 1 working, 2 fault (0x491 on IBUS2, byte 2)
@@ -50,6 +53,15 @@ class PulseCan(
      *  with the car asleep, so a repeat does not count as the car being awake. */
     @Volatile var lastChangeAt = 0L
         private set
+
+    /** Set by the app: true if the pack current sign is the other way round (see Settings). */
+    @Volatile var flipPower = false
+    // energy put back while the car is moving (so plugging in to charge does not count)
+    @Volatile private var regenWh = 0.0
+    private var lastE9Nanos = 0L
+
+    /** Start counting regenerated energy again from zero. */
+    fun resetDrive() { regenWh = 0.0; snap = snap.copy(regenKwh = 0.0) }
 
     private val held = HashMap<String, String>()   // "bus/id" -> last payload (reader thread only)
 
@@ -82,7 +94,7 @@ class PulseCan(
         val dir = File("/sys/module/mcp251x/parameters")
         if (!dir.isDirectory) return "no mcp251x driver parameters on this device"
         val plan = listOf(
-            Triple(0, "0x7FF,0x7FF", listOf(0x382, 0x2F5, 0x318, 0x382, 0x382, 0x382).joinToString(",")),
+            Triple(0, "0x7FF,0x7FF", listOf(0x382, 0x2F5, 0x318, 0x179, 0x234, 0x234).joinToString(",")),
             Triple(1, "0x7FF,0x7FF", listOf(0x0E9, 0x1A9, 0x491, 0x491, 0x491, 0x491).joinToString(",")),
         )
         fun dec(csv: String) = csv.split(',').joinToString(",") { Integer.decode(it.trim()).toString() }
@@ -130,7 +142,7 @@ class PulseCan(
                 // receive only: no "tx:" arguments
                 val why = openFilters()
                 onStatus(if (why == null) "CAN filters opened for climate frames" else "CAN filters not changed: $why")
-                val args = listOf(bin, "$b1=382,2F5,318", "$b2=0E9,1A9,491")
+                val args = listOf(bin, "$b1=382,2F5,318,179,234", "$b2=0E9,1A9,491")
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
@@ -184,7 +196,12 @@ class PulseCan(
         for (i in bytes.indices) bytes[i] = hex.substring(i * 2, i * 2 + 2).toIntOrNull(16) ?: return
 
         val key = "$bus/$id"
-        if (held.put(key, hex) != hex) lastChangeAt = System.currentTimeMillis()
+        if (held.put(key, hex) != hex) {
+            val now = System.currentTimeMillis()
+            // nothing changed for 10 minutes: the car slept, so this is a new drive
+            if (lastChangeAt != 0L && now - lastChangeAt > 600_000L) resetDrive()
+            lastChangeAt = now
+        }
 
         val next = decode(snap, bus, id, bytes) ?: return
         snap = next
@@ -200,6 +217,16 @@ class PulseCan(
                 cellMinC = t(b[2]), cellDiffC = b[3].toDouble(), cellMaxC = t(b[4]),
                 avgTempC = t(b[5]), thermalDemand = b[6] and 0x03,
             )
+        }
+        // 0x234 VCU_0x234 (IBUS1): VCU_DrvModSigFb 0 Eco (Earth), 1 Normal (Fun), 2 Sport (Hyper), 7 invalid
+        if (bus == 1 && id == 0x234) {
+            val m = (b[7] shr 3) and 7
+            return s.copy(driveMode = if (m <= 2) m else null)
+        }
+        // 0x179 TBOX_0x179 (IBUS1, every 100 ms): vehicle heading, 0.01 degrees per bit
+        if (bus == 1 && id == 0x179) {
+            val deg = ((b[2] shl 8) or b[3]) * 0.01
+            return s.copy(headingDeg = if (deg <= 359.99) deg else null)
         }
         // 0x318 ESP_0x318 (IBUS1, every 20 ms): vehicle speed, 0.1 km/h per bit; ESP_VehSpdVld 2 = fault
         if (bus == 1 && id == 0x318) {
@@ -219,7 +246,14 @@ class PulseCan(
             val rawCur = (b[4] shl 8) or b[5]
             val cur = if (rawCur >= 0x8000) rawCur - 0x10000 else rawCur
             val volts = ((b[6] shl 8) or b[7]) * 0.01
-            return s.copy(packAmps = cur * 0.05, packVolts = volts)
+            val nowN = System.nanoTime()
+            val dt = if (lastE9Nanos == 0L) 0.0 else (nowN - lastE9Nanos) / 1e9
+            lastE9Nanos = nowN
+            var watts = volts * cur * 0.05
+            if (flipPower) watts = -watts
+            val moving = (s.speedKmh ?: 0.0) > 1.0
+            if (moving && watts < 0 && dt in 0.0..0.5) regenWh += -watts * dt / 3600.0
+            return s.copy(packAmps = cur * 0.05, packVolts = volts, regenKwh = regenWh / 1000.0)
         }
         // 0x1A9 ECC_0x1A9 (IBUS2, 100 ms): power requested by the climate system's HV parts, 0.01 kW
         if (bus == 2 && id == 0x1A9) {
