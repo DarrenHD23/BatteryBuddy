@@ -820,6 +820,7 @@ class MainActivity : Activity() {
     private var dayPending = false
     private var dayPendingSince = 0L
     private lateinit var dashRow: StatusStripView
+    private lateinit var dashReady: TextView
     private lateinit var poolBar: HorizontalScrollView
     private lateinit var poolRow: LinearLayout
     private var poolKey = ""
@@ -924,8 +925,13 @@ class MainActivity : Activity() {
             minWidth = dp(120)
             setPadding(dp(16), dp(5), dp(16), dp(5))
         }
+        dashReady = TextView(this).apply {
+            text = "READY"; textSize = 17f; letterSpacing = 0.18f; gravity = Gravity.CENTER; visibility = View.INVISIBLE
+            typeface = Typeface.create("sans-serif-black", Typeface.BOLD); setTextColor(Color.parseColor("#7CFF3A"))
+        }
         val mid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
+            addView(dashReady, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
             addView(dashLight, LinearLayout.LayoutParams(dp(42), dp(88)).apply { topMargin = dp(4) })
             addView(dashLightDist, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
             addView(dashBrake, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
@@ -1020,6 +1026,7 @@ class MainActivity : Activity() {
         dashSpeedGauge.day = day; dashPowerGauge.day = day; dashStrip.day = day; dashStrip.invalidate()
         val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
         dashHeading.setTextColor(ink)
+        dashReady.setTextColor(Color.parseColor(if (day) "#2E9E1F" else "#7CFF3A"))
         dashLightDist.setTextColor(if (day) Color.argb(200, 20, 32, 46) else Color.argb(200, 255, 255, 255))
         dashRow.day = day; dashRow.invalidate()
         dashSpeedGauge.refresh(); dashPowerGauge.refresh()
@@ -1286,8 +1293,8 @@ class MainActivity : Activity() {
             0 -> { dashSpeedGauge.bottomValue = "Starting"; dashSpeedGauge.bottomColor = null }
             else -> { dashSpeedGauge.bottomValue = "--"; dashSpeedGauge.bottomColor = null }
         }
-        dashSpeedGauge.hold = s.hold == true
-        dashSpeedGauge.ready = s.ready == true
+        dashSpeedGauge.hold = s.hold == true || s.holdEsp == true
+        dashReady.visibility = if (s.ready == true) View.VISIBLE else View.INVISIBLE
         dashSpeedGauge.refresh()
 
         val v = s.packVolts
@@ -1895,11 +1902,11 @@ class ArcGaugeView(ctx: Context, private val mirrored: Boolean, private val zero
 
     /** The auto-hold symbol (an H in a circle between two arcs) with READY in green under it, in the open side of the gauge. */
     private fun drawHoldAndReady(c: Canvas, x: Float, cy: Float, r: Float) {
-        if (!hold && !ready) return
+        if (!hold) return
         val sym = if (day) Color.parseColor("#B5532F") else Color.parseColor("#F2CBB8")
         val green = if (day) Color.parseColor("#2E9E1F") else Color.parseColor("#7CFF3A")
         val rho = r * 0.13f
-        val y = if (ready) cy - r * 0.10f else cy
+        val y = cy
         if (hold) {
             arc.style = Paint.Style.STROKE
             arc.strokeWidth = rho * 0.22f
@@ -1914,12 +1921,6 @@ class ArcGaugeView(ctx: Context, private val mirrored: Boolean, private val zero
             txt.textSize = rho * 1.25f
             txt.color = sym
             c.drawText("H", x, y + rho * 0.43f, txt)
-        }
-        if (ready) {
-            txt.typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
-            txt.textSize = r * 0.11f
-            txt.color = green
-            c.drawText("READY", x, (if (hold) y + rho * 2.5f else cy + r * 0.04f), txt)
         }
     }
 
