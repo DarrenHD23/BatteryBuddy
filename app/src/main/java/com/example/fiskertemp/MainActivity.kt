@@ -760,7 +760,7 @@ class MainActivity : Activity() {
     private var dashDay = false
     private var dayPending = false
     private var dayPendingSince = 0L
-    private lateinit var dashInfo: TextView
+    private lateinit var dashRow: StatusStripView
     private lateinit var dashHeading: TextView
     private lateinit var dashMode: TextView
     private lateinit var dashBrake: TextView
@@ -801,9 +801,8 @@ class MainActivity : Activity() {
         dashLightDist = TextView(this).apply {
             textSize = 15f; setTextColor(Color.argb(200, 255, 255, 255)); typeface = light; gravity = Gravity.CENTER; alpha = 0f
         }
-        dashInfo = TextView(this).apply {
-            textSize = 15f; setTextColor(Color.argb(200, 120, 190, 255)); typeface = light; gravity = Gravity.CENTER
-            setLineSpacing(0f, 1.25f)
+        dashRow = StatusStripView(this).apply {
+            plain = true
             setOnLongClickListener { pulse?.resetDrive(); Toast.makeText(context, "Regen counter reset", Toast.LENGTH_SHORT).show(); true }
         }
         dashHeading = TextView(this).apply {
@@ -831,7 +830,6 @@ class MainActivity : Activity() {
             addView(dashBrake, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
             addView(dashHeading, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
             addView(dashSign, LinearLayout.LayoutParams(dp(64), dp(64)).apply { topMargin = dp(8) })
-            addView(dashInfo, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             addView(dashDebug, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         }
         val row = LinearLayout(this).apply {
@@ -840,8 +838,9 @@ class MainActivity : Activity() {
             addView(mid, LinearLayout.LayoutParams(0, -1, 0.7f))
             addView(dashSpeedGauge, LinearLayout.LayoutParams(0, -1, 1.15f))
         }
-        f.addView(row, FrameLayout.LayoutParams(-1, -1).apply { setMargins(dp(8), dp(8), dp(8), dp(64)) })
+        f.addView(row, FrameLayout.LayoutParams(-1, -1).apply { setMargins(dp(8), dp(8), dp(8), dp(114)) })
         dashStrip = StatusStripView(this)
+        f.addView(dashRow, FrameLayout.LayoutParams(-1, dp(46), Gravity.BOTTOM).apply { setMargins(dp(170), 0, dp(130), dp(76)) })
         f.addView(dashStrip, FrameLayout.LayoutParams(-1, dp(62), Gravity.BOTTOM).apply { setMargins(dp(170), 0, dp(130), dp(8)) })
         f.addView(dashMode, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { setMargins(dp(12), dp(12), 0, 0) })
         return f
@@ -880,7 +879,7 @@ class MainActivity : Activity() {
         val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
         dashHeading.setTextColor(ink)
         dashLightDist.setTextColor(if (day) Color.argb(200, 20, 32, 46) else Color.argb(200, 255, 255, 255))
-        dashInfo.setTextColor(if (day) Color.parseColor("#2A6FB0") else Color.argb(200, 120, 190, 255))
+        dashRow.day = day; dashRow.invalidate()
         dashSpeedGauge.refresh(); dashPowerGauge.refresh()
     }
 
@@ -1016,7 +1015,12 @@ class MainActivity : Activity() {
         fun tc(c: Double?) = if (c == null) "--" else fmt(c, "\u00B0C", 0)
         pulse?.flipPower = prefs().getBoolean("flipPower", false)
         val rangeText = s.rangeKm?.let { if (speedMph()) String.format("%.0f mi", it * 0.621371) else String.format("%.0f km", it) } ?: "--"
-        dashInfo.text = "Range $rangeText\nRegen ${String.format("%.2f", s.regenKwh)} kWh\nCells ${tc(s.cellMinC)} \u2013 ${tc(s.cellMaxC)}\nThermal: $demand"
+        dashRow.setItems(listOf(
+            "Range" to rangeText,
+            "Regen" to String.format("%.2f kWh", s.regenKwh),
+            "Cells" to "${tc(s.cellMinC)} \u2013 ${tc(s.cellMaxC)}",
+            "Thermal" to demand,
+        ))
     }
 
     private fun applySource(pulseMode: Boolean) {
@@ -1451,13 +1455,14 @@ class ArcGaugeView(ctx: Context, private val mirrored: Boolean, private val zero
         anim?.cancel()
         sweeping = true
         has = true
-        anim = ValueAnimator.ofFloat(zeroFrac, 1f, zeroFrac).apply {
+        anim = ValueAnimator.ofFloat(0f, 1f, 0f).apply {
             duration = 2200
             interpolator = android.view.animation.AccelerateDecelerateInterpolator()
             addUpdateListener { shown = it.animatedValue as Float; invalidate() }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(a: android.animation.Animator) {
                     sweeping = false
+                    shown = zeroFrac  // nothing is filled here, so there is no jump
                     target = -1f      // force the move to the live value
                     follow()
                 }
@@ -1528,8 +1533,9 @@ class ArcGaugeView(ctx: Context, private val mirrored: Boolean, private val zero
         rect.set(cx - rr, cy - rr, cx + rr, cy + rr)
         val n = 48
         val gap = 1.2f
-        val lo = if (has) minOf(zeroFrac, shown) else 0f
-        val hi = if (has) maxOf(zeroFrac, shown) else 0f
+        // while sweeping, the arc fills from its very start (the whole regen area included) up to the sweep position
+        val lo = if (sweeping) 0f else if (has) minOf(zeroFrac, shown) else 0f
+        val hi = if (sweeping) shown else if (has) maxOf(zeroFrac, shown) else 0f
         for (i in 0 until n) {
             val f0 = i.toFloat() / n
             val f1 = (i + 1).toFloat() / n
@@ -1542,7 +1548,13 @@ class ArcGaugeView(ctx: Context, private val mirrored: Boolean, private val zero
             val s1 = minOf(a1, hi * sweep)
             if (has && s1 > s0) {
                 val rel = if (hi > lo) (((f0 + f1) / 2 - lo) / (hi - lo)).coerceIn(0f, 1f) else 0f
-                val col = if (shown < zeroFrac) {
+                val mid = (f0 + f1) / 2
+                val col = if (sweeping && zeroFrac > 0f) {
+                    if (mid < zeroFrac) {
+                        val k = 1f - mid / zeroFrac
+                        Color.rgb((46 + (31 - 46) * k).toInt(), (204 + (163 - 204) * k).toInt(), (113 + (122 - 113) * k).toInt())
+                    } else colorAt(((mid - zeroFrac) / maxOf(hi - zeroFrac, 0.001f)).coerceIn(0f, 1f))
+                } else if (shown < zeroFrac) {
                     // regen: green fading to teal, away from the zero mark
                     val k = 1f - rel
                     Color.rgb((46 + (31 - 46) * k).toInt(), (204 + (163 - 204) * k).toInt(), (113 + (122 - 113) * k).toInt())
@@ -1621,6 +1633,7 @@ class TrafficLightView(ctx: Context) : View(ctx) {
 /** A row of titled readouts under a line that runs across the top and tapers down at both ends. */
 class StatusStripView(ctx: Context) : View(ctx) {
     var day = false
+    var plain = false     // no outline or panel, just the readouts and dividers
     private var items: List<Pair<String, String>> = emptyList()
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
@@ -1645,7 +1658,7 @@ class StatusStripView(ctx: Context) : View(ctx) {
         val w = width.toFloat()
         val h = height.toFloat()
         if (w <= 0f || h <= 0f || items.isEmpty()) return
-        val taper = minOf(h * 0.55f, w * 0.06f)
+        val taper = if (plain) 0f else minOf(h * 0.55f, w * 0.06f)
         val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
         val grey = if (day) Color.argb(160, 20, 32, 46) else Color.argb(150, 255, 255, 255)
         val accent = Color.parseColor("#2AA8FF")
@@ -1664,13 +1677,12 @@ class StatusStripView(ctx: Context) : View(ctx) {
         fill.shader = LinearGradient(0f, 0f, 0f, h,
             if (day) intArrayOf(Color.argb(28, 42, 120, 200), Color.argb(0, 42, 120, 200)) else intArrayOf(Color.argb(40, 42, 168, 255), Color.argb(0, 42, 168, 255)),
             null, android.graphics.Shader.TileMode.CLAMP)
-        c.drawPath(panel, fill)
-        c.drawPath(path, line)
+        if (!plain) { c.drawPath(panel, fill); c.drawPath(path, line) }
         line.shader = null
         // sections
         val n = items.size
-        val inner = w - taper * 1.2f
-        val x0 = taper * 0.6f
+        val inner = if (plain) w else w - taper * 1.2f
+        val x0 = if (plain) 0f else taper * 0.6f
         val colW = inner / n
         div.color = if (day) Color.argb(40, 20, 32, 46) else Color.argb(45, 255, 255, 255)
         for ((i, it) in items.withIndex()) {
