@@ -41,6 +41,8 @@ import android.os.Looper
 import android.app.AlertDialog
 import android.content.res.ColorStateList
 import android.animation.ValueAnimator
+import android.content.ClipData
+import android.content.ClipDescription
 import android.content.Context
 import android.net.Uri
 import android.content.Intent
@@ -756,6 +758,9 @@ class MainActivity : Activity() {
     private var dayPending = false
     private var dayPendingSince = 0L
     private lateinit var dashRow: StatusStripView
+    private lateinit var poolBar: HorizontalScrollView
+    private lateinit var poolRow: LinearLayout
+    private var poolKey = ""
     private lateinit var dashGaugeRow: LinearLayout
     private lateinit var lowerTabs: LinearLayout
     private lateinit var lowerBox: LinearLayout
@@ -772,6 +777,10 @@ class MainActivity : Activity() {
                 val rowLoc = IntArray(2)
                 dashRow.getLocationOnScreen(rowLoc)
                 if (e1.rawY >= rowLoc[1]) return false      // started on the readouts at the bottom
+                if (poolBar.visibility == View.VISIBLE) {
+                    val pl = IntArray(2); poolBar.getLocationOnScreen(pl)
+                    if (e1.rawY >= pl[1]) return false      // started on the list of extra readouts
+                }
                 val dx = e2.x - e1.x
                 val dy = e2.y - e1.y
                 val d = resources.displayMetrics.density
@@ -832,8 +841,9 @@ class MainActivity : Activity() {
         }
         dashRow = StatusStripView(this).apply {
             plain = true
-            setOrder(prefs().getString("rowOrder", "")!!.split("|").filter { it.isNotEmpty() })
-            onOrder = { prefs().edit().putString("rowOrder", it.joinToString("|")).apply() }
+            maxCount = 4
+            setShown(savedList("rowShown", "rowOrder"), listOf("Range", "Regen", "Cells", "Thermal"))
+            onChange = { prefs().edit().putString("rowShown", it.joinToString("|")).apply(); refreshPool() }
             onDoubleTap = { t -> if (t == "Regen") { pulse?.resetDrive(); Toast.makeText(context, "Regen counter reset", Toast.LENGTH_SHORT).show() } }
         }
         dashHeading = TextView(this).apply {
@@ -868,11 +878,22 @@ class MainActivity : Activity() {
         dashGaugeRow = row
         f.addView(row, FrameLayout.LayoutParams(-1, -1).apply { setMargins(dp(8), dp(8), dp(8), dp(114)) })
         dashStrip = StatusStripView(this).apply {
-            setOrder(prefs().getString("stripOrder", "")!!.split("|").filter { it.isNotEmpty() })
-            onOrder = { prefs().edit().putString("stripOrder", it.joinToString("|")).apply() }
+            maxCount = 7
+            showPlus = true
+            setShown(savedList("stripShown", "stripOrder"), listOf("HV Cap", "Cabin", "Outside", "Solar now", "12V Battery", "12V SOH", "12V SOC"))
+            onChange = { prefs().edit().putString("stripShown", it.joinToString("|")).apply(); refreshPool() }
+            onPlus = { togglePool() }
+        }
+        poolRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), dp(4), dp(8), dp(4)) }
+        poolBar = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            visibility = View.GONE
+            background = GradientDrawable().apply { setColor(Color.argb(200, 10, 14, 28)); cornerRadius = dp(22).toFloat(); setStroke(dp(1), Color.argb(110, 42, 168, 255)) }
+            addView(poolRow)
         }
         f.addView(dashRow, FrameLayout.LayoutParams(-1, dp(46), Gravity.BOTTOM).apply { setMargins(dp(170), 0, dp(130), dp(76)) })
         f.addView(dashStrip, FrameLayout.LayoutParams(-1, dp(62), Gravity.BOTTOM).apply { setMargins(dp(170), 0, dp(130), dp(8)) })
+        f.addView(poolBar, FrameLayout.LayoutParams(-1, dp(44), Gravity.BOTTOM).apply { setMargins(dp(170), 0, dp(130), dp(184)) })
         resBtn = TextView(this).apply {
             text = "Screen"; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
             setPadding(dp(12), dp(3), dp(12), dp(3))
@@ -941,6 +962,53 @@ class MainActivity : Activity() {
         dashSpeedGauge.refresh(); dashPowerGauge.refresh()
     }
 
+    private fun savedList(key: String, legacy: String): List<String>? {
+        val p = prefs()
+        if (p.contains(key)) return p.getString(key, "")!!.split("|").filter { it.isNotEmpty() }
+        return p.getString(legacy, "")!!.split("|").filter { it.isNotEmpty() }.ifEmpty { null }
+    }
+
+    /** The + button: opens or closes the list of readouts that are not showing, and puts the readouts into edit mode. */
+    private fun togglePool() {
+        val on = poolBar.visibility != View.VISIBLE
+        poolBar.visibility = if (on) View.VISIBLE else View.GONE
+        dashStrip.editMode = on
+        dashRow.editMode = on
+        poolKey = "\u0000"
+        if (on) refreshPool()
+    }
+
+    /** Rebuild the list of readouts that are available but not showing. */
+    private fun refreshPool() {
+        if (!::poolBar.isInitialized) return
+        val shown = dashStrip.shownTitles() + dashRow.shownTitles()
+        val pool = dashStrip.allTitles().filter { it !in shown }
+        val key = pool.joinToString("|")
+        if (key == poolKey) return
+        poolKey = key
+        poolRow.removeAllViews()
+        fun lp() = LinearLayout.LayoutParams(-2, -2).apply { rightMargin = dp(8) }
+        poolRow.addView(TextView(this).apply {
+            text = if (pool.isEmpty()) "All readouts are showing. Tap a minus to remove one." else "Add:"
+            textSize = 13f; setTextColor(Color.argb(190, 255, 255, 255))
+        }, lp())
+        for (t in pool) {
+            poolRow.addView(TextView(this).apply {
+                text = t; textSize = 13f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+                setPadding(dp(14), dp(6), dp(14), dp(6))
+                background = GradientDrawable().apply { setColor(Color.argb(90, 42, 168, 255)); cornerRadius = dp(16).toFloat(); setStroke(dp(1), Color.argb(170, 42, 168, 255)) }
+                setOnClickListener {
+                    if (!dashStrip.addFirstFree(t) && !dashRow.addFirstFree(t))
+                        toast("Both lines are full. Remove a readout with its minus first, or press and drag this one onto the readout it should replace.")
+                }
+                setOnLongClickListener { v ->
+                    v.startDragAndDrop(ClipData.newPlainText("stat", t), View.DragShadowBuilder(v), null, 0)
+                    true
+                }
+            }, lp())
+        }
+    }
+
     /** Fit the dashboard to the window it is in: a narrow (portrait) screen, or a short split-screen part. */
     private fun adaptDashLayout(wDp: Int, hDp: Int) {
         if (wDp <= 0 || hDp <= 0) return
@@ -961,6 +1029,8 @@ class MainActivity : Activity() {
         (dashStrip.layoutParams as FrameLayout.LayoutParams).apply { height = dp(stripH); setMargins(dp(sideL), 0, dp(sideR), dp(stripBottom)) }
         (dashRow.layoutParams as FrameLayout.LayoutParams).apply { height = dp(rowH); setMargins(dp(sideL), 0, dp(sideR), dp(rowBottom)) }
         (lowerBox.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(10), 0, 0, dp(lowerBottom)) }
+        (poolBar.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(170), 0, dp(sideR), dp(lowerBottom)) }
+        poolBar.requestLayout()
         lowerBox.requestLayout()
         (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), dp(if (short) 4 else 8), dp(8), dp(gaugeBottom)) }
         (dashLight.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (short) 30 else 42); height = dp(if (short) 64 else 88) }
@@ -1131,15 +1201,6 @@ class MainActivity : Activity() {
         dashBrake.visibility = if (s.brakeBcm ?: s.brakeVcu ?: false) View.VISIBLE else View.INVISIBLE
         updateDashTheme()
         fun t(c: Double?) = if (c == null) "--" else fmt(c, "\u00B0C", 0)
-        dashStrip.setItems(listOf(
-            "HV Cap" to (s.capKwh?.let { String.format("%.1f kWh", it) } ?: "--"),
-            "Cabin" to t(s.cabinC),
-            "Outside" to t(s.outsideC),
-            "Solar now" to (s.solarW?.let { "$it W" } ?: "--"),
-            "12V Battery" to (s.volts12?.let { String.format("%.1f V", it) } ?: "--"),
-            "12V SOH" to (s.soh12?.let { String.format("%.0f %%", it) } ?: "--"),
-            "12V SOC" to (s.soc12?.let { String.format("%.0f %%", it) } ?: "--"),
-        ))
         val nowMs = System.currentTimeMillis()
         // speed limit sign: shown in the dashboard's own speed unit; fades in and out with the car's knowledge of the limit
         val lim = s.limit
@@ -1192,12 +1253,32 @@ class MainActivity : Activity() {
         fun tc(c: Double?) = if (c == null) "--" else fmt(c, "\u00B0C", 0)
         pulse?.flipPower = prefs().getBoolean("flipPower", false)
         val rangeText = s.rangeKm?.let { if (speedMph()) String.format("%.0f mi", it * 0.621371) else String.format("%.0f km", it) } ?: "--"
-        dashRow.setItems(listOf(
+        // full capacity: the BMS's own figure, or worked out from the energy left and the charge percentage
+        val estCap = s.packCapKwh?.takeIf { it > 10.0 }
+            ?: if (s.capKwh != null && s.socUsable != null && s.socUsable >= 10) s.capKwh / (s.socUsable / 100.0) else null
+        val everything = listOf(
+            "HV Cap" to (s.capKwh?.let { String.format("%.1f kWh", it) } ?: "--"),
+            "Est. Capacity" to (estCap?.let { String.format("%.1f kWh", it) } ?: "--"),
+            "Battery Health" to (s.sohPct?.takeIf { it in 1..100 }?.let { "$it %" } ?: "--"),
+            "Charge" to (s.socUsable?.let { "$it %" } ?: "--"),
+            "Real SOC" to (s.socReal?.let { "$it %" } ?: "--"),
+            "Pack Volts" to (s.packVolts?.let { String.format("%.0f V", it) } ?: "--"),
+            "Pack Amps" to (s.packAmps?.let { String.format("%.0f A", it) } ?: "--"),
+            "Battery Temp" to tc(s.avgTempC),
+            "Climate" to (s.climateKw?.let { String.format("%.1f kW", it) } ?: "--"),
+            "Cabin" to t(s.cabinC),
+            "Outside" to t(s.outsideC),
+            "Solar now" to (s.solarW?.let { "$it W" } ?: "--"),
+            "12V Battery" to (s.volts12?.let { String.format("%.1f V", it) } ?: "--"),
+            "12V SOH" to (s.soh12?.let { String.format("%.0f %%", it) } ?: "--"),
+            "12V SOC" to (s.soc12?.let { String.format("%.0f %%", it) } ?: "--"),
             "Range" to rangeText,
             "Regen" to String.format("%.2f kWh", s.regenKwh),
             "Cells" to "${tc(s.cellMinC)} \u2013 ${tc(s.cellMaxC)}",
             "Thermal" to demand,
-        ))
+        )
+        dashStrip.setItems(everything)
+        dashRow.setItems(everything)
     }
 
     private fun applySource(pulseMode: Boolean) {
@@ -1808,14 +1889,21 @@ class TrafficLightView(ctx: Context) : View(ctx) {
 }
 
 /** A row of titled readouts under a line that runs across the top and tapers down at both ends.
- *  Press and hold a readout, then drag it sideways to move it; the new order goes to [onOrder]. */
+ *  Press and hold a readout, then drag it sideways to move it. The + at the left opens the list of extra readouts;
+ *  while it is open each readout has a minus that removes it, and readouts can be dropped in from the list.
+ *  The number of slots stays fixed ([maxCount]). */
 class StatusStripView(ctx: Context) : View(ctx) {
     var day = false
     var plain = false     // no outline or panel, just the readouts and dividers
-    var onOrder: ((List<String>) -> Unit)? = null
+    var maxCount = 7
+    var showPlus = false
+    var onChange: ((List<String>) -> Unit)? = null
     var onDoubleTap: ((String) -> Unit)? = null
-    private var items: List<Pair<String, String>> = emptyList()
-    private var order = mutableListOf<String>()
+    var onPlus: (() -> Unit)? = null
+    var editMode = false
+        set(v) { field = v; invalidate() }
+    private var items: List<Pair<String, String>> = emptyList()     // every readout that exists
+    private var order = mutableListOf<String>()                     // the ones that are showing, in order
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val div = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 1f }
@@ -1832,6 +1920,7 @@ class StatusStripView(ctx: Context) : View(ctx) {
     private var moved = false
     private var lastTapAt = 0L
     private var lastTapTitle: String? = null
+    private var dropCol = -1
     private val longPress = Runnable { startDrag() }
 
     companion object {
@@ -1839,41 +1928,86 @@ class StatusStripView(ctx: Context) : View(ctx) {
         @Volatile var dragging = false
     }
 
-    fun setOrder(saved: List<String>) { order = saved.toMutableList(); invalidate() }
+    init {
+        // readouts dragged in from the list of extras
+        setOnDragListener { _, e ->
+            when (e.action) {
+                android.view.DragEvent.ACTION_DRAG_STARTED ->
+                    e.clipDescription?.label?.toString() == "stat" && editMode
+                android.view.DragEvent.ACTION_DRAG_ENTERED, android.view.DragEvent.ACTION_DRAG_LOCATION -> { dropCol = colAt(e.x); invalidate(); true }
+                android.view.DragEvent.ACTION_DRAG_EXITED -> { dropCol = -1; invalidate(); true }
+                android.view.DragEvent.ACTION_DROP -> {
+                    dropCol = -1
+                    val t = e.clipData?.getItemAt(0)?.text?.toString()
+                    invalidate()
+                    t != null && accept(t, e.x)
+                }
+                android.view.DragEvent.ACTION_DRAG_ENDED -> { dropCol = -1; invalidate(); true }
+                else -> true
+            }
+        }
+    }
+
+    /** [saved] is the user's choice (null if they never changed it); [defaults] is what shows otherwise. */
+    fun setShown(saved: List<String>?, defaults: List<String>) { order = (saved ?: defaults).distinct().take(maxCount).toMutableList(); invalidate() }
 
     fun setItems(list: List<Pair<String, String>>) {
         if (list != items) { items = list; invalidate() }
     }
 
-    /** The items in the order the user chose; new ones go at the end. */
+    fun allTitles(): List<String> = items.map { it.first }
+    fun shownTitles(): List<String> = shown().map { it.first }
+
     private fun shown(): List<Pair<String, String>> {
         val byTitle = items.associateBy { it.first }
-        val out = ArrayList<Pair<String, String>>()
-        for (t in order) byTitle[t]?.let { out.add(it) }
-        for (p in items) if (order.none { o -> o == p.first }) out.add(p)
-        return out
+        return order.mapNotNull { byTitle[it] }.take(maxCount)
     }
+
+    private fun commit(list: List<String>) { order = list.toMutableList(); onChange?.invoke(list); invalidate() }
+
+    /** Put [title] in at the end if there is a free slot. */
+    fun addFirstFree(title: String): Boolean {
+        val cur = shownTitles()
+        if (cur.size >= maxCount || title in cur || items.none { it.first == title }) return false
+        commit(cur + title)
+        return true
+    }
+
+    /** Dropped at x: insert there when there is room, otherwise replace the readout under the finger. */
+    private fun accept(title: String, x: Float): Boolean {
+        val cur = shownTitles().toMutableList()
+        if (title in cur || items.none { it.first == title }) return false
+        val col = colAt(x)
+        if (cur.size < maxCount) cur.add(col.coerceAtMost(cur.size), title)
+        else cur[col.coerceIn(0, cur.size - 1)] = title
+        commit(cur)
+        return true
+    }
+
+    private fun remove(title: String) { commit(shownTitles().filter { it != title }) }
 
     private fun geometry(): FloatArray {            // x0, column width, taper
         val w = width.toFloat()
         val h = height.toFloat()
-        val n = maxOf(items.size, 1)
         val taper = if (plain) 0f else minOf(h * 0.55f, w * 0.06f)
-        val inner = if (plain) w else w - taper * 1.2f
-        val x0 = if (plain) 0f else taper * 0.6f
-        return floatArrayOf(x0, inner / n, taper)
+        val plusW = if (showPlus && !plain) h * 0.5f else 0f
+        val x0 = (if (plain) 0f else taper * 0.6f) + plusW
+        val right = if (plain) w else w - taper * 0.6f
+        return floatArrayOf(x0, (right - x0) / maxOf(maxCount, 1), taper)
     }
 
     private fun colAt(x: Float): Int {
         val g = geometry()
-        return ((x - g[0]) / g[1]).toInt().coerceIn(0, maxOf(items.size - 1, 0))
+        return ((x - g[0]) / g[1]).toInt().coerceIn(0, maxOf(maxCount - 1, 0))
     }
 
     private fun startDrag() {
         val list = shown()
-        if (list.isEmpty()) return
+        if (list.isEmpty() || downX < geometry()[0]) return
+        val col = colAt(downX)
+        if (col >= list.size) return
         order = list.map { it.first }.toMutableList()
-        dragTitle = order[colAt(downX).coerceIn(0, order.size - 1)]
+        dragTitle = order[col]
         dragX = downX
         dragging = true
         parent?.requestDisallowInterceptTouchEvent(true)
@@ -1884,8 +2018,7 @@ class StatusStripView(ctx: Context) : View(ctx) {
     private fun endDrag() {
         dragTitle = null
         dragging = false
-        onOrder?.invoke(order.toList())
-        invalidate()
+        commit(order.toList())
     }
 
     override fun onTouchEvent(e: android.view.MotionEvent): Boolean {
@@ -1911,10 +2044,14 @@ class StatusStripView(ctx: Context) : View(ctx) {
                 removeCallbacks(longPress)
                 if (dragTitle != null) endDrag()
                 else if (e.actionMasked == android.view.MotionEvent.ACTION_UP && !moved) {
+                    val g = geometry()
                     val list = shown()
+                    if (showPlus && !plain && e.x < g[0]) { onPlus?.invoke(); return true }
                     val i = colAt(e.x)
                     if (i in list.indices) {
                         val title = list[i].first
+                        val inRight = e.x > g[0] + g[1] * (i + 0.55f)
+                        if (editMode && inRight) { remove(title); return true }
                         val now = System.currentTimeMillis()
                         if (title == lastTapTitle && now - lastTapAt < 450) { lastTapTitle = null; onDoubleTap?.invoke(title) }
                         else { lastTapTitle = title; lastTapAt = now }
@@ -1941,7 +2078,7 @@ class StatusStripView(ctx: Context) : View(ctx) {
         val w = width.toFloat()
         val h = height.toFloat()
         val list = shown()
-        if (w <= 0f || h <= 0f || list.isEmpty()) return
+        if (w <= 0f || h <= 0f) return
         val g = geometry()
         val x0 = g[0]
         val colW = g[1]
@@ -1965,12 +2102,53 @@ class StatusStripView(ctx: Context) : View(ctx) {
             null, android.graphics.Shader.TileMode.CLAMP)
         if (!plain) { c.drawPath(panel, fill); c.drawPath(path, line) }
         line.shader = null
+        // the + that opens the list of extra readouts (turns into an x while it is open)
+        if (showPlus && !plain) {
+            val cx = taper * 0.6f + (x0 - taper * 0.6f) * 0.5f
+            val cy = h * 0.6f
+            val r = h * 0.17f
+            line.color = accent
+            line.strokeWidth = 2.5f
+            c.drawCircle(cx, cy, r * 1.5f, line)
+            c.save()
+            c.rotate(if (editMode) 45f else 0f, cx, cy)
+            c.drawLine(cx - r, cy, cx + r, cy, line)
+            c.drawLine(cx, cy - r, cx, cy + r, line)
+            c.restore()
+        }
         div.color = if (day) Color.argb(40, 20, 32, 46) else Color.argb(45, 255, 255, 255)
         var dragged: Pair<String, String>? = null
         for ((i, p) in list.withIndex()) {
             if (p.first == dragTitle) { dragged = p; continue }
             drawItem(c, p, x0 + colW * (i + 0.5f), colW, h, ink, grey)
             if (i > 0) c.drawLine(x0 + colW * i, h * 0.28f, x0 + colW * i, h * 0.90f, div)
+        }
+        if (editMode) {
+            // empty slots, and a minus on each readout to remove it
+            line.color = if (day) Color.argb(110, 20, 60, 120) else Color.argb(120, 42, 168, 255)
+            line.strokeWidth = 1.5f
+            for (i in list.size until maxCount) {
+                rect.set(x0 + colW * i + colW * 0.08f, h * 0.18f, x0 + colW * (i + 1) - colW * 0.08f, h * 0.94f)
+                c.drawRoundRect(rect, 12f, 12f, line)
+            }
+            val br = minOf(h * 0.13f, colW * 0.14f)
+            for ((i, p) in list.withIndex()) {
+                if (p.first == dragTitle) continue
+                val bx = x0 + colW * (i + 1) - br * 1.6f
+                val by = h * 0.24f
+                fill.shader = null
+                fill.color = Color.parseColor("#E53935")
+                c.drawCircle(bx, by, br, fill)
+                line.color = Color.WHITE
+                line.strokeWidth = 2f
+                c.drawLine(bx - br * 0.55f, by, bx + br * 0.55f, by, line)
+            }
+        }
+        if (dropCol >= 0) {
+            fill.shader = null
+            fill.color = if (day) Color.argb(50, 42, 120, 200) else Color.argb(70, 42, 168, 255)
+            rect.set(x0 + colW * dropCol + colW * 0.04f, h * 0.12f, x0 + colW * (dropCol + 1) - colW * 0.04f, h * 0.96f)
+            c.drawRoundRect(rect, 12f, 12f, fill)
         }
         // the readout being dragged follows the finger, lifted on a highlight
         dragged?.let { p ->
