@@ -718,6 +718,7 @@ class MainActivity : Activity() {
     private lateinit var dashInfo: TextView
     private lateinit var dashHeading: TextView
     private lateinit var dashMode: TextView
+    private lateinit var dashBrake: TextView
     private var dashShown = false
 
     private fun prefs() = getSharedPreferences("prefs", MODE_PRIVATE)
@@ -766,6 +767,12 @@ class MainActivity : Activity() {
         dashHeading = TextView(this).apply {
             textSize = 20f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif-light", Typeface.ITALIC); gravity = Gravity.CENTER
         }
+        dashBrake = TextView(this).apply {
+            text = "Brake light on"; textSize = 16f; setTextColor(Color.WHITE); gravity = Gravity.CENTER; visibility = View.INVISIBLE
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setPadding(dp(18), dp(4), dp(18), dp(4))
+            background = GradientDrawable().apply { setColor(Color.parseColor("#E53935")); cornerRadius = dp(16).toFloat() }
+        }
         dashMode = TextView(this).apply {
             textSize = 20f; setTextColor(Color.WHITE); gravity = Gravity.CENTER; visibility = View.INVISIBLE; text = "EARTH"
             typeface = Typeface.create("sans-serif-medium", Typeface.BOLD_ITALIC); letterSpacing = 0.12f
@@ -775,6 +782,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
             addView(dashClock, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
             addView(dashDate, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+            addView(dashBrake, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
             addView(dashMode, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(10) })
             addView(dashHeading, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
             addView(dashInfo, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
@@ -846,6 +854,7 @@ class MainActivity : Activity() {
         dashPowerGauge.barFrac = s.socUsable?.let { it / 100f }
         dashPowerGauge.refresh()
 
+        dashBrake.visibility = if (s.brakeBcm ?: s.brakeVcu ?: false) View.VISIBLE else View.INVISIBLE
         val dm = s.driveMode
         if (dm == null) dashMode.visibility = View.INVISIBLE else {
             val (name, col) = when (dm) {
