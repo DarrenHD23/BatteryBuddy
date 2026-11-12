@@ -637,6 +637,10 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("dashDefault", on).apply() }
         }, 4)
         box.add(CheckBox(this).apply {
+            text = "Show debug line on the dashboard"; isChecked = prefs().getBoolean("debug", true)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("debug", on).apply() }
+        }, 0)
+        box.add(CheckBox(this).apply {
             text = "Flip power direction (if drive shows as negative)"; isChecked = prefs().getBoolean("flipPower", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("flipPower", on).apply() }
         }, 0)
@@ -737,6 +741,9 @@ class MainActivity : Activity() {
     private var lightSeenAt = 0L
     private var lightShown = false
     private lateinit var exitBtn: Button
+    private lateinit var dashDebug: TextView
+    private var dbgMinA = 0.0
+    private var dbgMaxA = 0.0
     private var dashDay = false
     private var dayPending = false
     private var dayPendingSince = 0L
@@ -799,6 +806,10 @@ class MainActivity : Activity() {
             typeface = Typeface.create("sans-serif-medium", Typeface.BOLD_ITALIC); letterSpacing = 0.12f
             setPadding(dp(16), dp(6), dp(16), dp(6))
         }
+        dashDebug = TextView(this).apply {
+            textSize = 11f; setTextColor(Color.argb(150, 160, 160, 170)); gravity = Gravity.CENTER
+            setOnLongClickListener { dbgMinA = 0.0; dbgMaxA = 0.0; true }
+        }
         val mid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
             addView(dashLight, LinearLayout.LayoutParams(dp(46), dp(100)).apply { topMargin = dp(6) })
@@ -806,6 +817,7 @@ class MainActivity : Activity() {
             addView(dashBrake, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
             addView(dashHeading, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
             addView(dashInfo, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+            addView(dashDebug, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         }
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -909,6 +921,16 @@ class MainActivity : Activity() {
 
         dashBrake.visibility = if (s.brakeBcm ?: s.brakeVcu ?: false) View.VISIBLE else View.INVISIBLE
         updateDashTheme()
+        val amps = s.packAmps
+        if (amps != null) { if (amps < dbgMinA) dbgMinA = amps; if (amps > dbgMaxA) dbgMaxA = amps }
+        if (prefs().getBoolean("debug", true)) {
+            dashDebug.text = "debug: " + (amps?.let { String.format("%.1f A", it) } ?: "-- A") +
+                "  " + (s.packVolts?.let { String.format("%.0f V", it) } ?: "-- V") +
+                "  " + (s.speedKmh?.let { String.format("%.0f km/h", it) } ?: "-- km/h") +
+                "\nmin/max " + String.format("%.0f / %.0f A", dbgMinA, dbgMaxA) +
+                "  flip " + (if (prefs().getBoolean("flipPower", false)) "on" else "off")
+            dashDebug.visibility = View.VISIBLE
+        } else dashDebug.visibility = View.GONE
         val nowMs = System.currentTimeMillis()
         val lc = s.lightColor
         if (lc != null) { lightColor = lc; lightSeenAt = nowMs; dashLight.setColor(lc) }
