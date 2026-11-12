@@ -12,6 +12,14 @@
     <!-- not required: the Pulse (especially the Rock 5C) may have no Bluetooth at all -->
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
 
+    <!-- lets the app list launchable apps (to find the Pulse app) -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
@@ -27,5 +35,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- used only to ask Android for split screen; it reads nothing from the screen -->
+        <service
+            android:name=".SplitService"
+            android:exported="false"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/split_service" />
+        </service>
     </application>
 </manifest>
