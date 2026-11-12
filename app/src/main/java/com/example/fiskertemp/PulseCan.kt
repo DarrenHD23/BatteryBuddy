@@ -31,6 +31,7 @@ data class CanSnapshot(
     val sohPct: Int? = null,           // % (0x2F5, byte 5)
     val packVolts: Double? = null,     // V (0xE9 on IBUS2, bytes 6-7)  needs the chip filters opened
     val packAmps: Double? = null,      // A (0xE9 on IBUS2, bytes 4-5, signed)
+    val rangeKm: Double? = null,       // estimated range left, km (0x504 on IBUS2, bytes 5-6, 0.1 per bit)
     val headlights: Boolean? = null,   // low beam, high beam or position lamps on (0x335 on IBUS1, byte 5 bits 6-3)
     val lightColor: Int? = null,       // traffic light the car sees ahead: 1 red, 2 amber, 3 green (0x210 on IBUS2); null = none
     val lightDistM: Int? = null,       // distance to it in metres (0x351 on IBUS2, byte 6)
@@ -100,7 +101,7 @@ class PulseCan(
         if (!dir.isDirectory) return "no mcp251x driver parameters on this device"
         val plan = listOf(
             Triple(0, "0x7FF,0x7FF", listOf(0x382, 0x2F5, 0x318, 0x179, 0x234, 0x335).joinToString(",")),
-            Triple(1, "0x7FF,0x7FF", listOf(0x0E9, 0x1A9, 0x491, 0x210, 0x351, 0x351).joinToString(",")),
+            Triple(1, "0x7FF,0x7FF", listOf(0x0E9, 0x1A9, 0x491, 0x210, 0x351, 0x504).joinToString(",")),
         )
         fun dec(csv: String) = csv.split(',').joinToString(",") { Integer.decode(it.trim()).toString() }
         val sb = StringBuilder()
@@ -147,7 +148,7 @@ class PulseCan(
                 // receive only: no "tx:" arguments
                 val why = openFilters()
                 onStatus(if (why == null) "CAN filters opened for climate frames" else "CAN filters not changed: $why")
-                val args = listOf(bin, "$b1=382,2F5,318,179,234,335", "$b2=0E9,1A9,491,210,351")
+                val args = listOf(bin, "$b1=382,2F5,318,179,234,335", "$b2=0E9,1A9,491,210,351,504")
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
@@ -273,6 +274,11 @@ class PulseCan(
             fun map(v: Int): Int? = when (v) { 1, 4, 5, 7 -> 1; 2, 6 -> 2; 3 -> 3; else -> null }
             val col = if (c in 1..7) map(c) else map(sh.takeIf { it in 1..3 } ?: 0)
             return s.copy(lightColor = col)
+        }
+        // 0x504 VCU_0x504 (IBUS2): VCU_DrvgMilg remaining driving range, 0.1 km per bit; VCU_DrvRngVld 1 = valid
+        if (bus == 2 && id == 0x504) {
+            val valid = (b[7] and 3) == 1
+            return s.copy(rangeKm = if (valid) ((b[5] shl 8) or b[6]) * 0.1 else null)
         }
         // 0x351 ADAS_0x351 (IBUS2): ADAS_TrafficLiDst, metres to the most critical traffic light
         if (bus == 2 && id == 0x351) {
