@@ -667,7 +667,7 @@ class MainActivity : Activity() {
     private fun heatLine(s: CanSnapshot): String {
         val comp = s.compWatts
         val pump = when {
-            comp == null -> "heat pump: --"
+            comp == null -> "heat pump: not received (CAN filter)"
             s.compState == 2 -> "heat pump: FAULT"
             comp > 20 -> String.format("heat pump ON %.2f kW", comp / 1000)
             else -> "heat pump off"
@@ -676,7 +676,7 @@ class MainActivity : Activity() {
         val other = if (s.climateKw != null && comp != null) {
             val k = maxOf(0.0, s.climateKw - comp / 1000)
             String.format("%.2f kW", k) + if (k >= 0.3) " (likely PTC heater)" else ""
-        } else "--"
+        } else "n/a without heat pump reading"
         return "Climate total: $total\n$pump\nOther climate load: $other"
     }
 
