@@ -31,6 +31,8 @@ data class CanSnapshot(
     val sohPct: Int? = null,           // % (0x2F5, byte 5)
     val packVolts: Double? = null,     // V (0xE9 on IBUS2, bytes 6-7)  needs the chip filters opened
     val packAmps: Double? = null,      // A (0xE9 on IBUS2, bytes 4-5, signed)
+    val hold: Boolean? = null,         // auto hold is holding the car (0x332 on IBUS2, byte 2 bit 2)
+    val ready: Boolean? = null,        // READY lamp: ready to drive (0x234 on IBUS1, byte 1 bit 4)
     val capKwh: Double? = null,        // energy left in the HV battery, kWh (0x580 on IBUS2, bytes 6-7, 0.01)
     val cabinC: Double? = null,        // cabin temperature, C (0x582 on IBUS2, byte 0, 0.5 per bit, -48)
     val outsideC: Double? = null,      // outside temperature, C (0x373 on IBUS1, byte 5, 0.5 per bit, -48)
@@ -160,7 +162,7 @@ class PulseCan(
                 // receive only: no "tx:" arguments
                 val why = openFilters()
                 onStatus(if (why == null) "CAN filters opened for climate frames" else "CAN filters not changed: $why")
-                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD", "$b2=0E9,1A9,491,210,351,504,580,582")
+                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD", "$b2=0E9,1A9,491,210,351,504,580,582,332")
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
@@ -239,7 +241,7 @@ class PulseCan(
         // 0x234 VCU_0x234 (IBUS1): VCU_DrvModSigFb 0 Eco (Earth), 1 Normal (Fun), 2 Sport (Hyper), 7 invalid
         if (bus == 1 && id == 0x234) {
             val m = (b[7] shr 3) and 7
-            return s.copy(driveMode = if (m <= 2) m else null, brakeVcu = ((b[1] shr 6) and 1) == 1)
+            return s.copy(driveMode = if (m <= 2) m else null, brakeVcu = ((b[1] shr 6) and 1) == 1, ready = ((b[1] shr 4) and 1) == 1)
         }
         // 0x335 BCM_0x335 (IBUS1): BCM_BrkLampOutpCmd, the brake lamp output command (1 = on)
         if (bus == 1 && id == 0x335) {
@@ -286,6 +288,10 @@ class PulseCan(
             fun map(v: Int): Int? = when (v) { 1, 4, 5, 7 -> 1; 2, 6 -> 2; 3 -> 3; else -> null }
             val col = if (c in 1..7) map(c) else map(sh.takeIf { it in 1..3 } ?: 0)
             return s.copy(lightColor = col)
+        }
+        // 0x332 ESP_0x332 (IBUS2, 50 ms): ESP_ActvIndcn_AVH, auto vehicle hold active (1 = holding the car)
+        if (bus == 2 && id == 0x332) {
+            return s.copy(hold = ((b[2] shr 2) and 1) == 1)
         }
         // 0x580 VCU_0x580 (IBUS2, 250 ms): VCU_PwrBattAvlEgy, energy available in the HV battery, 0.01 kWh (65535 = invalid)
         if (bus == 2 && id == 0x580) {
