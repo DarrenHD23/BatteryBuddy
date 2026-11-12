@@ -825,7 +825,6 @@ class MainActivity : Activity() {
     private var dayPendingSince = 0L
     private lateinit var dashRow: StatusStripView
     private lateinit var dashReady: TextView
-    private lateinit var dashHold: HoldView
     private lateinit var dashMid: LinearLayout
     private lateinit var poolBar: HorizontalScrollView
     private lateinit var poolRow: LinearLayout
@@ -867,7 +866,7 @@ class MainActivity : Activity() {
         if (dashShown && !StatusStripView.dragging) swipe.onTouchEvent(ev)      // only watches: touches still reach the buttons
         return super.dispatchTouchEvent(ev)
     }
-    private var layoutMode = -1
+    private var layoutKey = ""
     private var compact = false
     private lateinit var dashHeading: TextView
     private lateinit var dashMode: TextView
@@ -931,7 +930,6 @@ class MainActivity : Activity() {
             minWidth = dp(120)
             setPadding(dp(16), dp(5), dp(16), dp(5))
         }
-        dashHold = HoldView(this).apply { visibility = View.INVISIBLE }
         dashReady = TextView(this).apply {
             text = "READY"; textSize = 17f; letterSpacing = 0.18f; gravity = Gravity.CENTER; visibility = View.INVISIBLE
             typeface = Typeface.create("sans-serif-black", Typeface.BOLD); setTextColor(Color.parseColor("#7CFF3A"))
@@ -939,7 +937,6 @@ class MainActivity : Activity() {
         val mid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
             addView(dashReady, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
-            addView(dashHold, LinearLayout.LayoutParams(dp(38), dp(38)).apply { topMargin = dp(2); gravity = Gravity.CENTER_HORIZONTAL })
             addView(dashLight, LinearLayout.LayoutParams(dp(42), dp(88)).apply { topMargin = dp(4) })
             addView(dashLightDist, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
             addView(dashBrake, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
@@ -1031,7 +1028,6 @@ class MainActivity : Activity() {
         dashSpeedGauge.day = day; dashPowerGauge.day = day; dashStrip.day = day; dashStrip.invalidate()
         val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
         dashHeading.setTextColor(ink)
-        dashHold.day = day; dashHold.invalidate()
         dashReady.setTextColor(Color.parseColor(if (day) "#2E9E1F" else "#7CFF3A"))
         dashLightDist.setTextColor(if (day) Color.argb(200, 20, 32, 46) else Color.argb(200, 255, 255, 255))
         dashRow.day = day; dashRow.invalidate()
@@ -1132,34 +1128,62 @@ class MainActivity : Activity() {
     }
 
     /** Fit the dashboard to the window it is in: a narrow (portrait) screen, or a short split-screen part. */
+    private class DashTier(val strip: Int, val row: Int, val res: Boolean, val lower: Boolean, val showStrip: Boolean)
+
+    /** Fit the dashboard to the window it is in. The window can be the whole screen or a part of a split screen, so the
+     *  readouts under the gauges are stepped down (smaller, then fewer) until the gauges have enough room. */
     private fun adaptDashLayout(wDp: Int, hDp: Int) {
         if (wDp <= 0 || hDp <= 0) return
         val narrow = wDp < 800
-        val short = hDp < 460
-        val mode = (if (narrow) 1 else 0) + (if (short) 2 else 0)
-        if (mode == layoutMode) return
-        layoutMode = mode
-        compact = short
-        val stripH = if (short) 46 else 56
-        val rowH = if (short) 38 else 46
-        val stripBottom = if (narrow) 72 else 8        // on a narrow screen the strip sits above the buttons
-        val rowBottom = stripBottom + stripH + 4
-        val lowerBottom = rowBottom + rowH + 4          // the screen-size button and Maps/Spotify/Pulse sit above the info row
-        val gaugeBottom = lowerBottom + 74
+        val tiers = listOf(
+            DashTier(56, 46, true, true, true),
+            DashTier(50, 40, false, true, true),
+            DashTier(44, 34, false, true, true),
+            DashTier(44, 34, false, false, true),
+            DashTier(0, 34, false, false, false),
+        )
+        val need = (wDp * 0.30f).coerceIn(150f, 300f)
+        val base = if (narrow) 72 else 8            // on a narrow screen the strip sits above the buttons
+        fun stack(t: DashTier): Int {
+            var s = base + 8
+            if (t.showStrip) s += t.strip + 4 else s = (if (narrow) 64 else 8) + 8
+            s += t.row + 4
+            if (t.lower) s += (if (t.res) 68 else 38) + 4
+            return s
+        }
+        var ti = tiers.size - 1
+        for ((i, t) in tiers.withIndex()) if (hDp - stack(t) >= need) { ti = i; break }
+        val t = tiers[ti]
+        val gaugeH = hDp - stack(t)
+        val midLevel = if (gaugeH >= 300) 0 else if (gaugeH >= 235) 1 else 2
+        val key = "$narrow/$ti/$midLevel"
+        if (key == layoutKey) return
+        layoutKey = key
+        compact = ti > 0
+        val short = midLevel > 0
+        val stripBottom = base
+        val rowBottom = (if (t.showStrip) stripBottom + t.strip + 4 else (if (narrow) 64 else 8))
+        val lowerBottom = rowBottom + t.row + 4          // the screen-size button and Maps/Spotify/Pulse sit above the info row
+        val gaugeBottom = if (t.lower) lowerBottom + (if (t.res) 68 else 38) + 4 else lowerBottom + 4
         val sideL = if (narrow) 8 else 170
         val sideR = if (narrow) 8 else 130
-        (dashStrip.layoutParams as FrameLayout.LayoutParams).apply { height = dp(stripH); setMargins(dp(sideL), 0, dp(sideR), dp(stripBottom)) }
-        (dashRow.layoutParams as FrameLayout.LayoutParams).apply { height = dp(rowH); setMargins(dp(sideL), 0, dp(sideR), dp(rowBottom)) }
+        dashStrip.visibility = if (t.showStrip) View.VISIBLE else View.GONE
+        if (!t.showStrip && poolBar.visibility == View.VISIBLE) togglePool()
+        lowerBox.visibility = if (t.lower) View.VISIBLE else View.GONE
+        resBtn.visibility = if (t.res) View.VISIBLE else View.GONE
+        (dashStrip.layoutParams as FrameLayout.LayoutParams).apply { height = dp(maxOf(t.strip, 1)); setMargins(dp(sideL), 0, dp(sideR), dp(stripBottom)) }
+        (dashRow.layoutParams as FrameLayout.LayoutParams).apply { height = dp(t.row); setMargins(dp(sideL), 0, dp(sideR), dp(rowBottom)) }
         (lowerBox.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(10), 0, 0, dp(lowerBottom)) }
-        (poolBar.layoutParams as FrameLayout.LayoutParams).apply { if (narrow) setMargins(dp(8), 0, dp(8), dp(lowerBottom + 68)) else setMargins(dp(280), 0, dp(sideR), dp(lowerBottom)) }
-        poolBar.requestLayout()
-        lowerBox.requestLayout()
+        (poolBar.layoutParams as FrameLayout.LayoutParams).apply { if (narrow) setMargins(dp(8), 0, dp(8), dp(lowerBottom + (if (t.lower) 42 else 0))) else setMargins(dp(280), 0, dp(sideR), dp(lowerBottom)) }
         (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), dp(if (short) 4 else 8), dp(8), dp(gaugeBottom)) }
-        (dashLight.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (short) 26 else 42); height = dp(if (short) 56 else 88); topMargin = dp(if (short) 10 else 4) }
+        (dashLight.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (short) 26 else 42); height = dp(if (short) 56 else 88); topMargin = dp(if (short) 8 else 4) }
         dashReady.textSize = if (short) 12f else 17f
-        (dashHold.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (short) 26 else 38); height = dp(if (short) 26 else 38) }
         dashLightDist.textSize = if (short) 12f else 15f
+        dashLightDist.visibility = if (midLevel == 2) View.GONE else View.VISIBLE
+        dashHeading.visibility = if (midLevel == 2) View.GONE else View.VISIBLE
+        dashHeading.textSize = if (short) 15f else 20f
         (dashSign.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (short) 48 else 64); height = dp(if (short) 48 else 64) }
+        poolBar.requestLayout(); lowerBox.requestLayout()
         dashStrip.requestLayout(); dashRow.requestLayout(); dashGaugeRow.requestLayout(); dashLight.requestLayout(); dashSign.requestLayout()
     }
 
@@ -1316,7 +1340,7 @@ class MainActivity : Activity() {
             0 -> { dashSpeedGauge.bottomValue = "Starting"; dashSpeedGauge.bottomColor = null }
             else -> { dashSpeedGauge.bottomValue = "--"; dashSpeedGauge.bottomColor = null }
         }
-        dashHold.visibility = if (s.hold == true || s.holdEsp == true) View.VISIBLE else View.INVISIBLE
+        dashSpeedGauge.hold = s.hold == true || s.holdEsp == true
         dashReady.visibility = if (s.ready == true) View.VISIBLE else View.INVISIBLE
         dashSpeedGauge.refresh()
 
@@ -1928,7 +1952,7 @@ class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Fl
         if (!hold) return
         val sym = if (day) Color.parseColor("#B5532F") else Color.parseColor("#F2CBB8")
         val green = if (day) Color.parseColor("#2E9E1F") else Color.parseColor("#7CFF3A")
-        val rho = r * 0.13f
+        val rho = r * 0.17f
         val y = cy
         if (hold) {
             arc.style = Paint.Style.STROKE
@@ -2007,11 +2031,11 @@ class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Fl
         text(topLabel, cx, cy - r * 0.60f, r * 0.085f, grey, light)
         text(topValue, cx, cy - r * 0.48f, r * 0.12f, ink, lightItalic)
         text(title, cx, cy - r * 0.25f, r * 0.13f, grey, lightItalic)
-        text(valueText, cx, cy + r * 0.13f, r * 0.40f, ink, lightItalic)
+        if (!hold) text(valueText, cx, cy + r * 0.13f, r * 0.40f, ink, lightItalic)
         text(unit, cx, cy + r * 0.34f, r * 0.14f, Color.parseColor("#2AA8FF"), medium)
         text(bottomLabel, cx, cy + r * 0.50f, r * 0.085f, grey, light)
         text(bottomValue, cx, cy + r * 0.62f, r * 0.12f, bottomColor ?: ink, lightItalic)
-        drawHoldAndReady(c, cx - r * 0.74f, cy, r)
+        drawHoldAndReady(c, cx, cy - r * 0.01f, r)
         val bf = barFrac
         if (bf != null) {
             val bw = r * 0.5f
