@@ -828,7 +828,7 @@ class MainActivity : Activity() {
         val spd = s.speedKmh?.let { if (mph) it * 0.621371 else it }
         dashSpeedGauge.valueText = spd?.let { String.format("%.0f", it) } ?: "--"
         dashSpeedGauge.unit = if (mph) "mph" else "km/h"
-        dashSpeedGauge.setFraction(spd?.let { Math.sqrt((it / (if (mph) 100.0 else 160.0)).coerceIn(0.0, 1.0)).toFloat() })
+        dashSpeedGauge.setFraction(spd?.let { Math.pow((it / (if (mph) 112.0 else 180.0)).coerceIn(0.0, 1.0), 0.75).toFloat() })
         dashSpeedGauge.topValue = s.avgTempC?.let { fmt(it, "\u00B0C", 0) } ?: "--"
         // high-voltage battery thermal state, from the BMS: heating orange, cooling blue
         when (s.thermalDemand) {
