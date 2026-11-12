@@ -65,6 +65,8 @@ class PulseCan(
     private val onUpdate: (CanSnapshot) -> Unit,
 ) {
     @Volatile private var running = false
+    @Volatile private var lastE9At = 0L
+    @Volatile private var filterReadback = ""
     @Volatile private var proc: Process? = null
     @Volatile private var snap = CanSnapshot()
 
@@ -129,11 +131,12 @@ class PulseCan(
             sb.append("echo '${dec(mask)}' > ${dir.path}/rxb_mask_$chip; ")
             sb.append("echo '${dec(filt)}' > ${dir.path}/rxb_filter_$chip; ")
         }
-        sb.append("echo 1 > ${dir.path}/apply_filters")
+        sb.append("echo 1 > ${dir.path}/apply_filters; echo '--'; cat ${dir.path}/rxb_mask_0 ${dir.path}/rxb_filter_0 ${dir.path}/rxb_mask_1 ${dir.path}/rxb_filter_1")
         return try {
             val p = ProcessBuilder("su", "-c", sb.toString()).redirectErrorStream(true).start()
             val out = p.inputStream.bufferedReader().readText()
             if (!p.waitFor(8, java.util.concurrent.TimeUnit.SECONDS)) { p.destroy(); return "root shell timed out" }
+            filterReadback = out.substringAfter("--", "").trim().replace('\n', ' ')
             if (out.contains("denied", true) || out.contains("not found", true) || p.exitValue() != 0) "root command failed: ${out.trim()}" else null
         } catch (e: Exception) {
             "no root shell (${e.message})"
@@ -167,11 +170,25 @@ class PulseCan(
             try {
                 // receive only: no "tx:" arguments
                 val why = openFilters()
-                onStatus(if (why == null) "CAN filters opened for climate frames" else "CAN filters not changed: $why")
+                onStatus(if (why == null) "CAN filters opened for climate frames: $filterReadback" else "CAN filters not changed: $why")
                 val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD,1B8", "$b2=0E9,1A9,210,351,504,580,582,332,311")
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
+                // the car's own software can reload the CAN driver and put the default filters back, which loses the
+                // power and climate frames; if they stop arriving while the car is awake, write the filters again
+                thread(name = "pulse-can-watch", isDaemon = true) {
+                    var lastTry = 0L
+                    while (running && proc === p) {
+                        try { Thread.sleep(2000) } catch (e: InterruptedException) { return@thread }
+                        val now = System.currentTimeMillis()
+                        if (now - lastChangeAt < 3000 && now - lastE9At > 5000 && now - lastTry > 15000) {
+                            lastTry = now
+                            val w = openFilters()
+                            onStatus(if (w == null) "CAN filters written again (power frames missing): $filterReadback" else "CAN filters not changed: $w")
+                        }
+                    }
+                }
                 // the helper's error output must be drained or it can block; pass on changes only
                 thread(name = "pulse-can-err", isDaemon = true) {
                     var lastMsg = ""
@@ -221,6 +238,7 @@ class PulseCan(
         val bytes = IntArray(hex.length / 2)
         for (i in bytes.indices) bytes[i] = hex.substring(i * 2, i * 2 + 2).toIntOrNull(16) ?: return
 
+        if (bus == 2 && id == 0xE9) lastE9At = System.currentTimeMillis()
         val key = "$bus/$id"
         if (held.put(key, hex) != hex) {
             val now = System.currentTimeMillis()
