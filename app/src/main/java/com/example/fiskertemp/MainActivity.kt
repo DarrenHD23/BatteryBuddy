@@ -2188,10 +2188,10 @@ class StatusStripView(ctx: Context) : View(ctx) {
         if (showPlus && !plain) {
             val cx = taper * 0.6f + (x0 - taper * 0.6f) * 0.5f
             val cy = h * 0.6f
-            val r = h * 0.17f
+            val r = h * 0.11f
             line.color = accent
             line.strokeWidth = 2.5f
-            c.drawCircle(cx, cy, r * 1.5f, line)
+            c.drawCircle(cx, cy, r * 1.6f, line)
             c.save()
             c.rotate(if (editMode) 45f else 0f, cx, cy)
             c.drawLine(cx - r, cy, cx + r, cy, line)
