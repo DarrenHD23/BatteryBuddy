@@ -521,6 +521,15 @@ class MainActivity : Activity() {
         reads.add(pollBtn)
         root.addView(reads)
 
+        statsCard = card()
+        statsCard.add(label("Statistics", 18f, true), 0)
+        statsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        statsCard.add(statsBox, 4)
+        statsHint = label("More statistics (capacity, battery health, range, regen, climate and more) appear when the app runs on an Oceanlink Pulse.", 12f)
+        statsCard.add(statsHint, 10)
+        statsCard.visibility = View.GONE
+        root.addView(statsCard)
+
         advancedBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
         fun addField(l: String, f: View) { advancedBox.add(label(l), 12); advancedBox.add(f, 3) }
         addField("ELM protocol (6 = CAN 11-bit 500 kbit/s)", protocolField)
@@ -711,14 +720,8 @@ class MainActivity : Activity() {
         val demand = when (s.thermalDemand) { 0 -> "starting up"; 1 -> "heating"; 2 -> "cooling"; 3 -> "cycling"; else -> "--" }
         fun tc(c: Double?) = if (c == null) "--" else fmt(c, "\u00B0C", 1)
         resultView.textSize = 16f
-        resultView.text = listOf(
-            "Cell temp, coolest / hottest: ${tc(s.cellMinC)} / ${tc(s.cellMaxC)}",
-            "State of charge: ${s.socUsable?.let { "$it %" } ?: "--"}",
-            "Pack voltage: ${s.packVolts?.let { String.format("%.1f V", it) } ?: "--"}",
-            "Pack current: ${s.packAmps?.let { String.format("%.1f A", it) } ?: "--"}",
-            "Thermal management: $demand",
-            heatLine(s),
-        ).joinToString("\n")
+        resultView.text = heatLine(s)
+        renderStats(canStats(s).toMap())
     }
 
     private fun heatLine(s: CanSnapshot): String {
@@ -960,6 +963,38 @@ class MainActivity : Activity() {
         dashLightDist.setTextColor(if (day) Color.argb(200, 20, 32, 46) else Color.argb(200, 255, 255, 255))
         dashRow.day = day; dashRow.invalidate()
         dashSpeedGauge.refresh(); dashPowerGauge.refresh()
+    }
+
+    /** Every statistic the Pulse can supply, as title to text. Used by the dashboard and the main page. */
+    private fun canStats(s: CanSnapshot): List<Pair<String, String>> {
+        fun t(c: Double?) = if (c == null) "--" else fmt(c, "\u00B0C", 0)
+        fun tc(c: Double?) = if (c == null) "--" else fmt(c, "\u00B0C", 0)
+        val demand = when (s.thermalDemand) { 0 -> "starting up"; 1 -> "heating"; 2 -> "cooling"; 3 -> "cycling"; else -> "--" }
+        val rangeText = s.rangeKm?.let { if (speedMph()) String.format("%.0f mi", it * 0.621371) else String.format("%.0f km", it) } ?: "--"
+        // full capacity: the BMS's own figure, or worked out from the energy left and the charge percentage
+        val estCap = s.packCapKwh?.takeIf { it > 10.0 }
+            ?: if (s.capKwh != null && s.socUsable != null && s.socUsable >= 10) s.capKwh / (s.socUsable / 100.0) else null
+        return listOf(
+            "HV Cap" to (s.capKwh?.let { String.format("%.1f kWh", it) } ?: "--"),
+            "Est. Capacity" to (estCap?.let { String.format("%.1f kWh", it) } ?: "--"),
+            "Battery Health" to (s.sohPct?.takeIf { it in 1..100 }?.let { "$it %" } ?: "--"),
+            "Charge" to (s.socUsable?.let { "$it %" } ?: "--"),
+            "Real SOC" to (s.socReal?.let { "$it %" } ?: "--"),
+            "Pack Volts" to (s.packVolts?.let { String.format("%.0f V", it) } ?: "--"),
+            "Pack Amps" to (s.packAmps?.let { String.format("%.0f A", it) } ?: "--"),
+            "Battery Temp" to tc(s.avgTempC),
+            "Climate" to (s.climateKw?.let { String.format("%.1f kW", it) } ?: "--"),
+            "Cabin" to t(s.cabinC),
+            "Outside" to t(s.outsideC),
+            "Solar now" to (s.solarW?.let { "$it W" } ?: "--"),
+            "12V Battery" to (s.volts12?.let { String.format("%.1f V", it) } ?: "--"),
+            "12V SOH" to (s.soh12?.let { String.format("%.0f %%", it) } ?: "--"),
+            "12V SOC" to (s.soc12?.let { String.format("%.0f %%", it) } ?: "--"),
+            "Range" to rangeText,
+            "Regen" to String.format("%.2f kWh", s.regenKwh),
+            "Cells" to "${tc(s.cellMinC)} \u2013 ${tc(s.cellMaxC)}",
+            "Thermal" to demand,
+        )
     }
 
     private fun savedList(key: String, legacy: String): List<String>? {
@@ -1253,30 +1288,7 @@ class MainActivity : Activity() {
         fun tc(c: Double?) = if (c == null) "--" else fmt(c, "\u00B0C", 0)
         pulse?.flipPower = prefs().getBoolean("flipPower", false)
         val rangeText = s.rangeKm?.let { if (speedMph()) String.format("%.0f mi", it * 0.621371) else String.format("%.0f km", it) } ?: "--"
-        // full capacity: the BMS's own figure, or worked out from the energy left and the charge percentage
-        val estCap = s.packCapKwh?.takeIf { it > 10.0 }
-            ?: if (s.capKwh != null && s.socUsable != null && s.socUsable >= 10) s.capKwh / (s.socUsable / 100.0) else null
-        val everything = listOf(
-            "HV Cap" to (s.capKwh?.let { String.format("%.1f kWh", it) } ?: "--"),
-            "Est. Capacity" to (estCap?.let { String.format("%.1f kWh", it) } ?: "--"),
-            "Battery Health" to (s.sohPct?.takeIf { it in 1..100 }?.let { "$it %" } ?: "--"),
-            "Charge" to (s.socUsable?.let { "$it %" } ?: "--"),
-            "Real SOC" to (s.socReal?.let { "$it %" } ?: "--"),
-            "Pack Volts" to (s.packVolts?.let { String.format("%.0f V", it) } ?: "--"),
-            "Pack Amps" to (s.packAmps?.let { String.format("%.0f A", it) } ?: "--"),
-            "Battery Temp" to tc(s.avgTempC),
-            "Climate" to (s.climateKw?.let { String.format("%.1f kW", it) } ?: "--"),
-            "Cabin" to t(s.cabinC),
-            "Outside" to t(s.outsideC),
-            "Solar now" to (s.solarW?.let { "$it W" } ?: "--"),
-            "12V Battery" to (s.volts12?.let { String.format("%.1f V", it) } ?: "--"),
-            "12V SOH" to (s.soh12?.let { String.format("%.0f %%", it) } ?: "--"),
-            "12V SOC" to (s.soc12?.let { String.format("%.0f %%", it) } ?: "--"),
-            "Range" to rangeText,
-            "Regen" to String.format("%.2f kWh", s.regenKwh),
-            "Cells" to "${tc(s.cellMinC)} \u2013 ${tc(s.cellMaxC)}",
-            "Thermal" to demand,
-        )
+        val everything = canStats(s)
         dashStrip.setItems(everything)
         dashRow.setItems(everything)
     }
@@ -1291,6 +1303,8 @@ class MainActivity : Activity() {
         canCard.visibility = if (pulseMode) View.VISIBLE else View.GONE
         lastTempC = null
         renderLast = null
+        statKey = ""
+        renderStats(emptyMap())
         showTemp(null, useFahrenheit)
         resultView.text = ""
         ui.removeCallbacks(canTick)
@@ -1529,6 +1543,67 @@ class MainActivity : Activity() {
     private var useFahrenheit = false
     private var renderLast: (() -> Unit)? = null
 
+    // ------------------------------------------------------- Statistics card (main page)
+    private lateinit var statsCard: LinearLayout
+    private lateinit var statsBox: LinearLayout
+    private lateinit var statsHint: TextView
+    private val statViews = HashMap<String, TextView>()
+    private var statKey = ""
+    private val statGroups = listOf(
+        "BATTERY" to listOf("Charge", "Real SOC", "HV Cap", "Est. Capacity", "Battery Health", "Battery Temp", "Pack Volts", "Pack Amps", "Cells", "Cell V max", "Cell V min"),
+        "CLIMATE" to listOf("Climate", "Thermal", "Cabin", "Outside", "Solar now"),
+        "12V SYSTEM" to listOf("12V Battery", "12V SOC", "12V SOH"),
+        "TRIP" to listOf("Range", "Regen"),
+    )
+
+    private fun statTile(title: String): LinearLayout {
+        val value = TextView(this).apply {
+            textSize = 19f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setSingleLine(); ellipsize = android.text.TextUtils.TruncateAt.END; text = "--"
+        }
+        statViews[title] = value
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = roundedBg(28, 14)
+            setPadding(dp(12), dp(9), dp(12), dp(10))
+            addView(TextView(this@MainActivity).apply {
+                text = title.uppercase(); textSize = 11f; letterSpacing = 0.08f
+                setTextColor(Color.argb(170, 255, 255, 255)); setSingleLine()
+            })
+            addView(value, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+        }
+    }
+
+    /** Show [values] (title to text) as tiles in groups, two to a row. The tiles are rebuilt only when the set of titles changes. */
+    private fun renderStats(values: Map<String, String>) {
+        statsCard.visibility = if (values.isEmpty()) View.GONE else View.VISIBLE
+        statsHint.visibility = if (useCan) View.GONE else View.VISIBLE
+        val key = statGroups.flatMap { it.second }.filter { it in values }.joinToString("|")
+        if (key != statKey) {
+            statKey = key
+            statsBox.removeAllViews()
+            statViews.clear()
+            var first = true
+            for ((group, titles) in statGroups) {
+                val have = titles.filter { it in values }
+                if (have.isEmpty()) continue
+                statsBox.addView(TextView(this).apply {
+                    text = group; textSize = 12f; letterSpacing = 0.14f; setTextColor(Color.argb(200, 150, 215, 255))
+                    typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(if (first) 6 else 16); bottomMargin = dp(6) })
+                first = false
+                for (pair in have.chunked(2)) {
+                    val rowL = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                    for ((i, t) in pair.withIndex())
+                        rowL.addView(statTile(t), LinearLayout.LayoutParams(0, -2, 1f).apply { if (i == 0) rightMargin = dp(4) else leftMargin = dp(4) })
+                    if (pair.size == 1) rowL.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f).apply { leftMargin = dp(4) })
+                    statsBox.addView(rowL, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+                }
+            }
+        }
+        for ((k, v) in values) statViews[k]?.text = v
+    }
+
     private fun fmt(v: Double, unit: String, decimals: Int): String =
         if (unit == "\u00B0C" && useFahrenheit) String.format("%.${decimals}f \u00B0F", v * 9.0 / 5.0 + 32.0)
         else String.format("%.${decimals}f %s", v, unit)
@@ -1565,17 +1640,24 @@ class MainActivity : Activity() {
     private fun readAll() {
         val header = headerField.text.toString().trim(); val filter = filterField.text.toString().trim()
         val rows = mutableListOf<() -> String>()
+        val vals = LinkedHashMap<String, Pair<Double, String>>()
+        val names = mapOf("Pack voltage" to "Pack Volts", "Pack current" to "Pack Amps", "State of charge" to "Charge",
+            "Cell V max" to "Cell V max", "Cell V min" to "Cell V min", "12V battery (unconfirmed)" to "12V Battery")
         var tempC: Double? = null
         for (p in PRESETS) {
             val v = readValue(header, filter, p.request, p.byteIndex, p.byteLen, p.scale, p.offset, p.signed)
             if (p.name == "Battery temp") { tempC = v; continue }     // shown in the gauge
-            if (v != null) rows += { p.name + ": " + fmt(v, p.unit, 2) }
+            if (v != null) { names[p.name]?.let { vals[it] = v to p.unit } ?: run { rows += { p.name + ": " + fmt(v, p.unit, 2) } } }
             else if (p.name.startsWith("12V")) {
                 // Fallback: adapter's own supply voltage on OBD pin 16 (~\u00B10.2 V)
                 try { val t = send("ATRV"); rows += { "12V (ATRV fallback): $t" } } catch (e: Exception) { log("ATRV failed") }
             } else rows += { "${p.name}: no data" }
         }
-        renderLast = { resultView.text = rows.joinToString("\n") { it() }; resultView.textSize = 16f }
+        if (tempC != null) vals["Battery Temp"] = tempC to "\u00B0C"
+        renderLast = {
+            resultView.text = rows.joinToString("\n") { it() }; resultView.textSize = 16f
+            renderStats(vals.mapValues { fmt(it.value.first, it.value.second, if (it.value.second == "mV") 0 else 1) })
+        }
         lastTempC = tempC
         runOnUiThread { showTemp(tempC, useFahrenheit); renderLast?.invoke() }
     }
