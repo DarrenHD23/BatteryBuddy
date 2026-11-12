@@ -1304,7 +1304,7 @@ class MainActivity : Activity() {
         lastTempC = null
         renderLast = null
         statKey = ""
-        renderStats(emptyMap())
+        renderStats(if (pulseMode) emptyMap() else listOf("Battery Temp", "Pack Volts", "Pack Amps", "Charge", "Cell V max", "Cell V min", "12V Battery").associateWith { "--" })
         showTemp(null, useFahrenheit)
         resultView.text = ""
         ui.removeCallbacks(canTick)
@@ -1576,7 +1576,7 @@ class MainActivity : Activity() {
 
     /** Show [values] (title to text) as tiles in groups, two to a row. The tiles are rebuilt only when the set of titles changes. */
     private fun renderStats(values: Map<String, String>) {
-        statsCard.visibility = if (values.isEmpty()) View.GONE else View.VISIBLE
+        statsCard.visibility = View.VISIBLE
         statsHint.visibility = if (useCan) View.GONE else View.VISIBLE
         val key = statGroups.flatMap { it.second }.filter { it in values }.joinToString("|")
         if (key != statKey) {
