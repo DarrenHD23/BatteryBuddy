@@ -116,8 +116,9 @@ class PulseCan(
         val plan = listOf(
             // IBUS1: 0x507 and 0x6DD exactly; 0x100-0x3FF (0x179 0x234 0x2AC 0x2F5 0x318 0x335 0x373 0x382)
             Triple(0, "0x7FF,0x700", "0x507,0x6DD,0x100,0x200,0x300,0x300"),
-            // IBUS2: 0x000-0x3FF (0xE9 0x1A9 0x210 0x351); 0x480 (0x491), 0x500 (0x504), 0x580 (0x580 0x582)
-            Triple(1, "0x600,0x7C0", "0x000,0x200,0x480,0x500,0x580,0x580"),
+            // IBUS2: 0xE9 and 0x1A9 exactly (buffer 0, as before: these carry the power readings);
+            // buffer 1 takes four 128-ID blocks: 0x200 (0x210), 0x300 (0x311 0x332 0x351), 0x500 (0x504), 0x580 (0x580 0x582)
+            Triple(1, "0x7FF,0x780", "0x0E9,0x1A9,0x200,0x300,0x500,0x580"),
         )
         fun dec(csv: String) = csv.split(',').joinToString(",") { Integer.decode(it.trim()).toString() }
         val sb = StringBuilder()
@@ -164,7 +165,7 @@ class PulseCan(
                 // receive only: no "tx:" arguments
                 val why = openFilters()
                 onStatus(if (why == null) "CAN filters opened for climate frames" else "CAN filters not changed: $why")
-                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD", "$b2=0E9,1A9,491,210,351,504,580,582,332,311")
+                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD", "$b2=0E9,1A9,210,351,504,580,582,332,311")
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
