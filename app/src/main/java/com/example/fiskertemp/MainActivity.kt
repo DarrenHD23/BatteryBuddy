@@ -1120,9 +1120,9 @@ class MainActivity : Activity() {
         if (mode == layoutMode) return
         layoutMode = mode
         compact = short
-        val stripH = if (short) 50 else 62
+        val stripH = if (short) 46 else 56
         val rowH = if (short) 38 else 46
-        val stripBottom = if (narrow) 64 else 8        // on a narrow screen the strip sits above the buttons
+        val stripBottom = if (narrow) 72 else 8        // on a narrow screen the strip sits above the buttons
         val rowBottom = stripBottom + stripH + 4
         val lowerBottom = rowBottom + rowH + 4          // the screen-size button and Maps/Spotify/Pulse sit above the info row
         val gaugeBottom = lowerBottom + 74
