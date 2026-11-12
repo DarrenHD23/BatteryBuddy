@@ -770,8 +770,9 @@ class MainActivity : Activity() {
     private lateinit var resBtn: TextView
     private var screenH = 0       // 1920 or 1784 once known
     private var pulsePkg: String? = null
-    private val lowerNames = listOf("Maps", "Spotify", "Pulse")
-    private val lowerPkgs = listOf("com.google.android.apps.maps", "com.spotify.music", "")
+    private var oceanPkg: String? = null
+    private val lowerNames = listOf("Maps", "Spotify", "Pulse", "Oceanscape")
+    private val lowerPkgs = listOf("com.google.android.apps.maps", "com.spotify.music", "", "")
     private var lowerIdx = 0
     private val swipe by lazy {
         android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
@@ -909,8 +910,8 @@ class MainActivity : Activity() {
             setPadding(dp(3), dp(3), dp(3), dp(3))
             lowerNames.forEachIndexed { i, name ->
                 addView(TextView(context).apply {
-                    text = name; textSize = 14f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
-                    setPadding(dp(11), dp(5), dp(11), dp(5))
+                    text = name; textSize = 13f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+                    setPadding(dp(8), dp(5), dp(8), dp(5))
                     setOnClickListener { openLower(i) }
                 })
             }
@@ -1064,7 +1065,7 @@ class MainActivity : Activity() {
         (dashStrip.layoutParams as FrameLayout.LayoutParams).apply { height = dp(stripH); setMargins(dp(sideL), 0, dp(sideR), dp(stripBottom)) }
         (dashRow.layoutParams as FrameLayout.LayoutParams).apply { height = dp(rowH); setMargins(dp(sideL), 0, dp(sideR), dp(rowBottom)) }
         (lowerBox.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(10), 0, 0, dp(lowerBottom)) }
-        (poolBar.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(170), 0, dp(sideR), dp(lowerBottom)) }
+        (poolBar.layoutParams as FrameLayout.LayoutParams).apply { if (narrow) setMargins(dp(8), 0, dp(8), dp(lowerBottom + 68)) else setMargins(dp(280), 0, dp(sideR), dp(lowerBottom)) }
         poolBar.requestLayout()
         lowerBox.requestLayout()
         (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), dp(if (short) 4 else 8), dp(8), dp(gaugeBottom)) }
@@ -1088,6 +1089,17 @@ class MainActivity : Activity() {
         val out = p.inputStream.bufferedReader().readText()
         if (!p.waitFor(8, java.util.concurrent.TimeUnit.SECONDS)) { p.destroy(); "" } else out
     } catch (e: Exception) { "" }
+
+    private fun findOceanscape(): String? {
+        oceanPkg?.let { return it }
+        val pm = packageManager
+        val main = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        for (ri in pm.queryIntentActivities(main, 0)) {
+            val pkg = ri.activityInfo.packageName
+            if (pkg != packageName && (ri.loadLabel(pm).toString().lowercase().contains("oceanscape") || pkg.lowercase().contains("oceanscape"))) { oceanPkg = pkg; return pkg }
+        }
+        return null
+    }
 
     private fun findPulse(): String? {
         pulsePkg?.let { return it }
@@ -1138,8 +1150,8 @@ class MainActivity : Activity() {
     }
 
     private fun launchLower(i: Int) {
-        val pkg = if (i == 2) findPulse() else lowerPkgs[i]
-        if (pkg == null) { toast("The Pulse app was not found on this device"); return }
+        val pkg = when (i) { 2 -> findPulse(); 3 -> findOceanscape(); else -> lowerPkgs[i] }
+        if (pkg == null) { toast("The ${lowerNames[i]} app was not found on this device"); return }
         val flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT
         val tries = mutableListOf(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(pkg))
         if (i == 0) tries.add(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=")))
