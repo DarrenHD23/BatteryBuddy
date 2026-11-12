@@ -31,6 +31,8 @@ data class CanSnapshot(
     val sohPct: Int? = null,           // % (0x2F5, byte 5)
     val packVolts: Double? = null,     // V (0xE9 on IBUS2, bytes 6-7)  needs the chip filters opened
     val packAmps: Double? = null,      // A (0xE9 on IBUS2, bytes 4-5, signed)
+    val lightColor: Int? = null,       // traffic light the car sees ahead: 1 red, 2 amber, 3 green (0x210 on IBUS2); null = none
+    val lightDistM: Int? = null,       // distance to it in metres (0x351 on IBUS2, byte 6)
     val brakeBcm: Boolean? = null,     // brake lamp output command (0x335 on IBUS1, byte 5 bit 7)
     val brakeVcu: Boolean? = null,     // stop lamp request from the drive unit (0x234 on IBUS1, byte 1 bit 6)
     val driveMode: Int? = null,        // 0 Earth, 1 Fun, 2 Hyper (0x234 on IBUS1, byte 7 bits 5-3)
@@ -97,7 +99,7 @@ class PulseCan(
         if (!dir.isDirectory) return "no mcp251x driver parameters on this device"
         val plan = listOf(
             Triple(0, "0x7FF,0x7FF", listOf(0x382, 0x2F5, 0x318, 0x179, 0x234, 0x335).joinToString(",")),
-            Triple(1, "0x7FF,0x7FF", listOf(0x0E9, 0x1A9, 0x491, 0x491, 0x491, 0x491).joinToString(",")),
+            Triple(1, "0x7FF,0x7FF", listOf(0x0E9, 0x1A9, 0x491, 0x210, 0x351, 0x351).joinToString(",")),
         )
         fun dec(csv: String) = csv.split(',').joinToString(",") { Integer.decode(it.trim()).toString() }
         val sb = StringBuilder()
@@ -144,7 +146,7 @@ class PulseCan(
                 // receive only: no "tx:" arguments
                 val why = openFilters()
                 onStatus(if (why == null) "CAN filters opened for climate frames" else "CAN filters not changed: $why")
-                val args = listOf(bin, "$b1=382,2F5,318,179,234,335", "$b2=0E9,1A9,491")
+                val args = listOf(bin, "$b1=382,2F5,318,179,234,335", "$b2=0E9,1A9,491,210,351")
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
@@ -260,6 +262,19 @@ class PulseCan(
             val moving = (s.speedKmh ?: 0.0) > 1.0
             if (moving && watts < 0 && dt in 0.0..0.5) regenWh += -watts * dt / 3600.0
             return s.copy(packAmps = cur * 0.05, packVolts = volts, regenKwh = regenWh / 1000.0)
+        }
+        // 0x210 ADAS_0x210 (IBUS2, 50 ms): ego-lane traffic light colour (byte 1 low nibble) and light shape (byte 1 bits 6-4);
+        // 1 red, 2 amber, 3 green; 4-7 are red/orange variants; 0 = none, 7/8 = unknown
+        if (bus == 2 && id == 0x210) {
+            val c = b[1] and 0xF
+            val sh = (b[1] shr 4) and 7
+            fun map(v: Int): Int? = when (v) { 1, 4, 5, 7 -> 1; 2, 6 -> 2; 3 -> 3; else -> null }
+            val col = if (c in 1..7) map(c) else map(sh.takeIf { it in 1..3 } ?: 0)
+            return s.copy(lightColor = col)
+        }
+        // 0x351 ADAS_0x351 (IBUS2): ADAS_TrafficLiDst, metres to the most critical traffic light
+        if (bus == 2 && id == 0x351) {
+            return s.copy(lightDistM = b[6].takeIf { it in 1..254 })
         }
         // 0x1A9 ECC_0x1A9 (IBUS2, 100 ms): power requested by the climate system's HV parts, 0.01 kW
         if (bus == 2 && id == 0x1A9) {
