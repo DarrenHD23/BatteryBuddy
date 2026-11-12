@@ -939,7 +939,8 @@ class MainActivity : Activity() {
         val demand = when (s.thermalDemand) { 0 -> "starting up"; 1 -> "heating"; 2 -> "cooling"; 3 -> "cycling"; else -> "--" }
         fun tc(c: Double?) = if (c == null) "--" else fmt(c, "\u00B0C", 0)
         pulse?.flipPower = prefs().getBoolean("flipPower", false)
-        dashInfo.text = "Regen ${String.format("%.2f", s.regenKwh)} kWh\nCells ${tc(s.cellMinC)} \u2013 ${tc(s.cellMaxC)}\nThermal: $demand"
+        val rangeText = s.rangeKm?.let { if (speedMph()) String.format("%.0f mi", it * 0.621371) else String.format("%.0f km", it) } ?: "--"
+        dashInfo.text = "Range $rangeText\nRegen ${String.format("%.2f", s.regenKwh)} kWh\nCells ${tc(s.cellMinC)} \u2013 ${tc(s.cellMaxC)}\nThermal: $demand"
     }
 
     private fun applySource(pulseMode: Boolean) {
