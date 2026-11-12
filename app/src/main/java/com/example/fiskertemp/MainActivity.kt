@@ -753,6 +753,7 @@ class MainActivity : Activity() {
     private var signShown = false
     private var signSeenAt = 0L
     private var signText = ""
+    private var introDone = false
     private lateinit var dashDebug: TextView
     private var dbgMinA = 0.0
     private var dbgMaxA = 0.0
@@ -895,6 +896,10 @@ class MainActivity : Activity() {
             window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
                 View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
             updateDashTheme(true)
+            if (!introDone) {
+                introDone = true
+                ui.postDelayed({ dashPowerGauge.intro(); dashSpeedGauge.intro() }, 400)
+            }
             ui.post(dashTick)
         } else {
             actionBar?.show()
@@ -1418,15 +1423,45 @@ class ArcGaugeView(ctx: Context, private val mirrored: Boolean, private val zero
 
     fun refresh() = invalidate()
 
+    private var sweeping = false
+    private var liveHas = false
+    private var liveTarget = 0f
+
     fun setFraction(f: Float?) {
-        has = f != null
-        val t = (f ?: zeroFrac).coerceIn(0f, 1f)
-        if (t == target) return
-        target = t
+        liveHas = f != null
+        liveTarget = (f ?: zeroFrac).coerceIn(0f, 1f)
+        if (!sweeping) follow()
+    }
+
+    /** Move the arc to the live value. */
+    private fun follow() {
+        has = liveHas
+        if (liveTarget == target) return
+        target = liveTarget
         anim?.cancel()
-        anim = ValueAnimator.ofFloat(shown, t).apply {
+        anim = ValueAnimator.ofFloat(shown, liveTarget).apply {
             duration = 250
             addUpdateListener { shown = it.animatedValue as Float; invalidate() }
+            start()
+        }
+    }
+
+    /** Start-up show: sweep the arc all the way up and back down, then settle on the live value. */
+    fun intro() {
+        anim?.cancel()
+        sweeping = true
+        has = true
+        anim = ValueAnimator.ofFloat(zeroFrac, 1f, zeroFrac).apply {
+            duration = 2200
+            interpolator = android.view.animation.AccelerateDecelerateInterpolator()
+            addUpdateListener { shown = it.animatedValue as Float; invalidate() }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(a: android.animation.Animator) {
+                    sweeping = false
+                    target = -1f      // force the move to the live value
+                    follow()
+                }
+            })
             start()
         }
     }
