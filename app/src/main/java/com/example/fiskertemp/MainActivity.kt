@@ -578,7 +578,6 @@ class MainActivity : Activity() {
         themeIndex = i
         val t = THEMES[i]
         rootScroll.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(t.top, t.bottom))
-        if (::dashRoot.isInitialized) dashRoot.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(t.top, t.bottom))
         window.statusBarColor = t.top
         window.navigationBarColor = t.bottom
         actionBar?.setBackgroundDrawable(ColorDrawable(t.top))
@@ -712,56 +711,72 @@ class MainActivity : Activity() {
     // ------------------------------------------------------------ Dashboard
     private lateinit var dashRoot: FrameLayout
     private lateinit var dashBtn: Button
-    private lateinit var dashSpeed: TextView
-    private lateinit var dashSpeedUnit: TextView
-    private lateinit var dashKw: TextView
-    private lateinit var dashSoc: TextView
-    private lateinit var dashPowerBar: PowerBarView
-    private lateinit var dashSocBar: SocBarView
+    private lateinit var dashSpeedGauge: ArcGaugeView
+    private lateinit var dashPowerGauge: ArcGaugeView
+    private lateinit var dashClock: TextClock
+    private lateinit var dashDate: TextClock
+    private lateinit var dashInfo: TextView
     private var dashShown = false
 
     private fun prefs() = getSharedPreferences("prefs", MODE_PRIVATE)
     private fun speedMph() = prefs().getBoolean("mph", false)
 
     private fun buildDashboard(): FrameLayout {
-        fun tv(size: Float, bold: Boolean = false, alpha: Int = 255) = TextView(this).apply {
-            textSize = size; setTextColor(Color.argb(alpha, 255, 255, 255))
-            typeface = if (bold) Typeface.create("sans-serif-medium", Typeface.BOLD) else Typeface.create("sans-serif-light", Typeface.NORMAL)
-            includeFontPadding = false
-        }
         val f = FrameLayout(this)
         f.visibility = View.GONE
-        // left column: speed, then power
-        dashSpeed = tv(96f, true).apply { text = "--" }
-        dashSpeedUnit = tv(18f, alpha = 200).apply { text = "km/h" }
-        dashKw = tv(30f, true).apply { text = "-- kW" }
-        dashPowerBar = PowerBarView(this)
-        val left = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(dashSpeed)
-            addView(dashSpeedUnit)
-            addView(tv(16f, alpha = 200).apply { text = "Power" }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(20) })
-            addView(dashKw)
-            addView(dashPowerBar, LinearLayout.LayoutParams(dp(56), 0, 1f).apply { topMargin = dp(10) })
+        f.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#04070D"), Color.parseColor("#0B1626")))
+        val blue = Color.parseColor("#1E90FF")
+        val violet = Color.parseColor("#8E5CFF")
+        val pink = Color.parseColor("#FF4FA3")
+        val red = Color.parseColor("#FF3B4E")
+        fun mix(a: Int, b: Int, t: Float): Int {
+            val k = t.coerceIn(0f, 1f)
+            return Color.rgb(
+                (Color.red(a) + (Color.red(b) - Color.red(a)) * k).toInt(),
+                (Color.green(a) + (Color.green(b) - Color.green(a)) * k).toInt(),
+                (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * k).toInt())
         }
-        f.addView(left, FrameLayout.LayoutParams(-2, -1, Gravity.START or Gravity.TOP).apply { setMargins(dp(28), dp(20), 0, dp(76)) })
-        // right: battery charge
-        dashSoc = tv(72f, true).apply { text = "--%"; gravity = Gravity.END }
-        dashSocBar = SocBarView(this)
-        val right = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; gravity = Gravity.END
-            addView(tv(16f, alpha = 200).apply { text = "Battery" })
-            addView(dashSoc)
-            addView(dashSocBar, LinearLayout.LayoutParams(dp(180), dp(12)).apply { topMargin = dp(8) })
+        // speed: blue, then violet and pink as it rises
+        dashSpeedGauge = ArcGaugeView(this, false, 0f) { x ->
+            if (x < 0.5f) mix(blue, violet, x / 0.5f) else mix(violet, pink, (x - 0.5f) / 0.5f)
+        }.apply { topLabel = "BATTERY TEMP"; title = "SPEED"; unit = "km/h"; bottomLabel = "HEAT PUMP" }
+        // power: green for regen, then blue through violet and pink to red
+        dashPowerGauge = ArcGaugeView(this, true, 0.2f) { x ->
+            if (x < 0.2f) Color.parseColor("#2ECC71") else {
+                val t = (x - 0.2f) / 0.8f
+                when {
+                    t < 0.33f -> mix(blue, violet, t / 0.33f)
+                    t < 0.66f -> mix(violet, pink, (t - 0.33f) / 0.33f)
+                    else -> mix(pink, red, (t - 0.66f) / 0.34f)
+                }
+            }
+        }.apply { topLabel = "CLIMATE"; title = "POWER"; unit = "kW"; bottomLabel = "CHARGE" }
+        val light = Typeface.create("sans-serif-light", Typeface.NORMAL)
+        dashClock = TextClock(this).apply {
+            textSize = 46f; setTextColor(Color.WHITE); typeface = light; includeFontPadding = false
+            format12Hour = "h:mm a"; format24Hour = "HH:mm"; gravity = Gravity.CENTER
         }
-        f.addView(right, FrameLayout.LayoutParams(-2, -2, Gravity.END or Gravity.TOP).apply { setMargins(0, dp(20), dp(28), 0) })
-        // top centre: clock
-        val clock = TextClock(this).apply {
-            textSize = 40f; setTextColor(Color.WHITE); includeFontPadding = false
-            typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
-            format12Hour = "h:mm a"; format24Hour = "HH:mm"
+        dashDate = TextClock(this).apply {
+            textSize = 15f; setTextColor(Color.argb(170, 255, 255, 255)); typeface = light
+            format12Hour = "EEE, MMM d"; format24Hour = "EEE, MMM d"; gravity = Gravity.CENTER
         }
-        f.addView(clock, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_HORIZONTAL or Gravity.TOP).apply { topMargin = dp(24) })
+        dashInfo = TextView(this).apply {
+            textSize = 15f; setTextColor(Color.argb(200, 120, 190, 255)); typeface = light; gravity = Gravity.CENTER
+            setLineSpacing(0f, 1.25f)
+        }
+        val mid = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
+            addView(dashClock, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
+            addView(dashDate, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+            addView(dashInfo, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(36) })
+        }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(dashSpeedGauge, LinearLayout.LayoutParams(0, -1, 1.15f))
+            addView(mid, LinearLayout.LayoutParams(0, -1, 0.7f))
+            addView(dashPowerGauge, LinearLayout.LayoutParams(0, -1, 1.15f))
+        }
+        f.addView(row, FrameLayout.LayoutParams(-1, -1).apply { setMargins(dp(8), dp(8), dp(8), dp(64)) })
         return f
     }
 
@@ -794,16 +809,33 @@ class MainActivity : Activity() {
     private fun renderDash() {
         val s = canSnap
         val mph = speedMph()
-        val spd = s.speedKmh
-        dashSpeed.text = if (spd == null) "--" else String.format("%.0f", if (mph) spd * 0.621371 else spd)
-        dashSpeedUnit.text = if (mph) "mph" else "km/h"
+        val spd = s.speedKmh?.let { if (mph) it * 0.621371 else it }
+        dashSpeedGauge.valueText = spd?.let { String.format("%.0f", it) } ?: "--"
+        dashSpeedGauge.unit = if (mph) "mph" else "km/h"
+        dashSpeedGauge.setFraction(spd?.let { (it / (if (mph) 125.0 else 200.0)).toFloat() })
+        dashSpeedGauge.topValue = s.avgTempC?.let { fmt(it, "\u00B0C", 0) } ?: "--"
+        val comp = s.compWatts
+        dashSpeedGauge.bottomValue = when {
+            comp == null -> "--"
+            s.compState == 2 -> "fault"
+            comp > 20 -> String.format("%.1f kW", comp / 1000)
+            else -> "off"
+        }
+        dashSpeedGauge.refresh()
+
         val v = s.packVolts
         val a = s.packAmps
         val kw = if (v != null && a != null) v * a / 1000.0 * (if (prefs().getBoolean("flipPower", false)) -1 else 1) else null
-        dashKw.text = if (kw == null) "-- kW" else String.format("%.0f kW", kw)
-        dashPowerBar.setPower(kw)
-        dashSoc.text = s.socUsable?.let { "$it%" } ?: "--%"
-        dashSocBar.setPercent(s.socUsable)
+        dashPowerGauge.valueText = kw?.let { String.format("%.0f", it) } ?: "--"
+        dashPowerGauge.setFraction(kw?.let { ((it + 80.0) / 400.0).toFloat() })
+        dashPowerGauge.topValue = s.climateKw?.let { String.format("%.1f kW", it) } ?: "--"
+        dashPowerGauge.bottomValue = s.socUsable?.let { "$it %" } ?: "--"
+        dashPowerGauge.barFrac = s.socUsable?.let { it / 100f }
+        dashPowerGauge.refresh()
+
+        val demand = when (s.thermalDemand) { 0 -> "starting up"; 1 -> "heating"; 2 -> "cooling"; 3 -> "cycling"; else -> "--" }
+        fun tc(c: Double?) = if (c == null) "--" else fmt(c, "\u00B0C", 0)
+        dashInfo.text = "Cells ${tc(s.cellMinC)} \u2013 ${tc(s.cellMaxC)}\nThermal: $demand"
     }
 
     private fun applySource(pulseMode: Boolean) {
@@ -1164,69 +1196,6 @@ class MainActivity : Activity() {
 }
 
 
-/** Vertical power bar: green for regen below the zero line, blue to red as power rises above it. */
-class PowerBarView(ctx: Context) : View(ctx) {
-    private val minKw = -80.0
-    private val maxKw = 320.0
-    private var shown = 0.0
-    private var target = 0.0
-    private var has = false
-    private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(50, 255, 255, 255) }
-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; strokeWidth = 3f }
-    private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(200, 255, 255, 255); textSize = 30f }
-    private val rect = RectF()
-    private var anim: ValueAnimator? = null
-
-    fun setPower(kw: Double?) {
-        has = kw != null
-        val t = (kw ?: 0.0).coerceIn(minKw, maxKw)
-        if (t == target) return
-        target = t
-        anim?.cancel()
-        anim = ValueAnimator.ofFloat(shown.toFloat(), t.toFloat()).apply {
-            duration = 250
-            addUpdateListener { shown = (it.animatedValue as Float).toDouble(); invalidate() }
-            start()
-        }
-    }
-
-    private fun yOf(kw: Double): Float = (height * (1 - (kw - minKw) / (maxKw - minKw))).toFloat()
-
-    override fun onDraw(c: Canvas) {
-        val w = width.toFloat()
-        val h = height.toFloat()
-        if (h <= 0f) return
-        val r = w / 2
-        rect.set(0f, 0f, w, h)
-        c.drawRoundRect(rect, r, r, track)
-        val yz = yOf(0.0)
-        // colours: top red -> pink -> purple -> blue at the zero line, then green below it
-        val zf = yz / h
-        fill.shader = LinearGradient(0f, 0f, 0f, h,
-            intArrayOf(Color.parseColor("#FF3B4E"), Color.parseColor("#FF4FA3"), Color.parseColor("#9B5CFF"), Color.parseColor("#3AA0FF"), Color.parseColor("#2ECC71"), Color.parseColor("#1FA37A")),
-            floatArrayOf(0f, zf * 0.35f, zf * 0.7f, zf, zf + 0.0001f, 1f), android.graphics.Shader.TileMode.CLAMP)
-        if (has) {
-            val y = yOf(shown)
-            val top = minOf(y, yz)
-            val bottom = maxOf(y, yz)
-            if (bottom - top > 1f) {
-                c.save()
-                val clip = android.graphics.Path().apply { addRoundRect(RectF(0f, 0f, w, h), r, r, android.graphics.Path.Direction.CW) }
-                c.clipPath(clip)
-                c.drawRect(0f, top, w, bottom, fill)
-                c.restore()
-            }
-        }
-        c.drawLine(0f, yz, w, yz, line)
-    }
-
-    override fun onMeasure(wSpec: Int, hSpec: Int) {
-        setMeasuredDimension(MeasureSpec.getSize(wSpec).let { if (MeasureSpec.getMode(wSpec) == MeasureSpec.UNSPECIFIED) 100 else it },
-            MeasureSpec.getSize(hSpec).let { if (MeasureSpec.getMode(hSpec) == MeasureSpec.UNSPECIFIED) 400 else it })
-    }
-}
-
 /** Thin gradient bar showing the state of charge. */
 class SocBarView(ctx: Context) : View(ctx) {
     private var pct = 0
@@ -1247,5 +1216,117 @@ class SocBarView(ctx: Context) : View(ctx) {
             rect.set(0f, 0f, w * pct / 100f, h)
             c.drawRoundRect(rect, r, r, fill)
         }
+    }
+}
+
+/** Segmented arc gauge in the style of a modern instrument cluster: a "(" arc (or ")" when mirrored) with the
+ *  readout in the middle. Fills from the zero position, so a regen value fills the other way. */
+class ArcGaugeView(ctx: Context, private val mirrored: Boolean, private val zeroFrac: Float, private val colorAt: (Float) -> Int) : View(ctx) {
+    var topLabel = ""; var topValue = ""
+    var title = ""; var valueText = "--"; var unit = ""
+    var bottomLabel = ""; var bottomValue = ""
+    var barFrac: Float? = null
+    private var shown = 0f
+    private var target = 0f
+    private var has = false
+    private var anim: ValueAnimator? = null
+    private val arc = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.BUTT }
+    private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
+    private val rect = RectF()
+    private val light = Typeface.create("sans-serif-light", Typeface.NORMAL)
+    private val lightItalic = Typeface.create("sans-serif-light", Typeface.ITALIC)
+    private val medium = Typeface.create("sans-serif-medium", Typeface.ITALIC)
+
+    fun refresh() = invalidate()
+
+    fun setFraction(f: Float?) {
+        has = f != null
+        val t = (f ?: zeroFrac).coerceIn(0f, 1f)
+        if (t == target) return
+        target = t
+        anim?.cancel()
+        anim = ValueAnimator.ofFloat(shown, t).apply {
+            duration = 250
+            addUpdateListener { shown = it.animatedValue as Float; invalidate() }
+            start()
+        }
+    }
+
+    private fun text(s: String, x: Float, y: Float, size: Float, color: Int, tf: Typeface) {
+        txt.textSize = size; txt.color = color; txt.typeface = tf
+        // keep long text inside the arc
+        val maxW = width * 0.62f
+        val w = txt.measureText(s)
+        if (w > maxW) txt.textSize = size * maxW / w
+        arcCanvas?.drawText(s, x, y, txt)
+    }
+
+    private var arcCanvas: Canvas? = null
+
+    override fun onDraw(c: Canvas) {
+        arcCanvas = c
+        val w = width.toFloat()
+        val h = height.toFloat()
+        if (w <= 0f || h <= 0f) return
+        val cx = w / 2
+        val cy = h / 2
+        val r = minOf(w, h) / 2 * 0.92f
+        val stroke = r * 0.13f
+        val rr = r - stroke / 2
+        val start = if (mirrored) 75f else 105f
+        val dir = if (mirrored) -1f else 1f
+        val sweep = 210f
+        // thin outer ring
+        arc.strokeWidth = 2f
+        arc.color = Color.argb(60, 255, 255, 255)
+        rect.set(cx - r - stroke * 0.5f, cy - r - stroke * 0.5f, cx + r + stroke * 0.5f, cy + r + stroke * 0.5f)
+        c.drawArc(rect, start - dir * 6f, dir * (sweep + 12f), false, arc)
+        rect.set(cx - rr, cy - rr, cx + rr, cy + rr)
+        val n = 24
+        val gap = 1.8f
+        val lo = if (has) minOf(zeroFrac, shown) else 0f
+        val hi = if (has) maxOf(zeroFrac, shown) else 0f
+        for (i in 0 until n) {
+            val f0 = i.toFloat() / n
+            val f1 = (i + 1).toFloat() / n
+            val a0 = f0 * sweep + gap / 2
+            val a1 = f1 * sweep - gap / 2
+            arc.strokeWidth = stroke
+            arc.color = Color.argb(46, 255, 255, 255)
+            c.drawArc(rect, start + dir * a0, dir * (a1 - a0), false, arc)
+            val s0 = maxOf(a0, lo * sweep)
+            val s1 = minOf(a1, hi * sweep)
+            if (has && s1 > s0) {
+                val col = colorAt((f0 + f1) / 2)
+                arc.strokeWidth = stroke * 1.6f
+                arc.color = Color.argb(55, Color.red(col), Color.green(col), Color.blue(col))
+                c.drawArc(rect, start + dir * s0, dir * (s1 - s0), false, arc)
+                arc.strokeWidth = stroke
+                arc.color = col
+                c.drawArc(rect, start + dir * s0, dir * (s1 - s0), false, arc)
+            }
+        }
+        val grey = Color.argb(150, 255, 255, 255)
+        text(topLabel, cx, cy - r * 0.62f, r * 0.085f, grey, light)
+        text(topValue, cx, cy - r * 0.50f, r * 0.12f, Color.WHITE, lightItalic)
+        text(title, cx, cy - r * 0.26f, r * 0.13f, grey, lightItalic)
+        text(valueText, cx, cy + r * 0.15f, r * 0.42f, Color.WHITE, lightItalic)
+        text(unit, cx, cy + r * 0.38f, r * 0.14f, Color.parseColor("#2AA8FF"), medium)
+        text(bottomLabel, cx, cy + r * 0.55f, r * 0.085f, grey, light)
+        text(bottomValue, cx, cy + r * 0.67f, r * 0.12f, Color.WHITE, lightItalic)
+        val bf = barFrac
+        if (bf != null) {
+            val bw = r * 0.7f
+            val by = cy + r * 0.77f
+            arc.style = Paint.Style.FILL
+            arc.color = Color.argb(50, 255, 255, 255)
+            rect.set(cx - bw / 2, by, cx + bw / 2, by + r * 0.045f)
+            c.drawRoundRect(rect, 6f, 6f, arc)
+            arc.color = Color.parseColor("#2AA8FF")
+            rect.set(cx - bw / 2, by, cx - bw / 2 + bw * bf.coerceIn(0f, 1f), by + r * 0.045f)
+            c.drawRoundRect(rect, 6f, 6f, arc)
+            arc.style = Paint.Style.STROKE
+        }
+        arcCanvas = null
     }
 }
