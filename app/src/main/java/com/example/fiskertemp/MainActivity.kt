@@ -370,6 +370,7 @@ class MainActivity : Activity() {
         buildUi()
         val saved = getSharedPreferences("prefs", MODE_PRIVATE).getString("source", null)
         applySource(when (saved) { "pulse" -> true; "dongle" -> false; else -> PulseCan.available() })
+        if (getSharedPreferences("prefs", MODE_PRIVATE).getBoolean("dashDefault", false)) showDashboard(true)
     }
 
     // ------------------------------------------------------------------ UI
@@ -457,7 +458,7 @@ class MainActivity : Activity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(16), dp(16), dp(24))
+            setPadding(dp(16), dp(16), dp(16), dp(88))
         }
 
         val conn = card()
@@ -557,7 +558,18 @@ class MainActivity : Activity() {
         root.addView(logCard)
 
         rootScroll = ScrollView(this).apply { addView(root) }
-        setContentView(rootScroll)
+        dashRoot = buildDashboard()
+        dashBtn = Button(this).apply {
+            text = "Show Dashboard"; isAllCaps = false; setTextColor(Color.WHITE); textSize = 15f
+            background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(22).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
+            setPadding(dp(20), 0, dp(20), 0)
+            setOnClickListener { showDashboard(!dashShown) }
+        }
+        val container = FrameLayout(this)
+        container.addView(rootScroll, FrameLayout.LayoutParams(-1, -1))
+        container.addView(dashRoot, FrameLayout.LayoutParams(-1, -1))
+        container.addView(dashBtn, FrameLayout.LayoutParams(-2, dp(44), Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(16), 0, 0, dp(16)) })
+        setContentView(container)
         applyTheme(getSharedPreferences("prefs", MODE_PRIVATE).getInt("theme", 0).coerceIn(0, THEMES.size - 1))
     }
 
@@ -566,6 +578,7 @@ class MainActivity : Activity() {
         themeIndex = i
         val t = THEMES[i]
         rootScroll.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(t.top, t.bottom))
+        if (::dashRoot.isInitialized) dashRoot.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(t.top, t.bottom))
         window.statusBarColor = t.top
         window.navigationBarColor = t.bottom
         actionBar?.setBackgroundDrawable(ColorDrawable(t.top))
@@ -594,6 +607,22 @@ class MainActivity : Activity() {
         val rg = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL; addView(rc); addView(rf) }
         rg.setOnCheckedChangeListener { _, checkedId -> setFahrenheit(checkedId == rf.id) }
         box.add(rg, 6)
+
+        box.add(TextView(this).apply { text = "Speed unit"; textSize = 14f; setTextColor(Color.DKGRAY) }, 20)
+        val kmh = RadioButton(this).apply { text = "km/h"; id = View.generateViewId(); isChecked = !speedMph() }
+        val mph = RadioButton(this).apply { text = "mph"; id = View.generateViewId(); isChecked = speedMph() }
+        val spg = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL; addView(kmh); addView(mph) }
+        spg.setOnCheckedChangeListener { _, checkedId -> prefs().edit().putBoolean("mph", checkedId == mph.id).apply() }
+        box.add(spg, 6)
+        box.add(TextView(this).apply { text = "Dashboard"; textSize = 14f; setTextColor(Color.DKGRAY) }, 20)
+        box.add(CheckBox(this).apply {
+            text = "Show the dashboard when the app starts"; isChecked = prefs().getBoolean("dashDefault", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("dashDefault", on).apply() }
+        }, 4)
+        box.add(CheckBox(this).apply {
+            text = "Flip power direction (if drive shows as negative)"; isChecked = prefs().getBoolean("flipPower", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("flipPower", on).apply() }
+        }, 0)
 
         box.add(TextView(this).apply { text = "Data source"; textSize = 14f; setTextColor(Color.DKGRAY) }, 20)
         val sd = RadioButton(this).apply { text = "vLinker dongle (Bluetooth)"; id = View.generateViewId(); isChecked = !useCan }
@@ -678,6 +707,103 @@ class MainActivity : Activity() {
             String.format("%.2f kW", k) + if (k >= 0.3) " (likely PTC heater)" else ""
         } else "n/a without heat pump reading"
         return "Climate total: $total\n$pump\nOther climate load: $other"
+    }
+
+    // ------------------------------------------------------------ Dashboard
+    private lateinit var dashRoot: FrameLayout
+    private lateinit var dashBtn: Button
+    private lateinit var dashSpeed: TextView
+    private lateinit var dashSpeedUnit: TextView
+    private lateinit var dashKw: TextView
+    private lateinit var dashSoc: TextView
+    private lateinit var dashPowerBar: PowerBarView
+    private lateinit var dashSocBar: SocBarView
+    private var dashShown = false
+
+    private fun prefs() = getSharedPreferences("prefs", MODE_PRIVATE)
+    private fun speedMph() = prefs().getBoolean("mph", false)
+
+    private fun buildDashboard(): FrameLayout {
+        fun tv(size: Float, bold: Boolean = false, alpha: Int = 255) = TextView(this).apply {
+            textSize = size; setTextColor(Color.argb(alpha, 255, 255, 255))
+            typeface = if (bold) Typeface.create("sans-serif-medium", Typeface.BOLD) else Typeface.create("sans-serif-light", Typeface.NORMAL)
+            includeFontPadding = false
+        }
+        val f = FrameLayout(this)
+        f.visibility = View.GONE
+        // left column: speed, then power
+        dashSpeed = tv(96f, true).apply { text = "--" }
+        dashSpeedUnit = tv(18f, alpha = 200).apply { text = "km/h" }
+        dashKw = tv(30f, true).apply { text = "-- kW" }
+        dashPowerBar = PowerBarView(this)
+        val left = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(dashSpeed)
+            addView(dashSpeedUnit)
+            addView(tv(16f, alpha = 200).apply { text = "Power" }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(20) })
+            addView(dashKw)
+            addView(dashPowerBar, LinearLayout.LayoutParams(dp(56), 0, 1f).apply { topMargin = dp(10) })
+        }
+        f.addView(left, FrameLayout.LayoutParams(-2, -1, Gravity.START or Gravity.TOP).apply { setMargins(dp(28), dp(20), 0, dp(76)) })
+        // right: battery charge
+        dashSoc = tv(72f, true).apply { text = "--%"; gravity = Gravity.END }
+        dashSocBar = SocBarView(this)
+        val right = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.END
+            addView(tv(16f, alpha = 200).apply { text = "Battery" })
+            addView(dashSoc)
+            addView(dashSocBar, LinearLayout.LayoutParams(dp(180), dp(12)).apply { topMargin = dp(8) })
+        }
+        f.addView(right, FrameLayout.LayoutParams(-2, -2, Gravity.END or Gravity.TOP).apply { setMargins(0, dp(20), dp(28), 0) })
+        // top centre: clock
+        val clock = TextClock(this).apply {
+            textSize = 40f; setTextColor(Color.WHITE); includeFontPadding = false
+            typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
+            format12Hour = "h:mm a"; format24Hour = "HH:mm"
+        }
+        f.addView(clock, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_HORIZONTAL or Gravity.TOP).apply { topMargin = dp(24) })
+        return f
+    }
+
+    private val dashTick = object : Runnable {
+        override fun run() {
+            renderDash()
+            if (dashShown) ui.postDelayed(this, 200)
+        }
+    }
+
+    private fun showDashboard(on: Boolean) {
+        dashShown = on
+        ui.removeCallbacks(dashTick)
+        dashRoot.visibility = if (on) View.VISIBLE else View.GONE
+        rootScroll.visibility = if (on) View.GONE else View.VISIBLE
+        dashBtn.text = if (on) "Hide Dashboard" else "Show Dashboard"
+        if (on) {
+            actionBar?.hide()
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            ui.post(dashTick)
+        } else {
+            actionBar?.show()
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+        }
+    }
+
+    private fun renderDash() {
+        val s = canSnap
+        val mph = speedMph()
+        val spd = s.speedKmh
+        dashSpeed.text = if (spd == null) "--" else String.format("%.0f", if (mph) spd * 0.621371 else spd)
+        dashSpeedUnit.text = if (mph) "mph" else "km/h"
+        val v = s.packVolts
+        val a = s.packAmps
+        val kw = if (v != null && a != null) v * a / 1000.0 * (if (prefs().getBoolean("flipPower", false)) -1 else 1) else null
+        dashKw.text = if (kw == null) "-- kW" else String.format("%.0f kW", kw)
+        dashPowerBar.setPower(kw)
+        dashSoc.text = s.socUsable?.let { "$it%" } ?: "--%"
+        dashSocBar.setPercent(s.socUsable)
     }
 
     private fun applySource(pulseMode: Boolean) {
@@ -1034,5 +1160,92 @@ class MainActivity : Activity() {
         Thread {
             while (polling) { readOnce(); Thread.sleep(1000) }
         }.start()
+    }
+}
+
+
+/** Vertical power bar: green for regen below the zero line, blue to red as power rises above it. */
+class PowerBarView(ctx: Context) : View(ctx) {
+    private val minKw = -80.0
+    private val maxKw = 320.0
+    private var shown = 0.0
+    private var target = 0.0
+    private var has = false
+    private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(50, 255, 255, 255) }
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; strokeWidth = 3f }
+    private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(200, 255, 255, 255); textSize = 30f }
+    private val rect = RectF()
+    private var anim: ValueAnimator? = null
+
+    fun setPower(kw: Double?) {
+        has = kw != null
+        val t = (kw ?: 0.0).coerceIn(minKw, maxKw)
+        if (t == target) return
+        target = t
+        anim?.cancel()
+        anim = ValueAnimator.ofFloat(shown.toFloat(), t.toFloat()).apply {
+            duration = 250
+            addUpdateListener { shown = (it.animatedValue as Float).toDouble(); invalidate() }
+            start()
+        }
+    }
+
+    private fun yOf(kw: Double): Float = (height * (1 - (kw - minKw) / (maxKw - minKw))).toFloat()
+
+    override fun onDraw(c: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        if (h <= 0f) return
+        val r = w / 2
+        rect.set(0f, 0f, w, h)
+        c.drawRoundRect(rect, r, r, track)
+        val yz = yOf(0.0)
+        // colours: top red -> pink -> purple -> blue at the zero line, then green below it
+        val zf = yz / h
+        fill.shader = LinearGradient(0f, 0f, 0f, h,
+            intArrayOf(Color.parseColor("#FF3B4E"), Color.parseColor("#FF4FA3"), Color.parseColor("#9B5CFF"), Color.parseColor("#3AA0FF"), Color.parseColor("#2ECC71"), Color.parseColor("#1FA37A")),
+            floatArrayOf(0f, zf * 0.35f, zf * 0.7f, zf, zf + 0.0001f, 1f), android.graphics.Shader.TileMode.CLAMP)
+        if (has) {
+            val y = yOf(shown)
+            val top = minOf(y, yz)
+            val bottom = maxOf(y, yz)
+            if (bottom - top > 1f) {
+                c.save()
+                val clip = android.graphics.Path().apply { addRoundRect(RectF(0f, 0f, w, h), r, r, android.graphics.Path.Direction.CW) }
+                c.clipPath(clip)
+                c.drawRect(0f, top, w, bottom, fill)
+                c.restore()
+            }
+        }
+        c.drawLine(0f, yz, w, yz, line)
+    }
+
+    override fun onMeasure(wSpec: Int, hSpec: Int) {
+        setMeasuredDimension(MeasureSpec.getSize(wSpec).let { if (MeasureSpec.getMode(wSpec) == MeasureSpec.UNSPECIFIED) 100 else it },
+            MeasureSpec.getSize(hSpec).let { if (MeasureSpec.getMode(hSpec) == MeasureSpec.UNSPECIFIED) 400 else it })
+    }
+}
+
+/** Thin gradient bar showing the state of charge. */
+class SocBarView(ctx: Context) : View(ctx) {
+    private var pct = 0
+    private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(50, 255, 255, 255) }
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val rect = RectF()
+
+    fun setPercent(p: Int?) { val n = (p ?: 0).coerceIn(0, 100); if (n != pct) { pct = n; invalidate() } }
+
+    override fun onDraw(c: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val r = h / 2
+        rect.set(0f, 0f, w, h)
+        c.drawRoundRect(rect, r, r, track)
+        if (pct > 0) {
+            fill.shader = LinearGradient(0f, 0f, w, 0f, Color.parseColor("#FF3B4E"), Color.parseColor("#2ECC71"), android.graphics.Shader.TileMode.CLAMP)
+            rect.set(0f, 0f, w * pct / 100f, h)
+            c.drawRoundRect(rect, r, r, fill)
+        }
     }
 }
