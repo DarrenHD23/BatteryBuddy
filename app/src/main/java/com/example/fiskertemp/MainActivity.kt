@@ -692,6 +692,10 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("dashDefault", on).apply() }
         }, 4)
         box.add(CheckBox(this).apply {
+            text = "Speed gauge on the left (power on the right)"; isChecked = prefs().getBoolean("speedLeft", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("speedLeft", on).apply(); applyGaugeSides() }
+        }, 4)
+        box.add(CheckBox(this).apply {
             text = "Flip power direction (if drive shows as negative)"; isChecked = prefs().getBoolean("flipPower", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("flipPower", on).apply() }
         }, 0)
@@ -822,6 +826,7 @@ class MainActivity : Activity() {
     private lateinit var dashRow: StatusStripView
     private lateinit var dashReady: TextView
     private lateinit var dashHold: HoldView
+    private lateinit var dashMid: LinearLayout
     private lateinit var poolBar: HorizontalScrollView
     private lateinit var poolRow: LinearLayout
     private var poolKey = ""
@@ -941,13 +946,10 @@ class MainActivity : Activity() {
             addView(dashHeading, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
             addView(dashSign, LinearLayout.LayoutParams(dp(64), dp(64)).apply { topMargin = dp(8) })
         }
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addView(dashPowerGauge, LinearLayout.LayoutParams(0, -1, 1.15f))
-            addView(mid, LinearLayout.LayoutParams(0, -1, 0.7f))
-            addView(dashSpeedGauge, LinearLayout.LayoutParams(0, -1, 1.15f))
-        }
+        dashMid = mid
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; clipChildren = false }
         dashGaugeRow = row
+        applyGaugeSides()
         f.addView(row, FrameLayout.LayoutParams(-1, -1).apply { setMargins(dp(8), dp(8), dp(8), dp(114)) })
         dashStrip = StatusStripView(this).apply {
             maxCount = 7
@@ -1068,6 +1070,20 @@ class MainActivity : Activity() {
         )
     }
 
+    /** Speed gauge on the left or the right (a setting); the arcs open towards the middle either way. */
+    private fun applyGaugeSides() {
+        val speedLeft = prefs().getBoolean("speedLeft", false)
+        dashSpeedGauge.mirrored = !speedLeft
+        dashPowerGauge.mirrored = speedLeft
+        dashGaugeRow.removeAllViews()
+        val left = if (speedLeft) dashSpeedGauge else dashPowerGauge
+        val right = if (speedLeft) dashPowerGauge else dashSpeedGauge
+        dashGaugeRow.addView(left, LinearLayout.LayoutParams(0, -1, 1.15f))
+        dashGaugeRow.addView(dashMid, LinearLayout.LayoutParams(0, -1, 0.7f))
+        dashGaugeRow.addView(right, LinearLayout.LayoutParams(0, -1, 1.15f))
+        dashSpeedGauge.invalidate(); dashPowerGauge.invalidate()
+    }
+
     private fun savedList(key: String, legacy: String): List<String>? {
         val p = prefs()
         if (p.contains(key)) return p.getString(key, "")!!.split("|").filter { it.isNotEmpty() }
@@ -1139,7 +1155,10 @@ class MainActivity : Activity() {
         poolBar.requestLayout()
         lowerBox.requestLayout()
         (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), dp(if (short) 4 else 8), dp(8), dp(gaugeBottom)) }
-        (dashLight.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (short) 30 else 42); height = dp(if (short) 64 else 88) }
+        (dashLight.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (short) 26 else 42); height = dp(if (short) 56 else 88); topMargin = dp(if (short) 10 else 4) }
+        dashReady.textSize = if (short) 12f else 17f
+        (dashHold.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (short) 26 else 38); height = dp(if (short) 26 else 38) }
+        dashLightDist.textSize = if (short) 12f else 15f
         (dashSign.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (short) 48 else 64); height = dp(if (short) 48 else 64) }
         dashStrip.requestLayout(); dashRow.requestLayout(); dashGaugeRow.requestLayout(); dashLight.requestLayout(); dashSign.requestLayout()
     }
@@ -1828,7 +1847,7 @@ class SocBarView(ctx: Context) : View(ctx) {
 
 /** Segmented arc gauge in the style of a modern instrument cluster: a "(" arc (or ")" when mirrored) with the
  *  readout in the middle. Fills from the zero position, so a regen value fills the other way. */
-class ArcGaugeView(ctx: Context, private val mirrored: Boolean, private val zeroFrac: Float, private val colorAt: (Float) -> Int) : View(ctx) {
+class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Float, private val colorAt: (Float) -> Int) : View(ctx) {
     var topLabel = ""; var topValue = ""
     var title = ""; var valueText = "--"; var unit = ""
     var bottomLabel = ""; var bottomValue = ""; var bottomColor: Int? = null
@@ -2038,7 +2057,7 @@ class TrafficLightView(ctx: Context) : View(ctx) {
             val on = lit == i + 1
             if (on) {
                 p.color = Color.argb(70, Color.red(cols[i]), Color.green(cols[i]), Color.blue(cols[i]))
-                c.drawCircle(w / 2, cy, r * 1.45f, p)
+                c.drawCircle(w / 2, cy, minOf(r * 1.45f, cy - 2f), p)
             }
             p.color = if (on) cols[i] else Color.argb(60, Color.red(cols[i]), Color.green(cols[i]), Color.blue(cols[i]))
             c.drawCircle(w / 2, cy, r, p)
