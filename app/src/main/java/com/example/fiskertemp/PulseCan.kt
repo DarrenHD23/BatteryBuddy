@@ -31,6 +31,13 @@ data class CanSnapshot(
     val sohPct: Int? = null,           // % (0x2F5, byte 5)
     val packVolts: Double? = null,     // V (0xE9 on IBUS2, bytes 6-7)  needs the chip filters opened
     val packAmps: Double? = null,      // A (0xE9 on IBUS2, bytes 4-5, signed)
+    val capKwh: Double? = null,        // energy left in the HV battery, kWh (0x580 on IBUS2, bytes 6-7, 0.01)
+    val cabinC: Double? = null,        // cabin temperature, C (0x582 on IBUS2, byte 0, 0.5 per bit, -48)
+    val outsideC: Double? = null,      // outside temperature, C (0x373 on IBUS1, byte 5, 0.5 per bit, -48)
+    val solarW: Int? = null,           // solar roof power, W (0x6DD on IBUS1, 10 bits from byte 0)
+    val volts12: Double? = null,       // 12V battery voltage (0x507 on IBUS1, bytes 6-7, 0.001 V)
+    val soc12: Double? = null,         // 12V battery state of charge, % (0x2AC on IBUS1, byte 0, 0.5)
+    val soh12: Double? = null,         // 12V battery state of health, % (0x2AC on IBUS1, byte 1, 0.5)
     val rangeKm: Double? = null,       // estimated range left, km (0x504 on IBUS2, bytes 5-6, 0.1 per bit)
     val headlights: Boolean? = null,   // low beam, high beam or position lamps on (0x335 on IBUS1, byte 5 bits 6-3)
     val lightColor: Int? = null,       // traffic light the car sees ahead: 1 red, 2 amber, 3 green (0x210 on IBUS2); null = none
@@ -99,9 +106,14 @@ class PulseCan(
     private fun openFilters(): String? {
         val dir = File("/sys/module/mcp251x/parameters")
         if (!dir.isDirectory) return "no mcp251x driver parameters on this device"
+        // Each chip has two receive buffers: buffer 0 (2 filters, one mask) and buffer 1 (4 filters, one mask).
+        // The six filters are given buffer 0 first. Masks let one filter cover a block of IDs; the helper's own
+        // socket filters then keep only the exact IDs this app wants.
         val plan = listOf(
-            Triple(0, "0x7FF,0x7FF", listOf(0x382, 0x2F5, 0x318, 0x179, 0x234, 0x335).joinToString(",")),
-            Triple(1, "0x7FF,0x7FF", listOf(0x0E9, 0x1A9, 0x491, 0x210, 0x351, 0x504).joinToString(",")),
+            // IBUS1: 0x507 and 0x6DD exactly; 0x100-0x3FF (0x179 0x234 0x2AC 0x2F5 0x318 0x335 0x373 0x382)
+            Triple(0, "0x7FF,0x700", "0x507,0x6DD,0x100,0x200,0x300,0x300"),
+            // IBUS2: 0x000-0x3FF (0xE9 0x1A9 0x210 0x351); 0x480 (0x491), 0x500 (0x504), 0x580 (0x580 0x582)
+            Triple(1, "0x600,0x7C0", "0x000,0x200,0x480,0x500,0x580,0x580"),
         )
         fun dec(csv: String) = csv.split(',').joinToString(",") { Integer.decode(it.trim()).toString() }
         val sb = StringBuilder()
@@ -148,7 +160,7 @@ class PulseCan(
                 // receive only: no "tx:" arguments
                 val why = openFilters()
                 onStatus(if (why == null) "CAN filters opened for climate frames" else "CAN filters not changed: $why")
-                val args = listOf(bin, "$b1=382,2F5,318,179,234,335", "$b2=0E9,1A9,491,210,351,504")
+                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD", "$b2=0E9,1A9,491,210,351,504,580,582")
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
@@ -274,6 +286,32 @@ class PulseCan(
             fun map(v: Int): Int? = when (v) { 1, 4, 5, 7 -> 1; 2, 6 -> 2; 3 -> 3; else -> null }
             val col = if (c in 1..7) map(c) else map(sh.takeIf { it in 1..3 } ?: 0)
             return s.copy(lightColor = col)
+        }
+        // 0x580 VCU_0x580 (IBUS2, 250 ms): VCU_PwrBattAvlEgy, energy available in the HV battery, 0.01 kWh (65535 = invalid)
+        if (bus == 2 && id == 0x580) {
+            val raw = (b[6] shl 8) or b[7]
+            return s.copy(capKwh = if (raw == 0xFFFF) null else raw * 0.01)
+        }
+        // 0x582 ECC_0x582 (IBUS2, 100 ms): ECC_InsdT, cabin temperature (255 = invalid)
+        if (bus == 2 && id == 0x582) {
+            return s.copy(cabinC = if (b[0] == 255) null else b[0] * 0.5 - 48.0)
+        }
+        // 0x373 ECC_0x373 (IBUS1, 100 ms): ECC_OutdT outside temperature, valid when ECC_OutdTVld (byte 6, low 2 bits) = 1
+        if (bus == 1 && id == 0x373) {
+            return s.copy(outsideC = if ((b[6] and 3) == 1) b[5] * 0.5 - 48.0 else null)
+        }
+        // 0x6DD BMS_PVIU_ActualPower (IBUS1, 1 s): solar roof power in W, 10 bits starting at byte 0
+        if (bus == 1 && id == 0x6DD) {
+            return s.copy(solarW = (b[0] shl 2) or (b[1] shr 6))
+        }
+        // 0x507 VCU_0x507 (IBUS1, 100 ms): VCU_BattVolt, 12V battery voltage, 0.001 V (65535 = invalid)
+        if (bus == 1 && id == 0x507) {
+            val raw = (b[6] shl 8) or b[7]
+            return s.copy(volts12 = if (raw == 0xFFFF) null else raw * 0.001)
+        }
+        // 0x2AC VCU_IBS_BZE1 (IBUS1, 100 ms): 12V battery sensor, state of charge and health, 0.5 % per bit
+        if (bus == 1 && id == 0x2AC) {
+            return s.copy(soc12 = b[0] * 0.5, soh12 = b[1] * 0.5)
         }
         // 0x504 VCU_0x504 (IBUS2): VCU_DrvgMilg remaining driving range, 0.1 km per bit; VCU_DrvRngVld 1 = valid
         if (bus == 2 && id == 0x504) {
