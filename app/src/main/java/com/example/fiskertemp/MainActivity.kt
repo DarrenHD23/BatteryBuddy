@@ -553,7 +553,8 @@ class MainActivity : Activity() {
             advancedBox.visibility = if (advancedBox.visibility == View.GONE) View.VISIBLE else View.GONE
         }, 0)
         adv.add(advancedBox, 0)
-        root.addView(adv)
+        // the manual request fields (ELM protocol, ECU ID, raw request, "Read once") are no longer shown: they let a user
+        // send arbitrary diagnostic requests onto the car's bus. The fields stay (with their defaults) for the dongle polling.
 
         val logCard = card()
         val logArrow = TextView(this).apply { text = "\u25B4"; textSize = 18f; setTextColor(Color.WHITE) }
