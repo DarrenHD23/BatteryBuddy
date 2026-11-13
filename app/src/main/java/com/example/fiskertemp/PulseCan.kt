@@ -66,6 +66,7 @@ class PulseCan(
 ) {
     @Volatile private var running = false
     @Volatile private var filtersDone = false
+    @Volatile var frames = 0L          // frames received, for the event log
     /** Safe mode: never touch the CAN chips' filters (power and climate may then not show). Set by the app. */
     @Volatile var safeMode = false
     private val lastSeen = HashMap<String, Long>()
@@ -246,6 +247,7 @@ class PulseCan(
         val bytes = IntArray(hex.length / 2)
         for (i in bytes.indices) bytes[i] = hex.substring(i * 2, i * 2 + 2).toIntOrNull(16) ?: return
 
+        frames++
         val key = "$bus/$id"
         // keep the load down: a frame of the same ID is used at most every 90 ms (40 ms for brake and drive mode)
         val tnow = System.currentTimeMillis()
@@ -384,5 +386,51 @@ class PulseCan(
             return s.copy(compState = (b[2] shr 5) and 3, compWatts = ((b[6] shl 8) or b[7]) * 0.2)
         }
         return null
+    }
+}
+
+/**
+ * A small log of what the app did and how the Pulse was doing, written to the flash with a sync after every line
+ * so it survives a hard reset. After a crash, Settings > "Show event log" shows what happened just before.
+ */
+object EventLog {
+    private var file: java.io.File? = null
+    private val fmt = java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.US)
+
+    @Synchronized fun init(ctx: Context) {
+        val f = java.io.File(ctx.filesDir, "events.log")
+        file = f
+        try {
+            if (f.length() > 200_000) f.writeText(f.readLines().takeLast(800).joinToString("\n") + "\n")
+        } catch (e: Exception) { /* ignore */ }
+    }
+
+    @Synchronized fun add(msg: String) {
+        val f = file ?: return
+        try {
+            java.io.FileOutputStream(f, true).use { o ->
+                o.write("${fmt.format(java.util.Date())} $msg\n".toByteArray())
+                o.fd.sync()
+            }
+        } catch (e: Exception) { /* ignore */ }
+    }
+
+    @Synchronized fun text(maxLines: Int = 250): String = try {
+        file?.readLines()?.takeLast(maxLines)?.joinToString("\n") ?: ""
+    } catch (e: Exception) { "" }
+
+    /** Load, free memory and the hottest temperature sensor: what a crash from heat or memory would show. */
+    fun system(): String {
+        fun rd(p: String) = try { java.io.File(p).readText().trim() } catch (e: Exception) { "" }
+        val load = rd("/proc/loadavg").split(" ").take(3).joinToString("/")
+        val mem = Regex("MemAvailable:\\s+(\\d+)").find(rd("/proc/meminfo"))?.groupValues?.get(1)?.toLongOrNull()?.div(1024)
+        var hot = 0
+        try {
+            java.io.File("/sys/class/thermal").listFiles()?.filter { it.name.startsWith("thermal_zone") }?.forEach {
+                val t = rd(it.path + "/temp").toIntOrNull() ?: 0
+                if (t > hot) hot = t
+            }
+        } catch (e: Exception) { /* ignore */ }
+        return "load=$load free=${mem ?: "?"}MB hottest=${if (hot > 1000) hot / 1000 else hot}C"
     }
 }
