@@ -1160,7 +1160,6 @@ class MainActivity : Activity() {
             "Est. Capacity" to (estCap?.let { String.format("%.1f kWh", it) } ?: "--"),
             "Battery Health" to (s.sohPct?.takeIf { it in 1..100 }?.let { "$it %" } ?: "--"),
             "Charge" to (s.socUsable?.let { "$it %" } ?: "--"),
-            "Real SOC" to (s.socReal?.let { "$it %" } ?: s.socRealRaw?.let { "n/a ($it)" } ?: "--"),
             "Pack Volts" to (s.packVolts?.let { String.format("%.0f V", it) } ?: "--"),
             "Pack Amps" to (s.packAmps?.let { String.format("%.0f A", it) } ?: "--"),
             "Battery Temp" to tc(s.avgTempC),
@@ -1269,7 +1268,11 @@ class MainActivity : Activity() {
         val t = tiers[ti]
         val gaugeH = hDp - stack(t)
         val midLevel = if (gaugeH >= 300) 0 else if (gaugeH >= 235) 1 else 2
-        val key = "$narrow/$ti/$midLevel"
+        // a third-height split window (not half or full) keeps the bottom buttons at the left edge
+        val third = try {
+            if (android.os.Build.VERSION.SDK_INT >= 30) windowManager.currentWindowMetrics.bounds.height() < windowManager.maximumWindowMetrics.bounds.height() * 0.42 else false
+        } catch (e: Exception) { false }
+        val key = "$narrow/$ti/$midLevel/$third"
         if (key == layoutKey) return
         layoutKey = key
         compact = ti > 0
@@ -1300,7 +1303,7 @@ class MainActivity : Activity() {
         editBackdrop.requestLayout()
         (dashStrip.layoutParams as FrameLayout.LayoutParams).apply { height = dp(maxOf(t.strip, 1)); setMargins(dp(sideL), 0, dp(sideR), dp(stripBottom)) }
         (dashRow.layoutParams as FrameLayout.LayoutParams).apply { height = dp(t.row); setMargins(dp(sideL), 0, dp(sideR), dp(rowBottom)) }
-        (lowerBox.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), 0, 0, dp(10)) }
+        (lowerBox.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8) + (if (third) 0 else 10), 0, 0, dp(10)) }
         (poolBar.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), 0, dp(8), dp(lowerBottom)) }
         (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), dp(if (short) 20 else 8), dp(8), dp(gaugeBottom)) }
         (dashLight.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 22 else if (short) 26 else 42); height = dp(if (midLevel == 2) 46 else if (short) 56 else 88); topMargin = dp(if (short) 6 else 4) }
@@ -1394,32 +1397,47 @@ class MainActivity : Activity() {
         return SplitService.instance != null
     }
 
-    /** Open app number [i] (0 Maps, 1 Spotify, 2 Pulse) in the lower half. If this app is not in split screen yet, put it there first. */
+    /** Open app number [i] (0 Maps, 1 Spotify, 2 Pulse, 3 Oceanscape) in the lower half. If this app is not in split screen yet, put it there first. */
     private fun openLower(i: Int) {
         if (isInMultiWindowMode) { launchLower(i); return }
         EventLog.add("starting split screen for ${lowerNames[i]}")
         Toast.makeText(this, "Switching to split screen\u2026", Toast.LENGTH_SHORT).show()
+        val myTask = taskId
         Thread {
-            val bad = if (SplitService.instance == null) rootCheck() else null
-            if (bad != null) { ui.post { toast("$bad Or use the Pulse's own split-screen controls.") }; return@Thread }
-            val ok = ensureSplitService()
-            ui.post {
-                if (!ok) {
-                    toast("Could not start split screen automatically. Use the Pulse's split-screen controls (this app on top), then tap again.")
-                } else {
-                    val r = SplitService.instance?.splitScreen()
-                    EventLog.add("split screen action returned $r")
-                    if (r != true) toast("Android did not accept the split-screen request (result: $r). Use the Pulse's split-screen controls instead.")
-                    waitForSplit(i, 0)
-                }
-            }
+            val bad = rootCheck()
+            if (bad != null && SplitService.instance == null) { ui.post { toast("$bad Or use the Pulse's own split-screen controls.") }; return@Thread }
+            // Android 12L and later: the system UI's shell can put a task into split screen. Position 0 = top.
+            val out = if (bad == null) rootRun("dumpsys activity service SystemUIService WMShell splitscreen moveToSideStage $myTask 0") else ""
+            splitOut = out.trim().take(300)
+            EventLog.add("split shell command (task $myTask): ${splitOut.ifEmpty { "no output" }}")
+            ui.post { waitForSplit(i, 0, false) }
         }.start()
     }
 
-    private fun waitForSplit(i: Int, tries: Int) {
-        if (isInMultiWindowMode) { ui.postDelayed({ launchLower(i) }, 500); return }
-        if (tries >= 25) { EventLog.add("split screen did not start"); toast("Split screen did not start. Use the Pulse's split-screen controls, then tap again."); return }
-        ui.postDelayed({ waitForSplit(i, tries + 1) }, 200)
+    private var splitOut = ""
+
+    private fun waitForSplit(i: Int, tries: Int, second: Boolean) {
+        if (isInMultiWindowMode) { EventLog.add("split screen is on"); ui.postDelayed({ launchLower(i) }, 500); return }
+        if (tries >= 15) {
+            if (!second) {
+                // the shell command did not do it: try the accessibility action
+                EventLog.add("shell command did not split; trying the accessibility action")
+                Thread {
+                    val ok = ensureSplitService()
+                    ui.post {
+                        if (!ok) { EventLog.add("split screen did not start"); toast("Could not start split screen. Use the Pulse's split-screen controls (this app on top), then tap again. Shell said: ${splitOut.ifEmpty { "nothing" }}"); return@post }
+                        val r = SplitService.instance?.splitScreen()
+                        EventLog.add("split screen action returned $r")
+                        waitForSplit(i, 0, true)
+                    }
+                }.start()
+            } else {
+                EventLog.add("split screen did not start")
+                toast("Split screen did not start. Use the Pulse's split-screen controls, then tap again. Shell said: ${splitOut.ifEmpty { "nothing" }}")
+            }
+            return
+        }
+        ui.postDelayed({ waitForSplit(i, tries + 1, second) }, 200)
     }
 
     private fun launchLower(i: Int) {
@@ -1867,7 +1885,7 @@ class MainActivity : Activity() {
     private val statViews = HashMap<String, TextView>()
     private var statKey = ""
     private val statGroups = listOf(
-        "BATTERY" to listOf("Charge", "Real SOC", "HV Cap", "Est. Capacity", "Battery Health", "Battery Temp", "Pack Volts", "Pack Amps", "Cells", "Cell V max", "Cell V min"),
+        "BATTERY" to listOf("Charge", "HV Cap", "Est. Capacity", "Battery Health", "Battery Temp", "Pack Volts", "Pack Amps", "Cells", "Cell V max", "Cell V min"),
         "CLIMATE" to listOf("Climate", "Thermal", "Cabin", "Outside", "Solar now"),
         "12V SYSTEM" to listOf("12V Battery", "12V SOC", "12V SOH"),
         "TRIP" to listOf("Range", "Regen"),
