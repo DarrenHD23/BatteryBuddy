@@ -124,12 +124,12 @@ class PulseCan(
         // The six filters are given buffer 0 first. Masks let one filter cover a block of IDs; the helper's own
         // socket filters then keep only the exact IDs this app wants.
         val plan = listOf(
-            // IBUS1: 0x507 and 0x6DD exactly; 0x100-0x3FF (0x179 0x234 0x2AC 0x2F5 0x318 0x335 0x373 0x382)
-            Triple(0, "0x7FF,0x700", "0x507,0x6DD,0x100,0x200,0x300,0x300"),
-            // IBUS2: the plan that is known to work with the power and climate frames: buffer 0 (mask 0x600) passes
-            // 0x000-0x3FF (0xE9 0x1A9 0x210 0x311 0x332 0x351); buffer 1 (mask 0x7C0) passes 0x480 (0x491),
-            // 0x500 (0x504) and 0x580 (0x580 0x582)
-            Triple(1, "0x600,0x7C0", "0x000,0x200,0x480,0x500,0x580,0x580"),
+            // IBUS1: buffer 0 (mask 0x700) passes 0x200-0x3FF (0x234 0x2AC 0x2F5 0x318 0x335 0x373 0x382);
+            // buffer 1 (mask 0x7FF, exact) passes 0x179, 0x507 and 0x6DD (0x6DD repeated, the fourth slot is spare)
+            Triple(0, "0x700,0x7FF", "0x200,0x300,0x179,0x507,0x6DD,0x6DD"),
+            // IBUS2: buffer 0 (mask 0x600) passes 0x000-0x1FF (0x0E9 0x1A9) and 0x400-0x5FF (0x504 0x580 0x582);
+            // buffer 1 (mask 0x7FF, exact) passes 0x210, 0x311, 0x332 and 0x351. Admits about half the frames of the old plan.
+            Triple(1, "0x600,0x7FF", "0x000,0x400,0x210,0x311,0x332,0x351"),
         )
         fun dec(csv: String) = csv.split(',').joinToString(",") { Integer.decode(it.trim()).toString() }
         // already as wanted? then write nothing
@@ -498,7 +498,7 @@ object CanDiag {
         val (a, b) = PulseCan.interfaces()
         return listOf(a, b).joinToString(" ") { i ->
             val d = "/sys/class/net/$i/statistics/"
-            "$i[rx=${rd(d + "rx_packets")} drop=${rd(d + "rx_dropped")} err=${rd(d + "rx_errors")} over=${rd(d + "rx_over_errors")} fifo=${rd(d + "rx_fifo_errors")} ${rd("/sys/class/net/$i/operstate")}]"
+            "$i[rx=${rd(d + "rx_packets")} tx=${rd(d + "tx_packets")} drop=${rd(d + "rx_dropped")} err=${rd(d + "rx_errors")} over=${rd(d + "rx_over_errors")} fifo=${rd(d + "rx_fifo_errors")} ${rd("/sys/class/net/$i/operstate")}]"
         }
     }
 
