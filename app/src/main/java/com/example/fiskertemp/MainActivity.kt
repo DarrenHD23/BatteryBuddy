@@ -1218,6 +1218,8 @@ class MainActivity : Activity() {
             "Pack Amps" to (s.packAmps?.let { String.format("%.0f A", it) } ?: "--"),
             "Battery Temp" to tc(s.avgTempC),
             "Climate" to (s.climateKw?.let { String.format("%.1f kW", it) } ?: "--"),
+            "Heat pump" to (s.compWatts?.let { if (s.compState == 2) "FAULT" else if (it > 20) String.format("%.2f kW", it / 1000) else "off" } ?: "--"),
+            "PTC / Other" to (if (s.climateKw != null && s.compWatts != null) String.format("%.2f kW", maxOf(0.0, s.climateKw - s.compWatts / 1000)) else "--"),
             "Cabin" to t(s.cabinC),
             "Outside" to t(s.outsideC),
             "Solar now" to (s.solarW?.let { "$it W" } ?: "--"),
@@ -1326,7 +1328,11 @@ class MainActivity : Activity() {
         val third = try {
             if (android.os.Build.VERSION.SDK_INT >= 30) windowManager.currentWindowMetrics.bounds.height() < windowManager.maximumWindowMetrics.bounds.height() * 0.42 else false
         } catch (e: Exception) { false }
-        val key = "$narrow/$ti/$midLevel/$third"
+        // a half-height split window needs the bottom buttons moved in a little further
+        val half = try {
+            if (android.os.Build.VERSION.SDK_INT >= 30) windowManager.currentWindowMetrics.bounds.height().let { it >= windowManager.maximumWindowMetrics.bounds.height() * 0.42 && it < windowManager.maximumWindowMetrics.bounds.height() * 0.8 } else false
+        } catch (e: Exception) { false }
+        val key = "$narrow/$ti/$midLevel/$third/$half"
         if (key == layoutKey) return
         layoutKey = key
         compact = ti > 0
@@ -1357,7 +1363,7 @@ class MainActivity : Activity() {
         editBackdrop.requestLayout()
         (dashStrip.layoutParams as FrameLayout.LayoutParams).apply { height = dp(maxOf(t.strip, 1)); setMargins(dp(sideL), 0, dp(sideR), dp(stripBottom)) }
         (dashRow.layoutParams as FrameLayout.LayoutParams).apply { height = dp(t.row); setMargins(dp(sideL), 0, dp(sideR), dp(rowBottom)) }
-        (lowerBox.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8) + (if (third) 0 else 10), 0, 0, dp(10)) }
+        (lowerBox.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8) + (if (third) 0 else if (half) 20 else 10), 0, 0, dp(10)) }
         (poolBar.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), 0, dp(8), dp(lowerBottom)) }
         (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), dp(if (short) 20 else 8), dp(8), dp(gaugeBottom)) }
         (dashLight.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 22 else if (short) 26 else 42); height = dp(if (midLevel == 2) 46 else if (short) 56 else 88); topMargin = dp(if (short) 6 else 4) }
@@ -1992,7 +1998,7 @@ class MainActivity : Activity() {
     private var statKey = ""
     private val statGroups = listOf(
         "BATTERY" to listOf("Charge", "HV Cap", "Est. Capacity", "Battery Health", "Battery Temp", "Pack Volts", "Pack Amps", "Cells", "Cell V max", "Cell V min"),
-        "CLIMATE" to listOf("Climate", "Thermal", "Cabin", "Outside", "Solar now"),
+        "CLIMATE" to listOf("Climate", "Heat pump", "PTC / Other", "Thermal", "Cabin", "Outside", "Solar now"),
         "12V SYSTEM" to listOf("12V Battery", "12V SOC", "12V SOH"),
         "TRIP" to listOf("Range", "Regen"),
     )
@@ -2722,7 +2728,7 @@ class SpeedSignView(ctx: Context) : View(ctx) {
             c.drawRoundRect(rect, sw * 0.08f, sw * 0.08f, p)
             val cx = w / 2
             if (metric) {
-                fitText(c, "MAXIMUM", cx, h * 0.27f, h * 0.15f, sw * 0.78f, bold)
+                fitText(c, "MAXIMUM", cx, h * 0.27f, h * 0.13f, sw * 0.64f, bold)
             } else {
                 fitText(c, "SPEED", cx, h * 0.25f, h * 0.15f, sw * 0.78f, bold)
                 fitText(c, "LIMIT", cx, h * 0.40f, h * 0.15f, sw * 0.78f, bold)
