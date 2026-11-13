@@ -739,6 +739,25 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("canSafe", on).apply(); pulse?.safeMode = on; toast("Takes effect the next time the app starts") }
         }, 4)
         box.add(Button(this).apply {
+            text = "CAN diagnostics"; isAllCaps = false
+            setOnClickListener {
+                toast("Reading the CAN state\u2026")
+                Thread {
+                    val report = CanDiag.full(pulse?.frames ?: 0L)
+                    EventLog.add("CAN diagnostics:\n" + report)
+                    ui.post {
+                        val tv = TextView(this@MainActivity).apply { text = report; textSize = 11f; setTextColor(Color.parseColor("#F0F3F8")); typeface = Typeface.MONOSPACE; setPadding(dp(12), dp(8), dp(12), dp(8)) }
+                        val sv = ScrollView(this@MainActivity).apply { addView(tv) }
+                        darkDialog().setTitle("CAN diagnostics").setView(sv)
+                            .setNeutralButton("Copy") { _, _ ->
+                                (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(ClipData.newPlainText("can", report))
+                                toast("Copied")
+                            }.setPositiveButton("Close", null).showDark()
+                    }
+                }.start()
+            }
+        }, 8)
+        box.add(Button(this).apply {
             text = "Show event log"; isAllCaps = false
             setOnClickListener {
                 val tv = TextView(this@MainActivity).apply { text = EventLog.text(); textSize = 11f; setTextColor(Color.parseColor("#F0F3F8")); typeface = Typeface.MONOSPACE; setPadding(dp(12), dp(8), dp(12), dp(8)) }
@@ -1712,7 +1731,7 @@ class MainActivity : Activity() {
     private val heartbeat = object : Runnable {
         override fun run() {
             val n = pulse?.frames ?: 0L
-            Thread { EventLog.add("alive " + EventLog.system() + " frames=$n") }.start()
+            Thread { EventLog.add("alive " + EventLog.system() + " frames=$n " + CanDiag.quick()) }.start()
             ui.postDelayed(this, 30_000)
         }
     }
