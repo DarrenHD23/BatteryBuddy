@@ -58,6 +58,18 @@ data class CanSnapshot(
     val climateKw: Double? = null,     // total power the climate system draws, kW (0x1A9 on IBUS2, bytes 2-3)
     val compState: Int? = null,        // heat-pump compressor: 0 standby, 1 working, 2 fault (0x491 on IBUS2, byte 2)
     val compWatts: Double? = null,     // heat-pump compressor power, W (0x491 on IBUS2, bytes 6-7)
+    // climate control state (read only): 0x373 on IBUS1 plus the seat modules 0x518 / 0x512 and the BCM 0x335
+    val climDrvT: Double? = null,      // driver set temperature, C (0x373 byte 2, 0.5 per bit)
+    val climPassT: Double? = null,     // passenger set temperature, C (0x373 byte 3, 0.5 per bit)
+    val fanLevel: Int? = null,         // fan speed 0-7 (0x373 byte 1 bits 4-1)
+    val acOn: Boolean? = null,         // A/C compressor requested (0x373 byte 0 bit 7)
+    val recirc: Boolean? = null,       // true = recirculating inside air (0x373 byte 4 bit 5 = 0)
+    val climAuto: Boolean? = null,     // AUTO mode (0x373 byte 4 bit 1)
+    val maxDefrost: Boolean? = null,   // max front defrost (0x373 byte 6 bit 2)
+    val outletMode: Int? = null,       // driver airflow: 1 face, 2 face+feet, 3 feet, 4 feet+windshield, 5 windshield (0x373 byte 6 bits 7-5)
+    val seatDrv: Int? = null,          // driver seat heat 0 off .. 3 high (0x518 byte 0 bits 2-0)
+    val seatPass: Int? = null,         // passenger seat heat 0 off .. 3 high (0x512 byte 0 bits 4-2)
+    val rearDefrost: Boolean? = null,  // rear window defrost heater commanded (0x335 byte 4 bit 3)
 )
 
 class PulseCan(
@@ -124,8 +136,9 @@ class PulseCan(
         // The six filters are given buffer 0 first. Masks let one filter cover a block of IDs; the helper's own
         // socket filters then keep only the exact IDs this app wants.
         val plan = listOf(
-            // IBUS1: 0x507 and 0x6DD exactly; 0x100-0x3FF (0x179 0x234 0x2AC 0x2F5 0x318 0x335 0x373 0x382)
-            Triple(0, "0x7FF,0x700", "0x507,0x6DD,0x100,0x200,0x300,0x300"),
+            // IBUS1: buffer 0 (mask 0x7E0) passes 0x500-0x51F (0x507 0x512 0x518) and 0x6C0-0x6DF (0x6DD);
+            // buffer 1 (mask 0x700) passes 0x100-0x3FF (0x179 0x234 0x2AC 0x2F5 0x318 0x335 0x373 0x382)
+            Triple(0, "0x7E0,0x700", "0x500,0x6C0,0x100,0x200,0x300,0x300"),
             // IBUS2: the plan that is known to work with the power and climate frames: buffer 0 (mask 0x600) passes
             // 0x000-0x3FF (0xE9 0x1A9 0x210 0x311 0x332 0x351); buffer 1 (mask 0x7C0) passes 0x480 (0x491),
             // 0x500 (0x504) and 0x580 (0x580 0x582)
@@ -191,7 +204,7 @@ class PulseCan(
                     if (why == null) filtersDone = true
                     onStatus(if (why == null) "CAN filters: $filterReadback" else "CAN filters not changed: $why")
                 }
-                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD", "$b2=0E9,1A9,210,351,504,580,582,332,311")
+                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD,512,518", "$b2=0E9,1A9,210,351,504,580,582,332,311")
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
@@ -269,6 +282,9 @@ class PulseCan(
         onUpdate(next)
     }
 
+    /** Seat heater state from the seat modules: 1 high, 2 medium, 3 low, 4 off -> 3, 2, 1, 0 (anything else unknown). */
+    private fun seatLevel(v: Int): Int? = when (v) { 1 -> 3; 2 -> 2; 3 -> 1; 4 -> 0; else -> null }
+
     private fun decode(s: CanSnapshot, bus: Int, id: Int, b: IntArray): CanSnapshot? {
         if (b.size < 8) return null
         // 0x382 BMS_CellTemp_CoolingHeating (IBUS1, every 100 ms): temperatures are raw - 48, 255 = invalid
@@ -287,7 +303,15 @@ class PulseCan(
         // 0x335 BCM_0x335 (IBUS1): BCM_BrkLampOutpCmd, the brake lamp output command (1 = on)
         if (bus == 1 && id == 0x335) {
             val lamps = ((b[5] shr 3) and 1) == 1 || ((b[5] shr 4) and 1) == 1 || ((b[5] shr 5) and 3) != 0
-            return s.copy(brakeBcm = ((b[5] shr 7) and 1) == 1, headlights = lamps)
+            return s.copy(brakeBcm = ((b[5] shr 7) and 1) == 1, headlights = lamps, rearDefrost = ((b[4] shr 3) and 1) == 1)
+        }
+        // 0x518 DSMC_0x518 (IBUS1, 100 ms): driver seat heating, 1 high 2 med 3 low 4 off
+        if (bus == 1 && id == 0x518) {
+            return s.copy(seatDrv = seatLevel(b[0] and 7))
+        }
+        // 0x512 PSM_0x512 (IBUS1, 100 ms): passenger seat heating, same coding
+        if (bus == 1 && id == 0x512) {
+            return s.copy(seatPass = seatLevel((b[0] shr 2) and 7))
         }
         // 0x179 TBOX_0x179 (IBUS1, every 100 ms): vehicle heading, 0.01 degrees per bit
         if (bus == 1 && id == 0x179) {
@@ -356,7 +380,17 @@ class PulseCan(
         }
         // 0x373 ECC_0x373 (IBUS1, 100 ms): ECC_OutdT outside temperature, valid when ECC_OutdTVld (byte 6, low 2 bits) = 1
         if (bus == 1 && id == 0x373) {
-            return s.copy(outsideC = if ((b[6] and 3) == 1) b[5] * 0.5 - 48.0 else null)
+            return s.copy(
+                outsideC = if ((b[6] and 3) == 1) b[5] * 0.5 - 48.0 else null,
+                climDrvT = if (b[2] == 0xFF) null else b[2] * 0.5,
+                climPassT = if (b[3] == 0xFF) null else b[3] * 0.5,
+                fanLevel = ((b[1] shr 1) and 15).takeIf { it <= 7 },
+                acOn = ((b[0] shr 7) and 1) == 1,
+                recirc = ((b[4] shr 5) and 1) == 0,
+                climAuto = ((b[4] shr 1) and 1) == 1,
+                maxDefrost = ((b[6] shr 2) and 1) == 1,
+                outletMode = ((b[6] shr 5) and 7).takeIf { it in 1..5 },
+            )
         }
         // 0x6DD BMS_PVIU_ActualPower (IBUS1, 1 s): solar roof power in W, 10 bits starting at byte 0
         if (bus == 1 && id == 0x6DD) {
