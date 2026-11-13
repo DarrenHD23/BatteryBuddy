@@ -576,15 +576,15 @@ class MainActivity : Activity() {
         rootScroll = ScrollView(this).apply { addView(root) }
         dashRoot = buildDashboard()
         dashBtn = Button(this).apply {
-            text = "Show Dashboard"; isAllCaps = false; setTextColor(Color.WHITE); textSize = 13f
+            minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0; text = "Show Dashboard"; isAllCaps = false; setTextColor(Color.WHITE); textSize = 12f
             background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(22).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
-            setPadding(dp(16), 0, dp(16), 0)
+            setPadding(dp(12), 0, dp(12), 0)
             setOnClickListener { showDashboard(!dashShown) }
         }
         exitBtn = Button(this).apply {
-            text = "Exit"; isAllCaps = false; setTextColor(Color.WHITE); textSize = 13f
+            minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0; text = "Exit"; isAllCaps = false; setTextColor(Color.WHITE); textSize = 12f
             background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(22).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
-            setPadding(dp(16), 0, dp(16), 0)
+            setPadding(dp(12), 0, dp(12), 0)
             setOnClickListener { pulse?.stop(); finishAndRemoveTask() }
         }
         edgeBox = FrameLayout(this)
@@ -593,10 +593,10 @@ class MainActivity : Activity() {
         // both buttons sit together at the bottom right
         val btnBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(dashBtn, LinearLayout.LayoutParams(-2, dp(44)).apply { rightMargin = dp(8) })
-            addView(exitBtn, LinearLayout.LayoutParams(-2, dp(44)))
+            addView(dashBtn, LinearLayout.LayoutParams(-2, dp(36)).apply { rightMargin = dp(8) })
+            addView(exitBtn, LinearLayout.LayoutParams(-2, dp(36)))
         }
-        edgeBox.addView(btnBar, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(16), dp(16)) })
+        edgeBox.addView(btnBar, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(8), dp(16)) })
         setContentView(edgeBox)
         applyEdgePadding()
         applyTheme(getSharedPreferences("prefs", MODE_PRIVATE).getInt("theme", 0).coerceIn(0, THEMES.size - 1))
@@ -919,15 +919,13 @@ class MainActivity : Activity() {
     private lateinit var editBackdrop: View
     private var flyOpen = false
     private var lowerInline = true
-    private var resCompact = false
+    private var resCompact = true
 
     /** Which of the app buttons / flyout button show: never while the stat editor is open, so they do not cover it. */
     private fun applyLowerVisibility() {
-        if (!::lowerBox.isInitialized || !::flyBtn.isInitialized || !::poolBar.isInitialized) return
-        val pool = poolBar.visibility == View.VISIBLE
-        if (pool) flyOpen = false
-        flyBtn.visibility = if (!lowerInline && !pool) View.VISIBLE else View.GONE
-        lowerBox.visibility = if (pool) View.GONE else if (lowerInline || flyOpen) View.VISIBLE else View.GONE
+        if (!::lowerBox.isInitialized || !::flyBtn.isInitialized) return
+        flyBtn.visibility = View.GONE
+        lowerBox.visibility = View.VISIBLE
     }
 
     private fun updateResText() {
@@ -1070,7 +1068,7 @@ class MainActivity : Activity() {
         f.addView(poolBar, FrameLayout.LayoutParams(-1, dp(44), Gravity.BOTTOM).apply { setMargins(dp(170), 0, dp(130), dp(184)) })
         resBtn = TextView(this).apply {
             text = "Screen"; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
-            setPadding(dp(12), dp(3), dp(12), dp(3))
+            setPadding(dp(10), 0, dp(10), 0)
             background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(12).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
             setOnClickListener { toggleScreenSize() }
         }
@@ -1080,8 +1078,8 @@ class MainActivity : Activity() {
             setPadding(dp(3), dp(3), dp(3), dp(3))
             lowerNames.forEachIndexed { i, name ->
                 addView(TextView(context).apply {
-                    text = name; textSize = 13f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
-                    setPadding(dp(8), dp(5), dp(8), dp(5))
+                    text = name; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+                    minHeight = dp(42); setPadding(dp(6), 0, dp(6), 0)
                     setOnClickListener { openLower(i) }
                 })
             }
@@ -1090,7 +1088,7 @@ class MainActivity : Activity() {
         paintLowerTabs()
         lowerBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(resBtn, LinearLayout.LayoutParams(-2, -2))
+            addView(resBtn, LinearLayout.LayoutParams(-2, dp(42)))
             addView(lowerTabs, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) })
         }
         f.addView(lowerBox, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(10), 0, 0, dp(190)) })
@@ -1259,12 +1257,11 @@ class MainActivity : Activity() {
             DashTier(0, 34, false, false, false),
         )
         val need = (wDp * 0.30f).coerceIn(150f, 300f)
-        val base = if (narrow) 72 else 8            // on a narrow screen the strip sits above the buttons
+        val base = 62                                // the strip sits above the bottom bar (app buttons on the left, Hide / Exit on the right)
         fun stack(t: DashTier): Int {
             var s = base + 8
-            if (t.showStrip) s += t.strip + 4 else s = (if (narrow) 64 else 8) + 8
+            if (t.showStrip) s += t.strip + 4
             s += t.row + 4
-            if (t.lower) s += (if (t.res) 68 else 38) + 4
             return s
         }
         var ti = tiers.size - 1
@@ -1278,37 +1275,33 @@ class MainActivity : Activity() {
         compact = ti > 0
         val short = midLevel > 0
         val stripBottom = base
-        val rowBottom = (if (t.showStrip) stripBottom + t.strip + 4 else (if (narrow) 64 else 8))
-        val lowerBottom = rowBottom + t.row + 4          // the screen-size button and Maps/Spotify/Pulse sit above the info row
-        val gaugeBottom = if (t.lower) lowerBottom + (if (t.res) 68 else 38) + 4 else lowerBottom + 4
-        val sideL = if (narrow) 8 else 12
-        val sideR = if (narrow) 8 else 160
+        val rowBottom = if (t.showStrip) stripBottom + t.strip + 4 else base
+        val lowerBottom = rowBottom + t.row + 4          // top of the info row: the stat editor sits here
+        val gaugeBottom = lowerBottom + 4
+        val sideL = 8
+        val sideR = 8
         dashStrip.visibility = if (t.showStrip) View.VISIBLE else View.GONE
         if (!t.showStrip && poolBar.visibility == View.VISIBLE) togglePool()
-        // Screen button + app buttons: stacked when there is room, side by side in a short window, and in a flyout
-        // (round button) when there is no room at all
-        lowerInline = t.lower
-        if (t.lower) flyOpen = false
-        val horiz = t.lower && !t.res
-        resCompact = horiz
+        // bottom bar: Screen button and the app buttons, always on one line (Hide / Exit are on the same line, right)
+        lowerInline = true; flyOpen = false
+        resCompact = true
         updateResText()
-        lowerBox.orientation = if (horiz) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
-        lowerBox.gravity = if (horiz) Gravity.CENTER_VERTICAL else Gravity.NO_GRAVITY
-        (resBtn.layoutParams as LinearLayout.LayoutParams).apply { rightMargin = dp(if (horiz) 6 else 0) }
-        (lowerTabs.layoutParams as LinearLayout.LayoutParams).apply { topMargin = dp(if (horiz) 0 else 6) }
+        lowerBox.orientation = LinearLayout.HORIZONTAL
+        lowerBox.gravity = Gravity.CENTER_VERTICAL
+        (resBtn.layoutParams as LinearLayout.LayoutParams).apply { rightMargin = dp(6) }
+        (lowerTabs.layoutParams as LinearLayout.LayoutParams).apply { topMargin = 0 }
         resBtn.visibility = View.VISIBLE
-        lowerBox.background = if (t.lower) null else GradientDrawable().apply { setColor(Color.argb(235, 10, 14, 28)); cornerRadius = dp(16).toFloat(); setStroke(dp(1), Color.argb(150, 42, 168, 255)) }
-        lowerBox.setPadding(dp(if (t.lower) 0 else 8), dp(if (t.lower) 0 else 8), dp(if (t.lower) 0 else 8), dp(if (t.lower) 0 else 8))
-        (flyBtn.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(10), 0, 0, dp(lowerBottom)) }
+        lowerBox.background = null
+        lowerBox.setPadding(0, 0, 0, 0)
         applyLowerVisibility()
         val editBottom = if (t.showStrip) stripBottom else rowBottom
-        val poolTop = (if (narrow) lowerBottom + (if (t.lower) 42 else 0) else lowerBottom) + 44
-        (editBackdrop.layoutParams as FrameLayout.LayoutParams).apply { height = dp(poolTop - editBottom + 8); setMargins(dp(if (narrow) 4 else sideL - 10), 0, dp(if (narrow) 4 else sideR - 10), dp(maxOf(editBottom - 4, 0))) }
+        val poolTop = lowerBottom + 44
+        (editBackdrop.layoutParams as FrameLayout.LayoutParams).apply { height = dp(poolTop - editBottom + 8); setMargins(dp(4), 0, dp(4), dp(maxOf(editBottom - 4, 0))) }
         editBackdrop.requestLayout()
         (dashStrip.layoutParams as FrameLayout.LayoutParams).apply { height = dp(maxOf(t.strip, 1)); setMargins(dp(sideL), 0, dp(sideR), dp(stripBottom)) }
         (dashRow.layoutParams as FrameLayout.LayoutParams).apply { height = dp(t.row); setMargins(dp(sideL), 0, dp(sideR), dp(rowBottom)) }
-        (lowerBox.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(10), 0, 0, dp(lowerBottom + (if (t.lower) 0 else 42))) }
-        (poolBar.layoutParams as FrameLayout.LayoutParams).apply { if (narrow) setMargins(dp(8), 0, dp(8), dp(lowerBottom + (if (t.lower) 42 else 0))) else setMargins(dp(280), 0, dp(sideR), dp(lowerBottom)) }
+        (lowerBox.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), 0, 0, dp(10)) }
+        (poolBar.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), 0, dp(8), dp(lowerBottom)) }
         (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), dp(if (short) 20 else 8), dp(8), dp(gaugeBottom)) }
         (dashLight.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 22 else if (short) 26 else 42); height = dp(if (midLevel == 2) 46 else if (short) 56 else 88); topMargin = dp(if (short) 6 else 4) }
         dashReady.textSize = if (short) 11f else 13f
