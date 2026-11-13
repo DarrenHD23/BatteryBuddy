@@ -886,6 +886,9 @@ class MainActivity : Activity() {
     private lateinit var lowerTabs: LinearLayout
     private lateinit var lowerBox: LinearLayout
     private lateinit var resBtn: TextView
+    private lateinit var flyBtn: TextView
+    private lateinit var editBackdrop: View
+    private var flyOpen = false
     private var screenH = 0       // 1920 or 1784 once known
     private val lowerNames = listOf("Maps", "Spotify", "Pulse", "Oceanscape")
     private val lowerPkgs = listOf("com.google.android.apps.maps", "com.spotify.music", "", "")
@@ -1010,9 +1013,14 @@ class MainActivity : Activity() {
         poolBar = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             visibility = View.GONE
-            background = GradientDrawable().apply { setColor(Color.argb(200, 10, 14, 28)); cornerRadius = dp(22).toFloat(); setStroke(dp(1), Color.argb(110, 42, 168, 255)) }
+            background = GradientDrawable().apply { setColor(Color.argb(245, 10, 14, 28)); cornerRadius = dp(22).toFloat(); setStroke(dp(2), Color.argb(230, 42, 168, 255)) }
             addView(poolRow)
         }
+        editBackdrop = View(this).apply {
+            visibility = View.GONE
+            background = GradientDrawable().apply { setColor(Color.argb(225, 6, 9, 20)); cornerRadius = dp(18).toFloat(); setStroke(dp(1), Color.argb(150, 42, 168, 255)) }
+        }
+        f.addView(editBackdrop, FrameLayout.LayoutParams(-1, dp(150), Gravity.BOTTOM).apply { setMargins(dp(160), 0, dp(120), dp(4)) })
         f.addView(dashRow, FrameLayout.LayoutParams(-1, dp(46), Gravity.BOTTOM).apply { setMargins(dp(170), 0, dp(130), dp(76)) })
         f.addView(dashStrip, FrameLayout.LayoutParams(-1, dp(62), Gravity.BOTTOM).apply { setMargins(dp(170), 0, dp(130), dp(8)) })
         f.addView(poolBar, FrameLayout.LayoutParams(-1, dp(44), Gravity.BOTTOM).apply { setMargins(dp(170), 0, dp(130), dp(184)) })
@@ -1042,6 +1050,15 @@ class MainActivity : Activity() {
             addView(lowerTabs, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) })
         }
         f.addView(lowerBox, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(10), 0, 0, dp(190)) })
+        flyBtn = TextView(this).apply {
+            text = "\u2630"; textSize = 16f; setTextColor(Color.WHITE); gravity = Gravity.CENTER; visibility = View.GONE
+            background = GradientDrawable().apply { setColor(Color.argb(190, 20, 20, 40)); shape = GradientDrawable.OVAL; setStroke(dp(1), Color.argb(150, 255, 255, 255)) }
+            setOnClickListener {
+                flyOpen = !flyOpen
+                lowerBox.visibility = if (flyOpen) View.VISIBLE else View.GONE
+            }
+        }
+        f.addView(flyBtn, FrameLayout.LayoutParams(dp(38), dp(38), Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(10), 0, 0, dp(190)) })
         f.addOnLayoutChangeListener { v, _, top, _, bottom, _, _, _, _ -> adaptDashLayout((v.width / resources.displayMetrics.density).toInt(), ((bottom - top) / resources.displayMetrics.density).toInt()) }
         f.addView(dashMode, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(6), dp(8), 0) })
         return f
@@ -1142,6 +1159,7 @@ class MainActivity : Activity() {
     private fun togglePool() {
         val on = poolBar.visibility != View.VISIBLE
         poolBar.visibility = if (on) View.VISIBLE else View.GONE
+        editBackdrop.visibility = if (on) View.VISIBLE else View.GONE
         dashStrip.editMode = on
         dashRow.editMode = on
         poolKey = "\u0000"
@@ -1221,15 +1239,25 @@ class MainActivity : Activity() {
         val sideR = if (narrow) 8 else 130
         dashStrip.visibility = if (t.showStrip) View.VISIBLE else View.GONE
         if (!t.showStrip && poolBar.visibility == View.VISIBLE) togglePool()
-        lowerBox.visibility = if (t.lower) View.VISIBLE else View.GONE
-        resBtn.visibility = if (t.res) View.VISIBLE else View.GONE
+        // when the window is too short for the Screen / app buttons they go into a flyout opened by the round button
+        if (t.lower) flyOpen = false
+        flyBtn.visibility = if (t.lower) View.GONE else View.VISIBLE
+        lowerBox.visibility = if (t.lower || flyOpen) View.VISIBLE else View.GONE
+        resBtn.visibility = if (t.res || !t.lower) View.VISIBLE else View.GONE
+        lowerBox.background = if (t.lower) null else GradientDrawable().apply { setColor(Color.argb(235, 10, 14, 28)); cornerRadius = dp(16).toFloat(); setStroke(dp(1), Color.argb(150, 42, 168, 255)) }
+        lowerBox.setPadding(dp(if (t.lower) 0 else 8), dp(if (t.lower) 0 else 8), dp(if (t.lower) 0 else 8), dp(if (t.lower) 0 else 8))
+        (flyBtn.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(10), 0, 0, dp(lowerBottom)) }
+        val editBottom = if (t.showStrip) stripBottom else rowBottom
+        val poolTop = (if (narrow) lowerBottom + (if (t.lower) 42 else 0) else lowerBottom) + 44
+        (editBackdrop.layoutParams as FrameLayout.LayoutParams).apply { height = dp(poolTop - editBottom + 8); setMargins(dp(if (narrow) 4 else sideL - 10), 0, dp(if (narrow) 4 else sideR - 10), dp(maxOf(editBottom - 4, 0))) }
+        editBackdrop.requestLayout()
         (dashStrip.layoutParams as FrameLayout.LayoutParams).apply { height = dp(maxOf(t.strip, 1)); setMargins(dp(sideL), 0, dp(sideR), dp(stripBottom)) }
         (dashRow.layoutParams as FrameLayout.LayoutParams).apply { height = dp(t.row); setMargins(dp(sideL), 0, dp(sideR), dp(rowBottom)) }
-        (lowerBox.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(10), 0, 0, dp(lowerBottom)) }
-        (poolBar.layoutParams as FrameLayout.LayoutParams).apply { if (narrow) setMargins(dp(8), 0, dp(8), dp(lowerBottom + (if (t.lower) 42 else 0))) else setMargins(dp(280), 0, dp(sideR), dp(lowerBottom)) }
+        (lowerBox.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(10), 0, 0, dp(lowerBottom + (if (t.lower) 0 else 42))) }
+        (poolBar.layoutParams as FrameLayout.LayoutParams).apply { if (narrow) setMargins(dp(if (t.lower) 8 else 54), 0, dp(8), dp(lowerBottom + (if (t.lower) 42 else 0))) else setMargins(dp(280), 0, dp(sideR), dp(lowerBottom)) }
         (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), dp(if (short) 20 else 8), dp(8), dp(gaugeBottom)) }
         (dashLight.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (short) 26 else 42); height = dp(if (short) 56 else 88); topMargin = dp(if (short) 8 else 4) }
-        dashReady.textSize = if (short) 12f else 17f
+        dashReady.textSize = if (short) 11f else 13f
         // in a short window the gauges reach the top corners, so the mode badge gets its own strip above them
         dashMode.textSize = if (short) 9f else 11f
         dashMode.minWidth = dp(if (short) 60 else 84)
