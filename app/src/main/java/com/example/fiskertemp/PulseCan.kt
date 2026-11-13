@@ -488,3 +488,29 @@ object Root {
         }
     }
 }
+
+/** CAN health: the counters the kernel keeps for the two CAN interfaces, and a fuller root report for the settings screen. */
+object CanDiag {
+    private fun rd(path: String): String = try { File(path).readText().trim() } catch (e: Exception) { "?" }
+
+    /** One line of receive counters per interface. Readable without root, so it is safe to log often. */
+    fun quick(): String {
+        val (a, b) = PulseCan.interfaces()
+        return listOf(a, b).joinToString(" ") { i ->
+            val d = "/sys/class/net/$i/statistics/"
+            "$i[rx=${rd(d + "rx_packets")} drop=${rd(d + "rx_dropped")} err=${rd(d + "rx_errors")} over=${rd(d + "rx_over_errors")} fifo=${rd(d + "rx_fifo_errors")} ${rd("/sys/class/net/$i/operstate")}]"
+        }
+    }
+
+    /** The full report: interface state and error counters, the chip filters in force, the Pulse's processes. Needs root. */
+    fun full(frames: Long): String {
+        val (a, b) = PulseCan.interfaces()
+        val p = "/sys/module/mcp251x/parameters"
+        val cmd = "for i in $a $b; do echo \"== \$i\"; ip -details -statistics link show \$i 2>&1; done; " +
+            "echo; echo '== chip filters (mask0 filter0 mask1 filter1)'; cat $p/rxb_mask_0 $p/rxb_filter_0 $p/rxb_mask_1 $p/rxb_filter_1 2>&1; " +
+            "echo; echo '== Pulse processes'; ps -A | grep -i -E 'pulse|oceanlink|ocean' | grep -v grep; " +
+            "echo; echo '== CAN totals'; cat /proc/net/can/stats 2>&1 | head -25"
+        val r = Root.exec(cmd, 20)
+        return "This app has received $frames frames.\nCounters: ${quick()}\n\n" + (if (r.ok) r.out else "no root: ${r.out}")
+    }
+}
