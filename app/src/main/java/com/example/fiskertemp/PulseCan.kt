@@ -135,8 +135,8 @@ class PulseCan(
             val want = plan.flatMap { (_, mask, filt) -> listOf(dec(mask), dec(filt)) }   // chip 0 mask, filter; chip 1 mask, filter
             val q = ProcessBuilder("su", "-c", "cat ${dir.path}/rxb_mask_0; cat ${dir.path}/rxb_filter_0; cat ${dir.path}/rxb_mask_1; cat ${dir.path}/rxb_filter_1")
                 .redirectErrorStream(true).start()
+            if (!q.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)) { q.destroy(); return "root shell timed out (is root allowed for this app?)" }
             val cur = q.inputStream.bufferedReader().readText().lines().map { it.trim().replace(" ", "") }.filter { it.isNotEmpty() }
-            q.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
             if (cur == want) { filterReadback = cur.joinToString(" "); return null }
         } catch (e: Exception) { /* fall through and write them */ }
         val sb = StringBuilder()
@@ -147,8 +147,8 @@ class PulseCan(
         sb.append("echo 1 > ${dir.path}/apply_filters; echo '--'; cat ${dir.path}/rxb_mask_0 ${dir.path}/rxb_filter_0 ${dir.path}/rxb_mask_1 ${dir.path}/rxb_filter_1")
         return try {
             val p = ProcessBuilder("su", "-c", sb.toString()).redirectErrorStream(true).start()
+            if (!p.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)) { p.destroy(); return "root shell timed out (is root allowed for this app?)" }
             val out = p.inputStream.bufferedReader().readText()
-            if (!p.waitFor(8, java.util.concurrent.TimeUnit.SECONDS)) { p.destroy(); return "root shell timed out" }
             filterReadback = out.substringAfter("--", "").trim().replace('\n', ' ')
             if (out.contains("denied", true) || out.contains("not found", true) || p.exitValue() != 0) "root command failed: ${out.trim()}" else null
         } catch (e: Exception) {
