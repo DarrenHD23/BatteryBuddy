@@ -1132,7 +1132,7 @@ class MainActivity : Activity() {
             "Est. Capacity" to (estCap?.let { String.format("%.1f kWh", it) } ?: "--"),
             "Battery Health" to (s.sohPct?.takeIf { it in 1..100 }?.let { "$it %" } ?: "--"),
             "Charge" to (s.socUsable?.let { "$it %" } ?: "--"),
-            "Real SOC" to (s.socReal?.let { "$it %" } ?: "--"),
+            "Real SOC" to (s.socReal?.let { "$it %" } ?: s.socRealRaw?.let { "n/a ($it)" } ?: "--"),
             "Pack Volts" to (s.packVolts?.let { String.format("%.0f V", it) } ?: "--"),
             "Pack Amps" to (s.packAmps?.let { String.format("%.0f A", it) } ?: "--"),
             "Battery Temp" to tc(s.avgTempC),
