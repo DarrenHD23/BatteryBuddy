@@ -751,6 +751,26 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("flipPower", on).apply() }
         }, 0)
 
+        // pack size when new: the total capacity is this times the battery health
+        val packRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val packTv = TextView(this).apply { textSize = 14f; setTextColor(Color.BLACK); text = "Usable pack size when new: ${prefs().getFloat("packKwh", 106.5f)} kWh" }
+        packRow.addView(packTv, LinearLayout.LayoutParams(0, -2, 1f))
+        packRow.addView(Button(this).apply {
+            text = "Change"
+            setOnClickListener {
+                val et = EditText(context).apply {
+                    inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+                    setText(prefs().getFloat("packKwh", 106.5f).toString())
+                }
+                AlertDialog.Builder(context).setTitle("Usable pack size when new (kWh)").setView(et)
+                    .setPositiveButton("Save") { _, _ ->
+                        val v = et.text.toString().toFloatOrNull()
+                        if (v != null && v in 20f..250f) { prefs().edit().putFloat("packKwh", v).apply(); packTv.text = "Usable pack size when new: $v kWh" }
+                    }.setNegativeButton("Cancel", null).show()
+            }
+        })
+        box.add(packRow, 8)
+
         box.add(TextView(this).apply { text = "Data source"; textSize = 14f; setTextColor(Color.DKGRAY) }, 20)
         val sd = RadioButton(this).apply { text = "vLinker dongle (Bluetooth)"; id = View.generateViewId(); isChecked = !useCan }
         val sp = RadioButton(this).apply { text = "Pulse CAN bus (run this app on the Pulse)"; id = View.generateViewId(); isChecked = useCan }
@@ -1124,9 +1144,10 @@ class MainActivity : Activity() {
         fun tc(c: Double?) = if (c == null) "--" else fmt(c, "\u00B0C", 0)
         val demand = when (s.thermalDemand) { 0 -> "starting up"; 1 -> "heating"; 2 -> "cooling"; 3 -> "cycling"; else -> "--" }
         val rangeText = s.rangeKm?.let { if (speedMph()) String.format("%.0f mi", it * 0.621371) else String.format("%.0f km", it) } ?: "--"
-        // full capacity: the BMS's own figure, or worked out from the energy left and the charge percentage
+        // full capacity: only the BMS's own figure (a guess from energy left and charge % was wrong on a real car)
+        val sohOk = s.sohPct?.takeIf { it in 50..100 }
         val estCap = s.packCapKwh?.takeIf { it > 10.0 }
-            ?: if (s.capKwh != null && s.socUsable != null && s.socUsable >= 10) s.capKwh / (s.socUsable / 100.0) else null
+            ?: sohOk?.let { prefs().getFloat("packKwh", 106.5f) * it / 100.0 }
         return listOf(
             "HV Cap" to (s.capKwh?.let { String.format("%.1f kWh", it) } ?: "--"),
             "Est. Capacity" to (estCap?.let { String.format("%.1f kWh", it) } ?: "--"),
