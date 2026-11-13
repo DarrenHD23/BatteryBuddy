@@ -127,7 +127,7 @@ class PulseCan(
             // IBUS1: buffer 0 (mask 0x700) passes 0x200-0x3FF (0x234 0x2AC 0x2F5 0x318 0x335 0x373 0x382);
             // buffer 1 (mask 0x7FF, exact) passes 0x179, 0x507 and 0x6DD (0x6DD repeated, the fourth slot is spare)
             Triple(0, "0x700,0x7FF", "0x200,0x300,0x179,0x507,0x6DD,0x6DD"),
-            // IBUS2: buffer 0 (mask 0x600) passes 0x000-0x1FF (0x0E9 0x1A9) and 0x400-0x5FF (0x504 0x580 0x582);
+            // IBUS2: buffer 0 (mask 0x600) passes 0x000-0x1FF (0x0E9 0x1A9) and 0x400-0x5FF (0x491 0x504 0x580 0x582);
             // buffer 1 (mask 0x7FF, exact) passes 0x210, 0x311, 0x332 and 0x351. Admits about half the frames of the old plan.
             Triple(1, "0x600,0x7FF", "0x000,0x400,0x210,0x311,0x332,0x351"),
         )
@@ -191,7 +191,7 @@ class PulseCan(
                     if (why == null) filtersDone = true
                     onStatus(if (why == null) "CAN filters: $filterReadback" else "CAN filters not changed: $why")
                 }
-                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD", "$b2=0E9,1A9,210,351,504,580,582,332,311")
+                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD", "$b2=0E9,1A9,210,351,504,580,582,332,311,491")
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
