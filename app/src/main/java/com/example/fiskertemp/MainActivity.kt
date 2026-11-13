@@ -786,7 +786,7 @@ class MainActivity : Activity() {
         box.add(padRow("Top margin", "padTop"), 2)
         box.add(padRow("Bottom margin", "padBot"), 2)
         box.add(CheckBox(this).apply {
-            text = "Offer to close the Pulse app when the dashboard opens"; isChecked = prefs().getBoolean("askClosePulse", true)
+            text = "Offer to close the Pulse app when the dashboard opens"; isChecked = prefs().getBoolean("askClosePulse", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("askClosePulse", on).apply(); if (on) pulseAsked = false }
         }, 0)
         box.add(CheckBox(this).apply {
@@ -1551,7 +1551,7 @@ class MainActivity : Activity() {
 
     /** With the Pulse CAN source, the Pulse app also reads the CAN bus; offer to close it so there is less traffic. */
     private fun offerClosePulse() {
-        if (!useCan || pulseAsked || !prefs().getBoolean("askClosePulse", true)) return
+        if (!useCan || pulseAsked || !prefs().getBoolean("askClosePulse", false)) return
         val pkg = findPulse() ?: return
         Thread {
             if (Root.check() != null || !pulseRunning(pkg)) return@Thread
