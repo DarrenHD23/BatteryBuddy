@@ -696,6 +696,10 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("speedLeft", on).apply(); applyGaugeSides() }
         }, 4)
         box.add(CheckBox(this).apply {
+            text = "Safe mode: do not change the CAN chip filters (power and climate may show --)"; isChecked = prefs().getBoolean("canSafe", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("canSafe", on).apply(); pulse?.safeMode = on; toast("Takes effect the next time the app starts") }
+        }, 4)
+        box.add(CheckBox(this).apply {
             text = "Flip power direction (if drive shows as negative)"; isChecked = prefs().getBoolean("flipPower", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("flipPower", on).apply() }
         }, 0)
@@ -1460,6 +1464,7 @@ class MainActivity : Activity() {
         if (pulseMode) {
             close()                                   // let go of the dongle
             val p = pulse ?: PulseCan(this, { m -> log(m) }, { snap -> canSnap = snap }).also { pulse = it }
+            p.safeMode = prefs().getBoolean("canSafe", false)
             p.start()
             ui.post(canTick)
         } else {
