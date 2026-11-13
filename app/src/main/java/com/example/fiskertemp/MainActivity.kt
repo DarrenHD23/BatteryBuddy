@@ -369,6 +369,9 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        EventLog.init(this)
+        EventLog.add("app start")
+        ui.postDelayed(heartbeat, 30_000)
         title = "Fisker Battery Buddy"
         useFahrenheit = getSharedPreferences("prefs", MODE_PRIVATE).getBoolean("fahrenheit", false)
         buildUi()
@@ -715,6 +718,18 @@ class MainActivity : Activity() {
             text = "Safe mode: do not change the CAN chip filters (power and climate may show --)"; isChecked = prefs().getBoolean("canSafe", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("canSafe", on).apply(); pulse?.safeMode = on; toast("Takes effect the next time the app starts") }
         }, 4)
+        box.add(Button(this).apply {
+            text = "Show event log"; isAllCaps = false
+            setOnClickListener {
+                val tv = TextView(this@MainActivity).apply { text = EventLog.text(); textSize = 11f; typeface = Typeface.MONOSPACE; setPadding(dp(12), dp(8), dp(12), dp(8)) }
+                val sv = ScrollView(this@MainActivity).apply { addView(tv); post { fullScroll(View.FOCUS_DOWN) } }
+                AlertDialog.Builder(this@MainActivity).setTitle("Event log (newest at the bottom)").setView(sv)
+                    .setNeutralButton("Copy") { _, _ ->
+                        (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(ClipData.newPlainText("log", EventLog.text()))
+                        toast("Copied")
+                    }.setPositiveButton("Close", null).show()
+            }
+        }, 8)
         box.add(Button(this).apply {
             text = "Test root access"; isAllCaps = false
             setOnClickListener { Thread { val r = rootCheck(); ui.post { toast(r ?: "Root access is working") } }.start() }
@@ -1308,6 +1323,7 @@ class MainActivity : Activity() {
     /** Open app number [i] (0 Maps, 1 Spotify, 2 Pulse) in the lower half. If this app is not in split screen yet, put it there first. */
     private fun openLower(i: Int) {
         if (isInMultiWindowMode) { launchLower(i); return }
+        EventLog.add("starting split screen for ${lowerNames[i]}")
         Toast.makeText(this, "Switching to split screen\u2026", Toast.LENGTH_SHORT).show()
         Thread {
             val bad = if (SplitService.instance == null) rootCheck() else null
@@ -1334,6 +1350,7 @@ class MainActivity : Activity() {
         val pkg = when (i) { 2 -> findPulse(); 3 -> findOceanscape(); else -> lowerPkgs[i] }
         val words = if (i == 2) listOf("pulse", "oceanlink") else listOf("oceanscape")
         if (pkg == null) { toast("The ${lowerNames[i]} app was not found on this device. Similar installed apps: " + (if (i >= 2) candidates(words + listOf("ocean", "fisker")) else "none")); return }
+        EventLog.add("launching ${lowerNames[i]} ($pkg)")
         val flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT
         val tries = mutableListOf<Intent>()
         launchIntentFor(pkg)?.let { tries.add(it) }
@@ -1369,6 +1386,8 @@ class MainActivity : Activity() {
     /** Switch between the full 1080x1920 and the 1080x1784 screen. */
     private fun toggleScreenSize() {
         val target = if (screenH == 1784) 1920 else 1784
+        if ((canSnap.speedKmh ?: 0.0) > 5.0) { toast("The screen size can only be changed when the car is stopped"); return }
+        EventLog.add("screen size -> 1080x$target")
         Thread {
             val bad = rootCheck()
             if (bad != null) { ui.post { toast(bad) }; return@Thread }
@@ -1533,7 +1552,20 @@ class MainActivity : Activity() {
         if (::dotView.isInitialized) runOnUiThread { paintDot(on) }
     }
 
-    private fun log(s: String) = runOnUiThread {
+    private val heartbeat = object : Runnable {
+        override fun run() {
+            val n = pulse?.frames ?: 0L
+            Thread { EventLog.add("alive " + EventLog.system() + " frames=$n") }.start()
+            ui.postDelayed(this, 30_000)
+        }
+    }
+
+    private fun log(s: String) {
+        EventLog.add(s)
+        showLog(s)
+    }
+
+    private fun showLog(s: String) = runOnUiThread {
         logView.append(s + "\n"); statusView.text = "Status: $s"
         if (::canStatusView.isInitialized) canStatusView.text = s
     }
@@ -1714,7 +1746,7 @@ class MainActivity : Activity() {
         setConnected(false)
     }
 
-    override fun onDestroy() { pulse?.stop(); ui.removeCallbacksAndMessages(null); close(); super.onDestroy() }
+    override fun onDestroy() { EventLog.add("app stopped"); pulse?.stop(); ui.removeCallbacksAndMessages(null); close(); super.onDestroy() }
 
     /** Send an AT or OBD command; read until the ELM '>' prompt (3 s timeout). */
     @Synchronized
