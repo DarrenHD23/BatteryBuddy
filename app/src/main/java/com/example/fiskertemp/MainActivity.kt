@@ -889,6 +889,21 @@ class MainActivity : Activity() {
     private lateinit var flyBtn: TextView
     private lateinit var editBackdrop: View
     private var flyOpen = false
+    private var lowerInline = true
+    private var resCompact = false
+
+    /** Which of the app buttons / flyout button show: never while the stat editor is open, so they do not cover it. */
+    private fun applyLowerVisibility() {
+        if (!::lowerBox.isInitialized || !::flyBtn.isInitialized || !::poolBar.isInitialized) return
+        val pool = poolBar.visibility == View.VISIBLE
+        if (pool) flyOpen = false
+        flyBtn.visibility = if (!lowerInline && !pool) View.VISIBLE else View.GONE
+        lowerBox.visibility = if (pool) View.GONE else if (lowerInline || flyOpen) View.VISIBLE else View.GONE
+    }
+
+    private fun updateResText() {
+        resBtn.text = if (screenH == 0) "Screen size" else if (resCompact) "\u21C5 $screenH" else "Screen: 1080 \u00D7 $screenH  \u21C5"
+    }
     private var screenH = 0       // 1920 or 1784 once known
     private val lowerNames = listOf("Maps", "Spotify", "Pulse", "Oceanscape")
     private val lowerPkgs = listOf("com.google.android.apps.maps", "com.spotify.music", "", "")
@@ -1055,7 +1070,7 @@ class MainActivity : Activity() {
             background = GradientDrawable().apply { setColor(Color.argb(190, 20, 20, 40)); shape = GradientDrawable.OVAL; setStroke(dp(1), Color.argb(150, 255, 255, 255)) }
             setOnClickListener {
                 flyOpen = !flyOpen
-                lowerBox.visibility = if (flyOpen) View.VISIBLE else View.GONE
+                applyLowerVisibility()
             }
         }
         f.addView(flyBtn, FrameLayout.LayoutParams(dp(38), dp(38), Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(10), 0, 0, dp(190)) })
@@ -1160,6 +1175,7 @@ class MainActivity : Activity() {
         val on = poolBar.visibility != View.VISIBLE
         poolBar.visibility = if (on) View.VISIBLE else View.GONE
         editBackdrop.visibility = if (on) View.VISIBLE else View.GONE
+        applyLowerVisibility()
         dashStrip.editMode = on
         dashRow.editMode = on
         poolKey = "\u0000"
@@ -1239,14 +1255,22 @@ class MainActivity : Activity() {
         val sideR = if (narrow) 8 else 130
         dashStrip.visibility = if (t.showStrip) View.VISIBLE else View.GONE
         if (!t.showStrip && poolBar.visibility == View.VISIBLE) togglePool()
-        // when the window is too short for the Screen / app buttons they go into a flyout opened by the round button
+        // Screen button + app buttons: stacked when there is room, side by side in a short window, and in a flyout
+        // (round button) when there is no room at all
+        lowerInline = t.lower
         if (t.lower) flyOpen = false
-        flyBtn.visibility = if (t.lower) View.GONE else View.VISIBLE
-        lowerBox.visibility = if (t.lower || flyOpen) View.VISIBLE else View.GONE
-        resBtn.visibility = if (t.res || !t.lower) View.VISIBLE else View.GONE
+        val horiz = t.lower && !t.res
+        resCompact = horiz
+        updateResText()
+        lowerBox.orientation = if (horiz) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+        lowerBox.gravity = if (horiz) Gravity.CENTER_VERTICAL else Gravity.NO_GRAVITY
+        (resBtn.layoutParams as LinearLayout.LayoutParams).apply { rightMargin = dp(if (horiz) 6 else 0) }
+        (lowerTabs.layoutParams as LinearLayout.LayoutParams).apply { topMargin = dp(if (horiz) 0 else 6) }
+        resBtn.visibility = View.VISIBLE
         lowerBox.background = if (t.lower) null else GradientDrawable().apply { setColor(Color.argb(235, 10, 14, 28)); cornerRadius = dp(16).toFloat(); setStroke(dp(1), Color.argb(150, 42, 168, 255)) }
         lowerBox.setPadding(dp(if (t.lower) 0 else 8), dp(if (t.lower) 0 else 8), dp(if (t.lower) 0 else 8), dp(if (t.lower) 0 else 8))
         (flyBtn.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(10), 0, 0, dp(lowerBottom)) }
+        applyLowerVisibility()
         val editBottom = if (t.showStrip) stripBottom else rowBottom
         val poolTop = (if (narrow) lowerBottom + (if (t.lower) 42 else 0) else lowerBottom) + 44
         (editBackdrop.layoutParams as FrameLayout.LayoutParams).apply { height = dp(poolTop - editBottom + 8); setMargins(dp(if (narrow) 4 else sideL - 10), 0, dp(if (narrow) 4 else sideR - 10), dp(maxOf(editBottom - 4, 0))) }
@@ -1254,7 +1278,7 @@ class MainActivity : Activity() {
         (dashStrip.layoutParams as FrameLayout.LayoutParams).apply { height = dp(maxOf(t.strip, 1)); setMargins(dp(sideL), 0, dp(sideR), dp(stripBottom)) }
         (dashRow.layoutParams as FrameLayout.LayoutParams).apply { height = dp(t.row); setMargins(dp(sideL), 0, dp(sideR), dp(rowBottom)) }
         (lowerBox.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(10), 0, 0, dp(lowerBottom + (if (t.lower) 0 else 42))) }
-        (poolBar.layoutParams as FrameLayout.LayoutParams).apply { if (narrow) setMargins(dp(if (t.lower) 8 else 54), 0, dp(8), dp(lowerBottom + (if (t.lower) 42 else 0))) else setMargins(dp(280), 0, dp(sideR), dp(lowerBottom)) }
+        (poolBar.layoutParams as FrameLayout.LayoutParams).apply { if (narrow) setMargins(dp(8), 0, dp(8), dp(lowerBottom + (if (t.lower) 42 else 0))) else setMargins(dp(280), 0, dp(sideR), dp(lowerBottom)) }
         (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), dp(if (short) 20 else 8), dp(8), dp(gaugeBottom)) }
         (dashLight.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (short) 26 else 42); height = dp(if (short) 56 else 88); topMargin = dp(if (short) 8 else 4) }
         dashReady.textSize = if (short) 11f else 13f
@@ -1338,7 +1362,8 @@ class MainActivity : Activity() {
         rootRun("settings put secure enabled_accessibility_services ${others.joinToString(":").ifEmpty { "null" }}")
         Thread.sleep(300)
         rootRun("settings put secure enabled_accessibility_services ${(others + me).joinToString(":")}; settings put secure accessibility_enabled 1")
-        repeat(25) { if (SplitService.instance != null) return true; Thread.sleep(150) }
+        repeat(25) { if (SplitService.instance != null) { Thread.sleep(600); EventLog.add("split helper is running"); return true }; Thread.sleep(150) }
+        EventLog.add("split helper did not start (accessibility service not connected)")
         return SplitService.instance != null
     }
 
@@ -1355,7 +1380,9 @@ class MainActivity : Activity() {
                 if (!ok) {
                     toast("Could not start split screen automatically. Use the Pulse's split-screen controls (this app on top), then tap again.")
                 } else {
-                    SplitService.instance?.splitScreen()
+                    val r = SplitService.instance?.splitScreen()
+                    EventLog.add("split screen action returned $r")
+                    if (r != true) toast("Android did not accept the split-screen request (result: $r). Use the Pulse's split-screen controls instead.")
                     waitForSplit(i, 0)
                 }
             }
@@ -1364,7 +1391,7 @@ class MainActivity : Activity() {
 
     private fun waitForSplit(i: Int, tries: Int) {
         if (isInMultiWindowMode) { ui.postDelayed({ launchLower(i) }, 500); return }
-        if (tries >= 25) { toast("Split screen did not start. Use the Pulse's split-screen controls, then tap again."); return }
+        if (tries >= 25) { EventLog.add("split screen did not start"); toast("Split screen did not start. Use the Pulse's split-screen controls, then tap again."); return }
         ui.postDelayed({ waitForSplit(i, tries + 1) }, 200)
     }
 
@@ -1401,7 +1428,7 @@ class MainActivity : Activity() {
             val out = rootRun("wm size")
             val m = Regex("Override size: *(\\d+)x(\\d+)").find(out) ?: Regex("Physical size: *(\\d+)x(\\d+)").find(out)
             val h = m?.groupValues?.get(2)?.toIntOrNull() ?: 0
-            runOnUiThread { screenH = h; resBtn.text = if (h == 0) "Screen size" else "Screen: 1080 \u00D7 $h  \u21C5" }
+            runOnUiThread { screenH = h; updateResText() }
         }.start()
     }
 
