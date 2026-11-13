@@ -28,6 +28,7 @@ data class CanSnapshot(
     val thermalDemand: Int? = null,    // 0 starting up, 1 heating, 2 cooling, 3 cycling (0x382, byte 6)
     val socUsable: Int? = null,        // % (0x2F5, byte 0)
     val socReal: Int? = null,          // % (0x2F5, byte 6)
+    val socRealRaw: Int? = null,       // the raw byte, kept so an invalid value can be shown
     val sohPct: Int? = null,           // % (0x2F5, byte 5)
     val packCapKwh: Double? = null,    // full pack capacity the BMS reports, kWh (0x2F5, bytes 3-4, 0.01)
     val packVolts: Double? = null,     // V (0xE9 on IBUS2, bytes 6-7)  needs the chip filters opened
@@ -305,6 +306,7 @@ class PulseCan(
                 sohPct = b[5],
                 packCapKwh = ((b[3] shl 8) or b[4]).let { if (it == 0 || it == 0xFFFF) null else it * 0.01 },
                 socReal = b[6].takeIf { it <= 100 },
+                socRealRaw = b[6],
             )
         }
         // 0xE9 BMS_ActualPack_U_I (IBUS2, every 20 ms): current signed 16-bit x 0.05 A, voltage x 0.01 V
