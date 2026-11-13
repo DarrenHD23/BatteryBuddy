@@ -134,10 +134,10 @@ class PulseCan(
         // already as wanted? then write nothing
         try {
             val want = plan.flatMap { (_, mask, filt) -> listOf(dec(mask), dec(filt)) }   // chip 0 mask, filter; chip 1 mask, filter
-            val q = ProcessBuilder("su", "-c", "cat ${dir.path}/rxb_mask_0; cat ${dir.path}/rxb_filter_0; cat ${dir.path}/rxb_mask_1; cat ${dir.path}/rxb_filter_1")
-                .redirectErrorStream(true).start()
-            if (!q.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)) { q.destroy(); return "root shell timed out (is root allowed for this app?)" }
-            val cur = q.inputStream.bufferedReader().readText().lines().map { it.trim().replace(" ", "") }.filter { it.isNotEmpty() }
+            val q = Root.exec("cat ${dir.path}/rxb_mask_0; cat ${dir.path}/rxb_filter_0; cat ${dir.path}/rxb_mask_1; cat ${dir.path}/rxb_filter_1")
+            if (q.timedOut) return "root shell timed out (is root allowed for this app?)"
+            if (!q.ok) return "no root: ${q.out}"
+            val cur = q.out.lines().map { it.trim().replace(" ", "") }.filter { it.isNotEmpty() }
             if (cur == want) { filterReadback = cur.joinToString(" "); return null }
         } catch (e: Exception) { /* fall through and write them */ }
         val sb = StringBuilder()
@@ -147,11 +147,12 @@ class PulseCan(
         }
         sb.append("echo 1 > ${dir.path}/apply_filters; echo '--'; cat ${dir.path}/rxb_mask_0 ${dir.path}/rxb_filter_0 ${dir.path}/rxb_mask_1 ${dir.path}/rxb_filter_1")
         return try {
-            val p = ProcessBuilder("su", "-c", sb.toString()).redirectErrorStream(true).start()
-            if (!p.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)) { p.destroy(); return "root shell timed out (is root allowed for this app?)" }
-            val out = p.inputStream.bufferedReader().readText()
+            val r = Root.exec(sb.toString())
+            if (r.timedOut) return "root shell timed out (is root allowed for this app?)"
+            if (!r.ok) return "no root: ${r.out}"
+            val out = r.out
             filterReadback = out.substringAfter("--", "").trim().replace('\n', ' ')
-            if (out.contains("denied", true) || out.contains("not found", true) || p.exitValue() != 0) "root command failed: ${out.trim()}" else null
+            if (out.contains("denied", true) || out.contains("not found", true) || r.code != 0) "root command failed: ${out.trim()}" else null
         } catch (e: Exception) {
             "no root shell (${e.message})"
         }
@@ -432,5 +433,56 @@ object EventLog {
             }
         } catch (e: Exception) { /* ignore */ }
         return "load=$load free=${mem ?: "?"}MB hottest=${if (hot > 1000) hot / 1000 else hot}C"
+    }
+}
+
+
+/**
+ * Runs commands as root. Android's own su (as on the Pulse) does not accept "su -c cmd" and says
+ * "invalid uid/gid '-c'", while Magisk-style su wants exactly that, so a few forms are tried once and the
+ * one that gives uid=0 is remembered.
+ */
+object Root {
+    class Result(val ok: Boolean, val out: String, val code: Int, val timedOut: Boolean)
+
+    private val forms = listOf<Pair<String, (String) -> List<String>>>(
+        "su -c" to { c -> listOf("su", "-c", c) },
+        "su 0 sh -c" to { c -> listOf("su", "0", "sh", "-c", c) },
+        "su root sh -c" to { c -> listOf("su", "root", "sh", "-c", c) },
+    )
+    @Volatile private var form = -1
+
+    fun describe(): String = if (form >= 0) forms[form].first else "none"
+
+    private fun run(args: List<String>, seconds: Long): Result = try {
+        val p = ProcessBuilder(args).redirectErrorStream(true).start()
+        if (!p.waitFor(seconds, java.util.concurrent.TimeUnit.SECONDS)) { p.destroy(); Result(false, "", -1, true) }
+        else Result(true, p.inputStream.bufferedReader().readText(), p.exitValue(), false)
+    } catch (e: Exception) { Result(false, e.message ?: "su not found", -1, false) }
+
+    /** ok = a root shell ran the command (its output and exit code are in the result). */
+    @Synchronized
+    fun exec(cmd: String, seconds: Long = 10): Result {
+        if (form < 0) {
+            val said = StringBuilder()
+            for ((i, f) in forms.withIndex()) {
+                val r = run(f.second("id"), 12)
+                if (r.timedOut) return r
+                if (r.out.contains("uid=0")) { form = i; EventLog.add("root works with: ${f.first}"); break }
+                said.append(f.first).append(": ").append(r.out.trim().take(80)).append("; ")
+            }
+            if (form < 0) return Result(false, said.toString().trim(), -1, false)
+        }
+        return run(forms[form].second(cmd), seconds)
+    }
+
+    /** Null if root works, otherwise a sentence saying what is wrong. */
+    fun check(): String? {
+        val r = exec("id", 12)
+        return when {
+            r.timedOut -> "Root request timed out. The root manager may be waiting for you to allow Fisker Battery Buddy. Open it, allow this app, and try again."
+            r.ok && r.out.contains("uid=0") -> null
+            else -> "Root access was denied or is not available (${r.out.trim().take(200)}). Allow Fisker Battery Buddy in the root manager."
+        }
     }
 }
