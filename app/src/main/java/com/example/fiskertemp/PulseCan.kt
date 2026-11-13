@@ -65,7 +65,10 @@ class PulseCan(
     private val onUpdate: (CanSnapshot) -> Unit,
 ) {
     @Volatile private var running = false
-    @Volatile private var lastE9At = 0L
+    @Volatile private var filtersDone = false
+    /** Safe mode: never touch the CAN chips' filters (power and climate may then not show). Set by the app. */
+    @Volatile var safeMode = false
+    private val lastSeen = HashMap<String, Long>()
     @Volatile private var filterReadback = ""
     @Volatile private var proc: Process? = null
     @Volatile private var snap = CanSnapshot()
@@ -112,6 +115,7 @@ class PulseCan(
      * It only changes what is RECEIVED; nothing is sent. Needs root. Returns null on success, else why not.
      */
     private fun openFilters(): String? {
+        if (safeMode) return "safe mode is on, filters left as they are"
         val dir = File("/sys/module/mcp251x/parameters")
         if (!dir.isDirectory) return "no mcp251x driver parameters on this device"
         // Each chip has two receive buffers: buffer 0 (2 filters, one mask) and buffer 1 (4 filters, one mask).
@@ -126,6 +130,15 @@ class PulseCan(
             Triple(1, "0x600,0x7C0", "0x000,0x200,0x480,0x500,0x580,0x580"),
         )
         fun dec(csv: String) = csv.split(',').joinToString(",") { Integer.decode(it.trim()).toString() }
+        // already as wanted? then write nothing
+        try {
+            val want = plan.flatMap { (_, mask, filt) -> listOf(dec(mask), dec(filt)) }   // chip 0 mask, filter; chip 1 mask, filter
+            val q = ProcessBuilder("su", "-c", "cat ${dir.path}/rxb_mask_0; cat ${dir.path}/rxb_filter_0; cat ${dir.path}/rxb_mask_1; cat ${dir.path}/rxb_filter_1")
+                .redirectErrorStream(true).start()
+            val cur = q.inputStream.bufferedReader().readText().lines().map { it.trim().replace(" ", "") }.filter { it.isNotEmpty() }
+            q.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+            if (cur == want) { filterReadback = cur.joinToString(" "); return null }
+        } catch (e: Exception) { /* fall through and write them */ }
         val sb = StringBuilder()
         for ((chip, mask, filt) in plan) {
             sb.append("echo '${dec(mask)}' > ${dir.path}/rxb_mask_$chip; ")
@@ -169,26 +182,16 @@ class PulseCan(
             val startedAt = System.currentTimeMillis()
             try {
                 // receive only: no "tx:" arguments
-                val why = openFilters()
-                onStatus(if (why == null) "CAN filters opened for climate frames: $filterReadback" else "CAN filters not changed: $why")
-                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD,1B8", "$b2=0E9,1A9,210,351,504,580,582,332,311")
+                // the filters are written once per run of the app, and only if they are not already as wanted
+                if (!filtersDone) {
+                    val why = openFilters()
+                    if (why == null) filtersDone = true
+                    onStatus(if (why == null) "CAN filters: $filterReadback" else "CAN filters not changed: $why")
+                }
+                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD", "$b2=0E9,1A9,210,351,504,580,582,332,311")
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
-                // the car's own software can reload the CAN driver and put the default filters back, which loses the
-                // power and climate frames; if they stop arriving while the car is awake, write the filters again
-                thread(name = "pulse-can-watch", isDaemon = true) {
-                    var lastTry = 0L
-                    while (running && proc === p) {
-                        try { Thread.sleep(2000) } catch (e: InterruptedException) { return@thread }
-                        val now = System.currentTimeMillis()
-                        if (now - lastChangeAt < 3000 && now - lastE9At > 5000 && now - lastTry > 15000) {
-                            lastTry = now
-                            val w = openFilters()
-                            onStatus(if (w == null) "CAN filters written again (power frames missing): $filterReadback" else "CAN filters not changed: $w")
-                        }
-                    }
-                }
                 // the helper's error output must be drained or it can block; pass on changes only
                 thread(name = "pulse-can-err", isDaemon = true) {
                     var lastMsg = ""
@@ -214,6 +217,11 @@ class PulseCan(
             proc?.destroy()
             proc = null
             if (System.currentTimeMillis() - startedAt > 30_000) tries = 0
+            if (running && tries > 8) {
+                onStatus("CAN reader kept stopping, so it was switched off to protect the Pulse. Restart the app to try again.")
+                running = false
+                return
+            }
             if (running) {
                 try { Thread.sleep(minOf(30_000L, 1000L shl minOf(tries++, 5))) } catch (e: InterruptedException) { return }
             }
@@ -238,8 +246,13 @@ class PulseCan(
         val bytes = IntArray(hex.length / 2)
         for (i in bytes.indices) bytes[i] = hex.substring(i * 2, i * 2 + 2).toIntOrNull(16) ?: return
 
-        if (bus == 2 && id == 0xE9) lastE9At = System.currentTimeMillis()
         val key = "$bus/$id"
+        // keep the load down: a frame of the same ID is used at most every 90 ms (40 ms for brake and drive mode)
+        val tnow = System.currentTimeMillis()
+        val gap = if (id == 0x234 || id == 0x335) 40L else 90L
+        val prev = lastSeen[key]
+        if (prev != null && tnow - prev < gap) return
+        lastSeen[key] = tnow
         if (held.put(key, hex) != hex) {
             val now = System.currentTimeMillis()
             // nothing changed for 10 minutes: the car slept, so this is a new drive
