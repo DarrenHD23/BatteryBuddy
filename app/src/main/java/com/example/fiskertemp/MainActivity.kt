@@ -786,6 +786,10 @@ class MainActivity : Activity() {
         box.add(padRow("Top margin", "padTop"), 2)
         box.add(padRow("Bottom margin", "padBot"), 2)
         box.add(CheckBox(this).apply {
+            text = "Stop reading the CAN bus while this app is not visible (the regen counter only counts while visible)"; isChecked = prefs().getBoolean("pauseHidden", true)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("pauseHidden", on).apply() }
+        }, 0)
+        box.add(CheckBox(this).apply {
             text = "Offer to close the Pulse app when the dashboard opens"; isChecked = prefs().getBoolean("askClosePulse", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("askClosePulse", on).apply(); if (on) pulseAsked = false }
         }, 0)
@@ -919,10 +923,10 @@ class MainActivity : Activity() {
     private fun heatLine(s: CanSnapshot): String {
         val comp = s.compWatts
         val pump = when {
-            comp == null -> "heat pump: not received (CAN filter)"
-            s.compState == 2 -> "heat pump: FAULT"
-            comp > 20 -> String.format("heat pump ON %.2f kW", comp / 1000)
-            else -> "heat pump off"
+            comp == null -> "Heat pump: not received (CAN filter)"
+            s.compState == 2 -> "Heat pump: FAULT"
+            comp > 20 -> String.format("Heat pump ON %.2f kW", comp / 1000)
+            else -> "Heat pump off"
         }
         val total = s.climateKw?.let { String.format("%.2f kW", it) } ?: "--"
         val other = if (s.climateKw != null && comp != null) {
@@ -1202,8 +1206,9 @@ class MainActivity : Activity() {
         val rangeText = s.rangeKm?.let { if (speedMph()) String.format("%.0f mi", it * 0.621371) else String.format("%.0f km", it) } ?: "--"
         // full capacity: only the BMS's own figure (a guess from energy left and charge % was wrong on a real car)
         val sohOk = s.sohPct?.takeIf { it in 50..100 }
-        val estCap = s.packCapKwh?.takeIf { it > 10.0 }
-            ?: sohOk?.let { prefs().getFloat("packKwh", 106.5f) * it / 100.0 }
+        // the BMS's "actual pack capacity" field turned out to equal the energy left (same as HV Cap), so the
+        // total capacity is the pack size from settings times the battery health
+        val estCap = sohOk?.let { prefs().getFloat("packKwh", 106.5f) * it / 100.0 }
         return listOf(
             "HV Cap" to (s.capKwh?.let { String.format("%.1f kWh", it) } ?: "--"),
             "Est. Capacity" to (estCap?.let { String.format("%.1f kWh", it) } ?: "--"),
@@ -1920,6 +1925,25 @@ class MainActivity : Activity() {
         try { gatt?.close() } catch (_: Exception) {}
         socket = null; gatt = null; input = null; output = null
         setConnected(false)
+    }
+
+    private var pausedHidden = false
+
+    /** Not visible any more (another app full screen, or the screen is off): stop reading the CAN bus until we are seen again. */
+    override fun onStop() {
+        super.onStop()
+        if (useCan && prefs().getBoolean("pauseHidden", true) && pulse != null) {
+            pulse?.stop(); pausedHidden = true
+            EventLog.add("hidden: CAN reading paused")
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (pausedHidden) {
+            pausedHidden = false
+            if (useCan) { pulse?.start(); EventLog.add("visible: CAN reading resumed") }
+        }
     }
 
     override fun onDestroy() { EventLog.add("app stopped"); pulse?.stop(); ui.removeCallbacksAndMessages(null); close(); super.onDestroy() }
