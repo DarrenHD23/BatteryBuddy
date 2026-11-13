@@ -755,13 +755,6 @@ class MainActivity : Activity() {
         box.add(padRow("Top margin", "padTop"), 2)
         box.add(padRow("Bottom margin", "padBot"), 2)
         box.add(CheckBox(this).apply {
-            text = "Show the climate row on the dashboard (narrow screens)"; isChecked = prefs().getBoolean("climateRow", true)
-            setOnCheckedChangeListener { _, on ->
-                prefs().edit().putBoolean("climateRow", on).apply()
-                if (::climateView.isInitialized) climateView.visibility = if (on && dashNarrow) View.VISIBLE else View.GONE
-            }
-        }, 0)
-        box.add(CheckBox(this).apply {
             text = "Flip power direction (if drive shows as negative)"; isChecked = prefs().getBoolean("flipPower", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("flipPower", on).apply() }
         }, 0)
@@ -923,8 +916,6 @@ class MainActivity : Activity() {
     private lateinit var lowerBox: LinearLayout
     private lateinit var resBtn: TextView
     private lateinit var flyBtn: TextView
-    private lateinit var climateView: ClimateView
-    private var dashNarrow = false
     private lateinit var editBackdrop: View
     private var flyOpen = false
     private var lowerInline = true
@@ -1076,8 +1067,6 @@ class MainActivity : Activity() {
         f.addView(editBackdrop, FrameLayout.LayoutParams(-1, dp(150), Gravity.BOTTOM).apply { setMargins(dp(160), 0, dp(120), dp(4)) })
         f.addView(dashRow, FrameLayout.LayoutParams(-1, dp(46), Gravity.BOTTOM).apply { setMargins(dp(170), 0, dp(130), dp(76)) })
         f.addView(dashStrip, FrameLayout.LayoutParams(-1, dp(62), Gravity.BOTTOM).apply { setMargins(dp(170), 0, dp(130), dp(8)) })
-        climateView = ClimateView(this)
-        f.addView(climateView, FrameLayout.LayoutParams(-1, dp(56), Gravity.BOTTOM).apply { setMargins(dp(8), 0, dp(156), dp(10)) })
         f.addView(poolBar, FrameLayout.LayoutParams(-1, dp(44), Gravity.BOTTOM).apply { setMargins(dp(170), 0, dp(130), dp(184)) })
         resBtn = TextView(this).apply {
             text = "Screen"; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
@@ -1149,7 +1138,7 @@ class MainActivity : Activity() {
         dashRoot.background = if (day)
             GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#FFFFFF"), Color.parseColor("#E6ECF4")))
         else bgDrawable(Color.argb(120, 0, 0, 0)) ?: GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#04070D"), Color.parseColor("#0B1626")))
-        climateView.day = day; climateView.invalidate(); dashSpeedGauge.day = day; dashPowerGauge.day = day; dashStrip.day = day; dashStrip.invalidate()
+        dashSpeedGauge.day = day; dashPowerGauge.day = day; dashStrip.day = day; dashStrip.invalidate()
         val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
         dashHeading.setTextColor(ink)
         dashReady.setTextColor(Color.parseColor(if (day) "#2E9E1F" else "#7CFF3A"))
@@ -1295,8 +1284,6 @@ class MainActivity : Activity() {
         val sideL = if (narrow) 8 else 12
         val sideR = if (narrow) 8 else 160
         dashStrip.visibility = if (t.showStrip) View.VISIBLE else View.GONE
-        dashNarrow = narrow
-        climateView.visibility = if (narrow && prefs().getBoolean("climateRow", true)) View.VISIBLE else View.GONE
         if (!t.showStrip && poolBar.visibility == View.VISIBLE) togglePool()
         // Screen button + app buttons: stacked when there is room, side by side in a short window, and in a flyout
         // (round button) when there is no room at all
@@ -1526,20 +1513,6 @@ class MainActivity : Activity() {
         dashSpeedGauge.valueText = spd?.let { String.format("%.0f", it) } ?: "--"
         dashSpeedGauge.unit = if (mph) "mph" else "km/h"
         dashSpeedGauge.setFraction(spd?.let { Math.pow((it / (if (mph) 112.0 else 180.0)).coerceIn(0.0, 1.0), 0.75).toFloat() })
-        if (climateView.visibility == View.VISIBLE) {
-            fun ct(c: Double?): String = when {
-                c == null -> "--"
-                c < 16.0 -> "LO"
-                c >= 30.0 -> "HI"
-                useFahrenheit -> String.format("%.0f\u00B0", c * 9.0 / 5.0 + 32.0)
-                else -> String.format("%.1f\u00B0", c)
-            }
-            climateView.drvText = ct(s.climDrvT); climateView.passText = ct(s.climPassT)
-            climateView.fan = s.fanLevel; climateView.ac = s.acOn; climateView.recirc = s.recirc; climateView.auto = s.climAuto
-            climateView.rearDef = s.rearDefrost; climateView.maxDef = s.maxDefrost; climateView.outlet = s.outletMode
-            climateView.seatD = s.seatDrv; climateView.seatP = s.seatPass
-            climateView.invalidate()
-        }
         dashSpeedGauge.topValue = s.avgTempC?.let { fmt(it, "\u00B0C", 0) } ?: "--"
         // high-voltage battery thermal state, from the BMS: heating orange, cooling blue
         when (s.thermalDemand) {
@@ -2695,104 +2668,5 @@ class HoldView(ctx: Context) : View(ctx) {
         p.typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
         p.textSize = rho * 1.25f
         c.drawText("H", x, y + rho * 0.43f, p)
-    }
-}
-
-
-/** Read-only climate status: set temperatures, fan, airflow, A/C, recirculation, defrost and seat heat. */
-class ClimateView(ctx: Context) : View(ctx) {
-    var day = false
-    var drvText = "--"; var passText = "--"
-    var fan: Int? = null
-    var ac: Boolean? = null; var recirc: Boolean? = null; var auto: Boolean? = null
-    var rearDef: Boolean? = null; var maxDef: Boolean? = null
-    var outlet: Int? = null
-    var seatD: Int? = null; var seatP: Int? = null
-    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val r = RectF()
-    private val d = ctx.resources.displayMetrics.density
-
-    private fun fit(text: String, maxW: Float, size: Float): Float {
-        p.textSize = size
-        val w = p.measureText(text)
-        return if (w > maxW && w > 0f) size * maxW / w else size
-    }
-
-    private fun pill(c: Canvas, x: Float, y: Float, w: Float, h: Float, label: String, on: Boolean?, accent: Int, ink: Int, dim: Int) {
-        val lit = on == true
-        r.set(x, y, x + w, y + h)
-        p.style = Paint.Style.FILL
-        p.color = if (lit) Color.argb(70, Color.red(accent), Color.green(accent), Color.blue(accent)) else Color.TRANSPARENT
-        c.drawRoundRect(r, h / 2f, h / 2f, p)
-        p.style = Paint.Style.STROKE; p.strokeWidth = d
-        p.color = if (lit) accent else dim
-        c.drawRoundRect(r, h / 2f, h / 2f, p)
-        p.style = Paint.Style.FILL
-        p.textAlign = Paint.Align.CENTER
-        p.typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-        p.textSize = fit(label, w - 6f * d, h * 0.5f)
-        p.color = if (lit) ink else dim
-        c.drawText(label, x + w / 2f, y + h / 2f + p.textSize * 0.35f, p)
-    }
-
-    private fun seatBars(c: Canvas, x: Float, y: Float, w: Float, h: Float, level: Int?, ink: Int, dim: Int) {
-        val orange = Color.parseColor("#FF8A1F")
-        p.style = Paint.Style.FILL; p.textAlign = Paint.Align.LEFT
-        p.typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-        p.textSize = fit("SEAT", w * 0.5f, h * 0.42f)
-        p.color = dim
-        c.drawText("SEAT", x, y + h / 2f + p.textSize * 0.35f, p)
-        val bx = x + w * 0.56f
-        val bw = (w * 0.44f - 2f * d) / 3f
-        for (i in 0 until 3) {
-            val bh = h * (0.4f + 0.3f * i)
-            p.color = if (level != null && i < level) orange else dim
-            r.set(bx + i * (bw + d), y + h - bh, bx + i * (bw + d) + bw, y + h)
-            c.drawRoundRect(r, d, d, p)
-        }
-        if (level == null) { p.color = dim; p.textAlign = Paint.Align.CENTER }
-    }
-
-    override fun onDraw(c: Canvas) {
-        val w = width.toFloat(); val h = height.toFloat()
-        if (w <= 0f || h <= 0f) return
-        val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
-        val dim = if (day) Color.argb(100, 20, 32, 46) else Color.argb(105, 255, 255, 255)
-        val blue = Color.parseColor("#2AA8FF"); val orange = Color.parseColor("#FF8A1F")
-        val sideW = w * 0.21f
-        val cx0 = sideW + 3f * d; val cw = w - 2f * sideW - 6f * d
-        val rowH = h / 2f
-        val ph = rowH - 4f * d
-        // set temperatures, left = driver, right = passenger
-        p.style = Paint.Style.FILL; p.textAlign = Paint.Align.CENTER
-        p.typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-        for ((txt, cx) in listOf(drvText to sideW / 2f, passText to w - sideW / 2f)) {
-            p.textSize = fit(txt, sideW * 0.92f, rowH * 0.78f)
-            p.color = ink
-            c.drawText(txt, cx, rowH * 0.80f, p)
-        }
-        val g = 3f * d
-        val pw = (cw - 3f * g) / 4f
-        val y1 = 2f * d; val y2 = rowH + 2f * d
-        pill(c, cx0, y1, pw, ph, "A/C", ac, blue, ink, dim)
-        pill(c, cx0 + (pw + g), y1, pw, ph, "RECIRC", recirc, blue, ink, dim)
-        pill(c, cx0 + 2 * (pw + g), y1, pw, ph, "AUTO", auto, blue, ink, dim)
-        pill(c, cx0 + 3 * (pw + g), y1, pw, ph, "REAR", rearDef, orange, ink, dim)
-        val o = outlet
-        pill(c, cx0, y2, pw, ph, "DASH", if (o == null) null else o == 1 || o == 2, blue, ink, dim)
-        pill(c, cx0 + (pw + g), y2, pw, ph, "FEET", if (o == null) null else o in 2..4, blue, ink, dim)
-        pill(c, cx0 + 2 * (pw + g), y2, pw, ph, "WIND", if (o == null && maxDef == null) null else (o == 4 || o == 5 || maxDef == true), orange, ink, dim)
-        // fan: seven bars
-        val fx = cx0 + 3 * (pw + g); val bw = (pw - 6f * d) / 7f
-        val lvl = fan ?: -1
-        p.style = Paint.Style.FILL
-        for (i in 0 until 7) {
-            val bh = ph * (0.3f + 0.1f * i)
-            p.color = if (i < lvl) blue else dim
-            r.set(fx + 3f * d + i * (bw + d * 0.1f), y2 + ph - bh, fx + 3f * d + i * (bw + d * 0.1f) + bw * 0.8f, y2 + ph)
-            c.drawRoundRect(r, d * 0.5f, d * 0.5f, p)
-        }
-        seatBars(c, 0f, y2, sideW - 2f * d, ph, seatD, ink, dim)
-        seatBars(c, w - sideW + 2f * d, y2, sideW - 2f * d, ph, seatP, ink, dim)
     }
 }
