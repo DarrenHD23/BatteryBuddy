@@ -732,7 +732,7 @@ class MainActivity : Activity() {
         }, 8)
         box.add(Button(this).apply {
             text = "Test root access"; isAllCaps = false
-            setOnClickListener { Thread { val r = rootCheck(); ui.post { toast(r ?: "Root access is working") } }.start() }
+            setOnClickListener { Thread { val r = rootCheck(); ui.post { toast(r ?: "Root access is working (${Root.describe()})") } }.start() }
         }, 8)
         box.add(TextView(this).apply { text = "Screen edges: move everything in from the top or bottom if a bar overlaps the app"; textSize = 13f; setTextColor(Color.DKGRAY) }, 14)
         fun padRow(label: String, key: String): View {
@@ -1227,9 +1227,15 @@ class MainActivity : Activity() {
         (dashRow.layoutParams as FrameLayout.LayoutParams).apply { height = dp(t.row); setMargins(dp(sideL), 0, dp(sideR), dp(rowBottom)) }
         (lowerBox.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(10), 0, 0, dp(lowerBottom)) }
         (poolBar.layoutParams as FrameLayout.LayoutParams).apply { if (narrow) setMargins(dp(8), 0, dp(8), dp(lowerBottom + (if (t.lower) 42 else 0))) else setMargins(dp(280), 0, dp(sideR), dp(lowerBottom)) }
-        (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), dp(if (short) 4 else 8), dp(8), dp(gaugeBottom)) }
+        (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), dp(if (short) 20 else 8), dp(8), dp(gaugeBottom)) }
         (dashLight.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (short) 26 else 42); height = dp(if (short) 56 else 88); topMargin = dp(if (short) 8 else 4) }
         dashReady.textSize = if (short) 12f else 17f
+        // in a short window the gauges reach the top corners, so the mode badge gets its own strip above them
+        dashMode.textSize = if (short) 9f else 11f
+        dashMode.minWidth = dp(if (short) 60 else 84)
+        dashMode.setPadding(dp(if (short) 6 else 10), dp(if (short) 1 else 3), dp(if (short) 6 else 10), dp(if (short) 1 else 3))
+        (dashMode.layoutParams as FrameLayout.LayoutParams).apply { setMargins(0, dp(if (short) 2 else 6), dp(8), 0) }
+        dashMode.requestLayout()
         dashLightDist.textSize = if (short) 12f else 15f
         dashLightDist.visibility = if (midLevel == 2) View.GONE else View.VISIBLE
         dashHeading.visibility = if (midLevel == 2) View.GONE else View.VISIBLE
@@ -1249,22 +1255,10 @@ class MainActivity : Activity() {
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
 
     /** Run a command as root; returns what it printed ("" if there is no root or it failed). */
-    private fun rootRun(cmd: String): String = try {
-        val p = ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start()
-        if (!p.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)) { p.destroy(); "" } else p.inputStream.bufferedReader().readText()
-    } catch (e: Exception) { "" }
+    private fun rootRun(cmd: String): String = Root.exec(cmd).let { if (it.ok) it.out else "" }
 
     /** Null if this app has root, otherwise a sentence saying what is wrong. */
-    private fun rootCheck(): String? = try {
-        val p = ProcessBuilder("su", "-c", "id").redirectErrorStream(true).start()
-        if (!p.waitFor(12, java.util.concurrent.TimeUnit.SECONDS)) {
-            p.destroy()
-            "Root request timed out. The root manager may be waiting for you to allow Fisker Battery Buddy. Open it, allow this app, and try again."
-        } else {
-            val out = p.inputStream.bufferedReader().readText()
-            if (out.contains("uid=0")) null else "Root access was denied or is not available (${out.trim().take(80)}). Allow Fisker Battery Buddy in the root manager."
-        }
-    } catch (e: Exception) { "No root on this device (${e.message})." }
+    private fun rootCheck(): String? = Root.check()
 
     private val appCache = HashMap<String, String>()
 
