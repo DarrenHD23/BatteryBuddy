@@ -584,12 +584,13 @@ class MainActivity : Activity() {
             setPadding(dp(20), 0, dp(20), 0)
             setOnClickListener { pulse?.stop(); finishAndRemoveTask() }
         }
-        val container = FrameLayout(this)
-        container.addView(rootScroll, FrameLayout.LayoutParams(-1, -1))
-        container.addView(dashRoot, FrameLayout.LayoutParams(-1, -1))
-        container.addView(dashBtn, FrameLayout.LayoutParams(-2, dp(44), Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(16), 0, 0, dp(16)) })
-        container.addView(exitBtn, FrameLayout.LayoutParams(-2, dp(44), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(16), dp(16)) })
-        setContentView(container)
+        edgeBox = FrameLayout(this)
+        edgeBox.addView(rootScroll, FrameLayout.LayoutParams(-1, -1))
+        edgeBox.addView(dashRoot, FrameLayout.LayoutParams(-1, -1))
+        edgeBox.addView(dashBtn, FrameLayout.LayoutParams(-2, dp(44), Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(16), 0, 0, dp(16)) })
+        edgeBox.addView(exitBtn, FrameLayout.LayoutParams(-2, dp(44), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(16), dp(16)) })
+        setContentView(edgeBox)
+        applyEdgePadding()
         applyTheme(getSharedPreferences("prefs", MODE_PRIVATE).getInt("theme", 0).coerceIn(0, THEMES.size - 1))
     }
 
@@ -603,6 +604,21 @@ class MainActivity : Activity() {
         actionBar?.setBackgroundDrawable(ColorDrawable(t.top))
         getSharedPreferences("prefs", MODE_PRIVATE).edit().putInt("theme", i).apply()
         applyBgPic()
+        paintEdges()
+    }
+
+    /** Whatever shows around or behind the app's own screens is dark (or light in day mode), never white. */
+    private fun paintEdges() {
+        if (!::edgeBox.isInitialized) return
+        val col = if (dashShown) (if (dashDay) Color.parseColor("#E6ECF4") else Color.parseColor("#0B0F1A")) else THEMES[themeIndex].bottom
+        edgeBox.setBackgroundColor(col)
+        window.setBackgroundDrawable(ColorDrawable(col))
+    }
+
+    /** Settings can push everything in from the top and bottom edges, for bars that overlap the app. */
+    private fun applyEdgePadding() {
+        if (!::edgeBox.isInitialized) return
+        edgeBox.setPadding(0, dp(prefs().getInt("padTop", 0)), 0, dp(prefs().getInt("padBot", 0)))
     }
 
     // ------------------------------------------------------- Background pictures (res/drawable-nodpi/bg_01 .. bg_15)
@@ -699,6 +715,22 @@ class MainActivity : Activity() {
             text = "Safe mode: do not change the CAN chip filters (power and climate may show --)"; isChecked = prefs().getBoolean("canSafe", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("canSafe", on).apply(); pulse?.safeMode = on; toast("Takes effect the next time the app starts") }
         }, 4)
+        box.add(Button(this).apply {
+            text = "Test root access"; isAllCaps = false
+            setOnClickListener { Thread { val r = rootCheck(); ui.post { toast(r ?: "Root access is working") } }.start() }
+        }, 8)
+        box.add(TextView(this).apply { text = "Screen edges: move everything in from the top or bottom if a bar overlaps the app"; textSize = 13f; setTextColor(Color.DKGRAY) }, 14)
+        fun padRow(label: String, key: String): View {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            val tv = TextView(this).apply { textSize = 14f; setTextColor(Color.BLACK); text = "$label: ${prefs().getInt(key, 0)} dp" }
+            fun bump(d: Int) { val v = (prefs().getInt(key, 0) + d).coerceIn(0, 300); prefs().edit().putInt(key, v).apply(); tv.text = "$label: $v dp"; applyEdgePadding() }
+            row.addView(tv, LinearLayout.LayoutParams(0, -2, 1f))
+            row.addView(Button(this).apply { text = "\u2212"; setOnClickListener { bump(-8) } })
+            row.addView(Button(this).apply { text = "+"; setOnClickListener { bump(8) } })
+            return row
+        }
+        box.add(padRow("Top margin", "padTop"), 2)
+        box.add(padRow("Bottom margin", "padBot"), 2)
         box.add(CheckBox(this).apply {
             text = "Flip power direction (if drive shows as negative)"; isChecked = prefs().getBoolean("flipPower", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("flipPower", on).apply() }
@@ -829,6 +861,8 @@ class MainActivity : Activity() {
     private var dayPendingSince = 0L
     private lateinit var dashRow: StatusStripView
     private lateinit var dashReady: TextView
+    private lateinit var edgeBox: FrameLayout
+    private var drivenSinceReady = false
     private lateinit var dashMid: LinearLayout
     private lateinit var poolBar: HorizontalScrollView
     private lateinit var poolRow: LinearLayout
@@ -927,10 +961,10 @@ class MainActivity : Activity() {
             background = GradientDrawable().apply { setColor(Color.parseColor("#E53935")); cornerRadius = dp(16).toFloat() }
         }
         dashMode = TextView(this).apply {
-            textSize = 14f; setTextColor(Color.WHITE); gravity = Gravity.CENTER; visibility = View.INVISIBLE; text = "EARTH"
-            typeface = Typeface.create("sans-serif", Typeface.NORMAL); letterSpacing = 0.12f
-            minWidth = dp(120)
-            setPadding(dp(16), dp(5), dp(16), dp(5))
+            textSize = 11f; setTextColor(Color.WHITE); gravity = Gravity.CENTER; visibility = View.INVISIBLE; text = "EARTH"
+            typeface = Typeface.create("sans-serif", Typeface.NORMAL); letterSpacing = 0.10f
+            minWidth = dp(84)
+            setPadding(dp(10), dp(3), dp(10), dp(3))
         }
         dashReady = TextView(this).apply {
             text = "READY"; textSize = 17f; letterSpacing = 0.18f; gravity = Gravity.CENTER; visibility = View.INVISIBLE
@@ -994,7 +1028,7 @@ class MainActivity : Activity() {
         }
         f.addView(lowerBox, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(10), 0, 0, dp(190)) })
         f.addOnLayoutChangeListener { v, _, top, _, bottom, _, _, _, _ -> adaptDashLayout((v.width / resources.displayMetrics.density).toInt(), ((bottom - top) / resources.displayMetrics.density).toInt()) }
-        f.addView(dashMode, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(10), dp(12), 0) })
+        f.addView(dashMode, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(6), dp(8), 0) })
         return f
     }
 
@@ -1024,6 +1058,7 @@ class MainActivity : Activity() {
     }
 
     private fun applyDashTheme(day: Boolean) {
+        paintEdges()
         dashRoot.background = if (day)
             GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#FFFFFF"), Color.parseColor("#E6ECF4")))
         else bgDrawable(Color.argb(120, 0, 0, 0)) ?: GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#04070D"), Color.parseColor("#0B1626")))
@@ -1201,9 +1236,20 @@ class MainActivity : Activity() {
     /** Run a command as root; returns what it printed ("" if there is no root or it failed). */
     private fun rootRun(cmd: String): String = try {
         val p = ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start()
-        val out = p.inputStream.bufferedReader().readText()
-        if (!p.waitFor(8, java.util.concurrent.TimeUnit.SECONDS)) { p.destroy(); "" } else out
+        if (!p.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)) { p.destroy(); "" } else p.inputStream.bufferedReader().readText()
     } catch (e: Exception) { "" }
+
+    /** Null if this app has root, otherwise a sentence saying what is wrong. */
+    private fun rootCheck(): String? = try {
+        val p = ProcessBuilder("su", "-c", "id").redirectErrorStream(true).start()
+        if (!p.waitFor(12, java.util.concurrent.TimeUnit.SECONDS)) {
+            p.destroy()
+            "Root request timed out. The root manager may be waiting for you to allow Fisker Battery Buddy. Open it, allow this app, and try again."
+        } else {
+            val out = p.inputStream.bufferedReader().readText()
+            if (out.contains("uid=0")) null else "Root access was denied or is not available (${out.trim().take(80)}). Allow Fisker Battery Buddy in the root manager."
+        }
+    } catch (e: Exception) { "No root on this device (${e.message})." }
 
     private val appCache = HashMap<String, String>()
 
@@ -1264,6 +1310,8 @@ class MainActivity : Activity() {
         if (isInMultiWindowMode) { launchLower(i); return }
         Toast.makeText(this, "Switching to split screen\u2026", Toast.LENGTH_SHORT).show()
         Thread {
+            val bad = if (SplitService.instance == null) rootCheck() else null
+            if (bad != null) { ui.post { toast("$bad Or use the Pulse's own split-screen controls.") }; return@Thread }
             val ok = ensureSplitService()
             ui.post {
                 if (!ok) {
@@ -1322,13 +1370,17 @@ class MainActivity : Activity() {
     private fun toggleScreenSize() {
         val target = if (screenH == 1784) 1920 else 1784
         Thread {
-            rootRun("wm size 1080x$target")
+            val bad = rootCheck()
+            if (bad != null) { ui.post { toast(bad) }; return@Thread }
+            val out = rootRun("wm size 1080x$target")
             refreshScreenSize()
+            if (out.isNotBlank()) ui.post { toast("Screen size: ${out.trim().take(120)}") }
         }.start()
     }
 
     private fun showDashboard(on: Boolean) {
         dashShown = on
+        paintEdges()
         ui.removeCallbacks(dashTick)
         dashRoot.visibility = if (on) View.VISIBLE else View.GONE
         rootScroll.visibility = if (on) View.GONE else View.VISIBLE
@@ -1336,8 +1388,8 @@ class MainActivity : Activity() {
         if (on) {
             actionBar?.hide()
             @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            // the Pulse keeps its own status bar showing whatever an app asks, so the app must not extend under it
+            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
             updateDashTheme(true)
             refreshScreenSize()
             if (!introDone) {
@@ -1369,7 +1421,9 @@ class MainActivity : Activity() {
             else -> { dashSpeedGauge.bottomValue = "--"; dashSpeedGauge.bottomColor = null }
         }
         dashSpeedGauge.hold = s.hold == true || s.holdEsp == true
-        dashReady.visibility = if (s.ready == true) View.VISIBLE else View.INVISIBLE
+        if (s.ready != true) drivenSinceReady = false
+        else if ((s.speedKmh ?: 0.0) > 2.0) drivenSinceReady = true
+        dashReady.visibility = if (s.ready == true && !drivenSinceReady) View.VISIBLE else View.INVISIBLE
         dashSpeedGauge.refresh()
 
         val v = s.packVolts
@@ -1466,6 +1520,7 @@ class MainActivity : Activity() {
             val p = pulse ?: PulseCan(this, { m -> log(m) }, { snap -> canSnap = snap }).also { pulse = it }
             p.safeMode = prefs().getBoolean("canSafe", false)
             p.start()
+            Thread { rootCheck()?.let { w -> ui.post { toast(w) } } }.start()
             ui.post(canTick)
         } else {
             pulse?.stop()
@@ -1979,13 +2034,13 @@ class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Fl
     /** The auto-hold symbol (an H in a circle between two arcs) with READY in green under it, in the open side of the gauge. */
     private fun drawHoldAndReady(c: Canvas, x: Float, cy: Float, r: Float) {
         if (!hold) return
-        val sym = if (day) Color.parseColor("#B5532F") else Color.parseColor("#F2CBB8")
+        val sym = if (day) Color.parseColor("#3A4656") else Color.WHITE
         val green = if (day) Color.parseColor("#2E9E1F") else Color.parseColor("#7CFF3A")
-        val rho = r * 0.17f
+        val rho = r * 0.13f
         val y = cy
         if (hold) {
             arc.style = Paint.Style.STROKE
-            arc.strokeWidth = rho * 0.22f
+            arc.strokeWidth = rho * 0.09f
             arc.color = sym
             c.drawCircle(x, y, rho, arc)
             rect.set(x - rho * 1.45f, y - rho * 1.45f, x + rho * 1.45f, y + rho * 1.45f)
@@ -1993,10 +2048,10 @@ class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Fl
             c.drawArc(rect, 145f, 70f, false, arc)    // "(" on the left
             c.drawArc(rect, -35f, 70f, false, arc)    // ")" on the right
             arc.strokeCap = Paint.Cap.BUTT
-            txt.typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-            txt.textSize = rho * 1.25f
+            txt.typeface = Typeface.create("sans-serif-thin", Typeface.NORMAL)
+            txt.textSize = rho * 1.3f
             txt.color = sym
-            c.drawText("H", x, y + rho * 0.43f, txt)
+            c.drawText("H", x, y + rho * 0.45f, txt)
         }
     }
 
