@@ -168,7 +168,9 @@ class PulseCan(
             return
         }
         running = true
-        thread(name = "pulse-can", isDaemon = true) { loop(bin.path) }
+        // a generation number, so a reader that is still winding down after stop() can never carry on beside a new one
+        val my = ++generation
+        thread(name = "pulse-can", isDaemon = true) { loop(bin.path, my) }
     }
 
     @Synchronized
@@ -178,9 +180,11 @@ class PulseCan(
         proc = null
     }
 
-    private fun loop(bin: String) {
+    @Volatile private var generation = 0
+
+    private fun loop(bin: String, my: Int) {
         var tries = 0
-        while (running) {
+        while (running && generation == my) {
             val (b1, b2) = interfaces()
             val startedAt = System.currentTimeMillis()
             try {
@@ -220,12 +224,12 @@ class PulseCan(
             proc?.destroy()
             proc = null
             if (System.currentTimeMillis() - startedAt > 30_000) tries = 0
-            if (running && tries > 8) {
+            if (running && generation == my && tries > 8) {
                 onStatus("CAN reader kept stopping, so it was switched off to protect the Pulse. Restart the app to try again.")
                 running = false
                 return
             }
-            if (running) {
+            if (running && generation == my) {
                 try { Thread.sleep(minOf(30_000L, 1000L shl minOf(tries++, 5))) } catch (e: InterruptedException) { return }
             }
         }
