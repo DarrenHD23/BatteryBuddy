@@ -676,6 +676,17 @@ class MainActivity : Activity() {
     /** Dialogs use a dark theme so they are not glaring at night. */
     private fun darkDialog() = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
 
+    /** Dark background, light title / message, readable buttons: set explicitly so no theme can leave black text. */
+    private fun styleDark(d: AlertDialog) {
+        val light = Color.parseColor("#F0F3F8")
+        d.window?.setBackgroundDrawable(ColorDrawable(Color.parseColor("#262A31")))
+        val ids = listOf(android.R.id.title, android.R.id.message, resources.getIdentifier("alertTitle", "id", "android"))
+        for (id in ids) if (id != 0) d.findViewById<TextView>(id)?.setTextColor(light)
+        for (w in listOf(AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_NEUTRAL)) d.getButton(w)?.setTextColor(Color.parseColor("#6FC3FF"))
+    }
+
+    private fun AlertDialog.Builder.showDark(): AlertDialog = create().also { it.show(); styleDark(it) }
+
     private fun showSettings() {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -729,13 +740,13 @@ class MainActivity : Activity() {
         box.add(Button(this).apply {
             text = "Show event log"; isAllCaps = false
             setOnClickListener {
-                val tv = TextView(this@MainActivity).apply { text = EventLog.text(); textSize = 11f; typeface = Typeface.MONOSPACE; setPadding(dp(12), dp(8), dp(12), dp(8)) }
+                val tv = TextView(this@MainActivity).apply { text = EventLog.text(); textSize = 11f; setTextColor(Color.parseColor("#F0F3F8")); typeface = Typeface.MONOSPACE; setPadding(dp(12), dp(8), dp(12), dp(8)) }
                 val sv = ScrollView(this@MainActivity).apply { addView(tv); post { fullScroll(View.FOCUS_DOWN) } }
                 darkDialog().setTitle("Event log (newest at the bottom)").setView(sv)
                     .setNeutralButton("Copy") { _, _ ->
                         (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(ClipData.newPlainText("log", EventLog.text()))
                         toast("Copied")
-                    }.setPositiveButton("Close", null).show()
+                    }.setPositiveButton("Close", null).showDark()
             }
         }, 8)
         box.add(Button(this).apply {
@@ -778,7 +789,7 @@ class MainActivity : Activity() {
                     .setPositiveButton("Save") { _, _ ->
                         val v = et.text.toString().toFloatOrNull()
                         if (v != null && v in 20f..250f) { prefs().edit().putFloat("packKwh", v).apply(); packTv.text = "Usable pack size when new: $v kWh" }
-                    }.setNegativeButton("Cancel", null).show()
+                    }.setNegativeButton("Cancel", null).showDark()
             }
         })
         box.add(packRow, 8)
@@ -838,6 +849,11 @@ class MainActivity : Activity() {
                 val c = v.currentTextColor
                 if ((0.299 * Color.red(c) + 0.587 * Color.green(c) + 0.114 * Color.blue(c)) / 255.0 < 0.5) v.setTextColor(Color.parseColor("#F0F3F8"))
             }
+            // plain theme buttons can be flat with dark text on this device: give them a visible grey face
+            if (v is Button && v.background !is GradientDrawable) {
+                v.background = GradientDrawable().apply { setColor(Color.parseColor("#3A4150")); cornerRadius = dp(10).toFloat() }
+                v.setTextColor(Color.WHITE)
+            }
             if (v is ViewGroup) for (k in 0 until v.childCount) lightInk(v.getChildAt(k))
         }
         lightInk(box)
@@ -845,7 +861,7 @@ class MainActivity : Activity() {
         dialog = darkDialog().setTitle("Settings").setView(scroller)
             .setNegativeButton("Close", null).create()
         dialog.show()
-        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.parseColor("#262A31")))
+        styleDark(dialog)
     }
 
     private fun dotDrawable(on: Boolean) = GradientDrawable().apply {
@@ -1531,7 +1547,7 @@ class MainActivity : Activity() {
                             ui.post { Toast.makeText(this, "Pulse app closed", Toast.LENGTH_SHORT).show() }
                         }.start()
                     }
-                    .setNegativeButton("Not now", null).show()
+                    .setNegativeButton("Not now", null).showDark()
             }
         }.start()
     }
