@@ -576,22 +576,27 @@ class MainActivity : Activity() {
         rootScroll = ScrollView(this).apply { addView(root) }
         dashRoot = buildDashboard()
         dashBtn = Button(this).apply {
-            text = "Show Dashboard"; isAllCaps = false; setTextColor(Color.WHITE); textSize = 15f
+            text = "Show Dashboard"; isAllCaps = false; setTextColor(Color.WHITE); textSize = 13f
             background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(22).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
-            setPadding(dp(20), 0, dp(20), 0)
+            setPadding(dp(16), 0, dp(16), 0)
             setOnClickListener { showDashboard(!dashShown) }
         }
         exitBtn = Button(this).apply {
-            text = "Exit App"; isAllCaps = false; setTextColor(Color.WHITE); textSize = 15f
+            text = "Exit"; isAllCaps = false; setTextColor(Color.WHITE); textSize = 13f
             background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(22).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
-            setPadding(dp(20), 0, dp(20), 0)
+            setPadding(dp(16), 0, dp(16), 0)
             setOnClickListener { pulse?.stop(); finishAndRemoveTask() }
         }
         edgeBox = FrameLayout(this)
         edgeBox.addView(rootScroll, FrameLayout.LayoutParams(-1, -1))
         edgeBox.addView(dashRoot, FrameLayout.LayoutParams(-1, -1))
-        edgeBox.addView(dashBtn, FrameLayout.LayoutParams(-2, dp(44), Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(16), 0, 0, dp(16)) })
-        edgeBox.addView(exitBtn, FrameLayout.LayoutParams(-2, dp(44), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(16), dp(16)) })
+        // both buttons sit together at the bottom right
+        val btnBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(dashBtn, LinearLayout.LayoutParams(-2, dp(44)).apply { rightMargin = dp(8) })
+            addView(exitBtn, LinearLayout.LayoutParams(-2, dp(44)))
+        }
+        edgeBox.addView(btnBar, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(16), dp(16)) })
         setContentView(edgeBox)
         applyEdgePadding()
         applyTheme(getSharedPreferences("prefs", MODE_PRIVATE).getInt("theme", 0).coerceIn(0, THEMES.size - 1))
@@ -668,20 +673,23 @@ class MainActivity : Activity() {
         return super.onOptionsItemSelected(item)
     }
 
+    /** Dialogs use a dark theme so they are not glaring at night. */
+    private fun darkDialog() = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+
     private fun showSettings() {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(8), dp(20), dp(8))
         }
         // --- Temperature unit (first, so it is always visible)
-        box.add(TextView(this).apply { text = "Temperature unit"; textSize = 14f; setTextColor(Color.DKGRAY) }, 0)
+        box.add(TextView(this).apply { text = "Temperature unit"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 0)
         val rc = RadioButton(this).apply { text = "Celsius (\u00B0C)"; id = View.generateViewId(); isChecked = !useFahrenheit }
         val rf = RadioButton(this).apply { text = "Fahrenheit (\u00B0F)"; id = View.generateViewId(); isChecked = useFahrenheit }
         val rg = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL; addView(rc); addView(rf) }
         rg.setOnCheckedChangeListener { _, checkedId -> setFahrenheit(checkedId == rf.id) }
         box.add(rg, 6)
 
-        box.add(TextView(this).apply { text = "Dashboard theme"; textSize = 14f; setTextColor(Color.DKGRAY) }, 20)
+        box.add(TextView(this).apply { text = "Dashboard theme"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
         val cur = prefs().getString("dispTheme", "night")
         val rn = RadioButton(this).apply { text = "Night (dark)"; id = View.generateViewId(); isChecked = cur == "night" }
         val rd = RadioButton(this).apply { text = "Day (light)"; id = View.generateViewId(); isChecked = cur == "day" }
@@ -692,20 +700,20 @@ class MainActivity : Activity() {
             updateDashTheme(true)
         }
         box.add(rtg, 6)
-        box.add(TextView(this).apply { text = "Speed limit sign style"; textSize = 14f; setTextColor(Color.DKGRAY) }, 20)
+        box.add(TextView(this).apply { text = "Speed limit sign style"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
         val curSign = prefs().getString("signStyle", "us")
         val sus = RadioButton(this).apply { text = "USA / Canada (rectangle)"; id = View.generateViewId(); isChecked = curSign != "eu" }
         val seu = RadioButton(this).apply { text = "Europe / UK (round, red ring)"; id = View.generateViewId(); isChecked = curSign == "eu" }
         val sgp = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL; addView(sus); addView(seu) }
         sgp.setOnCheckedChangeListener { _, checkedId -> prefs().edit().putString("signStyle", if (checkedId == seu.id) "eu" else "us").apply() }
         box.add(sgp, 6)
-        box.add(TextView(this).apply { text = "Speed unit"; textSize = 14f; setTextColor(Color.DKGRAY) }, 20)
+        box.add(TextView(this).apply { text = "Speed unit"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
         val kmh = RadioButton(this).apply { text = "km/h"; id = View.generateViewId(); isChecked = !speedMph() }
         val mph = RadioButton(this).apply { text = "mph"; id = View.generateViewId(); isChecked = speedMph() }
         val spg = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL; addView(kmh); addView(mph) }
         spg.setOnCheckedChangeListener { _, checkedId -> prefs().edit().putBoolean("mph", checkedId == mph.id).apply() }
         box.add(spg, 6)
-        box.add(TextView(this).apply { text = "Dashboard"; textSize = 14f; setTextColor(Color.DKGRAY) }, 20)
+        box.add(TextView(this).apply { text = "Dashboard"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
         box.add(CheckBox(this).apply {
             text = "Show the dashboard when the app starts"; isChecked = prefs().getBoolean("dashDefault", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("dashDefault", on).apply() }
@@ -723,7 +731,7 @@ class MainActivity : Activity() {
             setOnClickListener {
                 val tv = TextView(this@MainActivity).apply { text = EventLog.text(); textSize = 11f; typeface = Typeface.MONOSPACE; setPadding(dp(12), dp(8), dp(12), dp(8)) }
                 val sv = ScrollView(this@MainActivity).apply { addView(tv); post { fullScroll(View.FOCUS_DOWN) } }
-                AlertDialog.Builder(this@MainActivity).setTitle("Event log (newest at the bottom)").setView(sv)
+                darkDialog().setTitle("Event log (newest at the bottom)").setView(sv)
                     .setNeutralButton("Copy") { _, _ ->
                         (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(ClipData.newPlainText("log", EventLog.text()))
                         toast("Copied")
@@ -737,7 +745,7 @@ class MainActivity : Activity() {
         box.add(TextView(this).apply { text = "Screen edges: move everything in from the top or bottom if a bar overlaps the app"; textSize = 13f; setTextColor(Color.DKGRAY) }, 14)
         fun padRow(label: String, key: String): View {
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            val tv = TextView(this).apply { textSize = 14f; setTextColor(Color.BLACK); text = "$label: ${prefs().getInt(key, 0)} dp" }
+            val tv = TextView(this).apply { textSize = 14f; setTextColor(Color.parseColor("#F0F3F8")); text = "$label: ${prefs().getInt(key, 0)} dp" }
             fun bump(d: Int) { val v = (prefs().getInt(key, 0) + d).coerceIn(0, 300); prefs().edit().putInt(key, v).apply(); tv.text = "$label: $v dp"; applyEdgePadding() }
             row.addView(tv, LinearLayout.LayoutParams(0, -2, 1f))
             row.addView(Button(this).apply { text = "\u2212"; setOnClickListener { bump(-8) } })
@@ -753,7 +761,7 @@ class MainActivity : Activity() {
 
         // pack size when new: the total capacity is this times the battery health
         val packRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val packTv = TextView(this).apply { textSize = 14f; setTextColor(Color.BLACK); text = "Usable pack size when new: ${prefs().getFloat("packKwh", 106.5f)} kWh" }
+        val packTv = TextView(this).apply { textSize = 14f; setTextColor(Color.parseColor("#F0F3F8")); text = "Usable pack size when new: ${prefs().getFloat("packKwh", 106.5f)} kWh" }
         packRow.addView(packTv, LinearLayout.LayoutParams(0, -2, 1f))
         packRow.addView(Button(this).apply {
             text = "Change"
@@ -762,7 +770,7 @@ class MainActivity : Activity() {
                     inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
                     setText(prefs().getFloat("packKwh", 106.5f).toString())
                 }
-                AlertDialog.Builder(context).setTitle("Usable pack size when new (kWh)").setView(et)
+                darkDialog().setTitle("Usable pack size when new (kWh)").setView(et)
                     .setPositiveButton("Save") { _, _ ->
                         val v = et.text.toString().toFloatOrNull()
                         if (v != null && v in 20f..250f) { prefs().edit().putFloat("packKwh", v).apply(); packTv.text = "Usable pack size when new: $v kWh" }
@@ -771,7 +779,7 @@ class MainActivity : Activity() {
         })
         box.add(packRow, 8)
 
-        box.add(TextView(this).apply { text = "Data source"; textSize = 14f; setTextColor(Color.DKGRAY) }, 20)
+        box.add(TextView(this).apply { text = "Data source"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
         val sd = RadioButton(this).apply { text = "vLinker dongle (Bluetooth)"; id = View.generateViewId(); isChecked = !useCan }
         val sp = RadioButton(this).apply { text = "Pulse CAN bus (run this app on the Pulse)"; id = View.generateViewId(); isChecked = useCan }
         val sg = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL; addView(sd); addView(sp) }
@@ -779,7 +787,7 @@ class MainActivity : Activity() {
         box.add(sg, 6)
 
         // --- Background colour
-        box.add(TextView(this).apply { text = "Background colour"; textSize = 14f; setTextColor(Color.DKGRAY) }, 20)
+        box.add(TextView(this).apply { text = "Background colour"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
         lateinit var dialog: AlertDialog
         THEMES.forEachIndexed { i, t ->
             val b = Button(this).apply {
@@ -793,7 +801,7 @@ class MainActivity : Activity() {
         }
 
         // --- Background picture
-        box.add(TextView(this).apply { text = "Background picture"; textSize = 14f; setTextColor(Color.DKGRAY) }, 20)
+        box.add(TextView(this).apply { text = "Background picture"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
         val picRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val curPic = prefs().getInt("bgPic", 0)
         fun tile(n: Int): View {
@@ -817,13 +825,14 @@ class MainActivity : Activity() {
         box.add(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(picRow) }, 8)
         box.add(TextView(this).apply {
             text = "This project uses software from Haibin Wen and SUNNYPILOT LLC and is licensed under a custom license requiring permission for use."
-            textSize = 11f; setTextColor(Color.GRAY)
+            textSize = 11f; setTextColor(Color.parseColor("#8E99A8"))
         }, 24)
         // ScrollView so nothing is cut off on small screens
         val scroller = ScrollView(this).apply { addView(box) }
-        dialog = AlertDialog.Builder(this).setTitle("Settings").setView(scroller)
+        dialog = darkDialog().setTitle("Settings").setView(scroller)
             .setNegativeButton("Close", null).create()
         dialog.show()
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.parseColor("#262A31")))
     }
 
     private fun dotDrawable(on: Boolean) = GradientDrawable().apply {
@@ -1272,8 +1281,8 @@ class MainActivity : Activity() {
         val rowBottom = (if (t.showStrip) stripBottom + t.strip + 4 else (if (narrow) 64 else 8))
         val lowerBottom = rowBottom + t.row + 4          // the screen-size button and Maps/Spotify/Pulse sit above the info row
         val gaugeBottom = if (t.lower) lowerBottom + (if (t.res) 68 else 38) + 4 else lowerBottom + 4
-        val sideL = if (narrow) 8 else 170
-        val sideR = if (narrow) 8 else 130
+        val sideL = if (narrow) 8 else 12
+        val sideR = if (narrow) 8 else 160
         dashStrip.visibility = if (t.showStrip) View.VISIBLE else View.GONE
         if (!t.showStrip && poolBar.visibility == View.VISIBLE) togglePool()
         // Screen button + app buttons: stacked when there is room, side by side in a short window, and in a flyout
@@ -1301,7 +1310,7 @@ class MainActivity : Activity() {
         (lowerBox.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(10), 0, 0, dp(lowerBottom + (if (t.lower) 0 else 42))) }
         (poolBar.layoutParams as FrameLayout.LayoutParams).apply { if (narrow) setMargins(dp(8), 0, dp(8), dp(lowerBottom + (if (t.lower) 42 else 0))) else setMargins(dp(280), 0, dp(sideR), dp(lowerBottom)) }
         (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), dp(if (short) 20 else 8), dp(8), dp(gaugeBottom)) }
-        (dashLight.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (short) 26 else 42); height = dp(if (short) 56 else 88); topMargin = dp(if (short) 8 else 4) }
+        (dashLight.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 22 else if (short) 26 else 42); height = dp(if (midLevel == 2) 46 else if (short) 56 else 88); topMargin = dp(if (short) 6 else 4) }
         dashReady.textSize = if (short) 11f else 13f
         // in a short window the gauges reach the top corners, so the mode badge gets its own strip above them
         dashMode.textSize = if (short) 9f else 11f
@@ -1311,9 +1320,13 @@ class MainActivity : Activity() {
         dashMode.requestLayout()
         dashLightDist.textSize = if (short) 12f else 15f
         dashLightDist.visibility = if (midLevel == 2) View.GONE else View.VISIBLE
-        dashHeading.visibility = if (midLevel == 2) View.GONE else View.VISIBLE
-        dashHeading.textSize = if (short) 15f else 20f
-        (dashSign.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (short) 48 else 64); height = dp(if (short) 48 else 64) }
+        dashHeading.visibility = View.VISIBLE
+        dashHeading.textSize = if (midLevel == 2) 12f else if (short) 15f else 20f
+        (dashHeading.layoutParams as LinearLayout.LayoutParams).apply { topMargin = dp(if (midLevel == 2) 2 else if (short) 6 else 10) }
+        dashBrake.textSize = if (midLevel == 2) 11f else if (short) 13f else 16f
+        (dashBrake.layoutParams as LinearLayout.LayoutParams).apply { topMargin = dp(if (midLevel == 2) 3 else 8) }
+        dashBrake.setPadding(dp(if (midLevel == 2) 10 else 18), dp(if (midLevel == 2) 1 else 4), dp(if (midLevel == 2) 10 else 18), dp(if (midLevel == 2) 1 else 4))
+        (dashSign.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 38 else if (short) 48 else 64); height = dp(if (midLevel == 2) 38 else if (short) 48 else 64); topMargin = dp(if (midLevel == 2) 3 else 8) }
         poolBar.requestLayout(); lowerBox.requestLayout()
         dashStrip.requestLayout(); dashRow.requestLayout(); dashGaugeRow.requestLayout(); dashLight.requestLayout(); dashSign.requestLayout()
     }
@@ -1473,7 +1486,7 @@ class MainActivity : Activity() {
         ui.removeCallbacks(dashTick)
         dashRoot.visibility = if (on) View.VISIBLE else View.GONE
         rootScroll.visibility = if (on) View.GONE else View.VISIBLE
-        dashBtn.text = if (on) "Hide Dashboard" else "Show Dashboard"
+        dashBtn.text = if (on) "Hide" else "Show Dashboard"
         if (on) {
             actionBar?.hide()
             @Suppress("DEPRECATION")
