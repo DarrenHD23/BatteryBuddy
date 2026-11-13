@@ -755,6 +755,10 @@ class MainActivity : Activity() {
         box.add(padRow("Top margin", "padTop"), 2)
         box.add(padRow("Bottom margin", "padBot"), 2)
         box.add(CheckBox(this).apply {
+            text = "Offer to close the Pulse app when the dashboard opens"; isChecked = prefs().getBoolean("askClosePulse", true)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("askClosePulse", on).apply(); if (on) pulseAsked = false }
+        }, 0)
+        box.add(CheckBox(this).apply {
             text = "Flip power direction (if drive shows as negative)"; isChecked = prefs().getBoolean("flipPower", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("flipPower", on).apply() }
         }, 0)
@@ -807,7 +811,7 @@ class MainActivity : Activity() {
         fun tile(n: Int): View {
             val sel = n == curPic
             val v: View = if (n == 0) TextView(this).apply {
-                text = "None"; gravity = Gravity.CENTER; textSize = 13f; setTextColor(Color.DKGRAY)
+                text = "None"; tag = "keep"; gravity = Gravity.CENTER; textSize = 13f; setTextColor(Color.DKGRAY)
                 background = GradientDrawable().apply { setColor(Color.parseColor("#EEEEEE")); cornerRadius = dp(8).toFloat() }
             } else ImageView(this).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
@@ -828,6 +832,15 @@ class MainActivity : Activity() {
             textSize = 11f; setTextColor(Color.parseColor("#8E99A8"))
         }, 24)
         // ScrollView so nothing is cut off on small screens
+        // views made with the activity's (light) theme draw dark text by default; make every dark label light
+        fun lightInk(v: View) {
+            if (v is TextView && v !is Button && v.tag != "keep") {
+                val c = v.currentTextColor
+                if ((0.299 * Color.red(c) + 0.587 * Color.green(c) + 0.114 * Color.blue(c)) / 255.0 < 0.5) v.setTextColor(Color.parseColor("#F0F3F8"))
+            }
+            if (v is ViewGroup) for (k in 0 until v.childCount) lightInk(v.getChildAt(k))
+        }
+        lightInk(box)
         val scroller = ScrollView(this).apply { addView(box) }
         dialog = darkDialog().setTitle("Settings").setView(scroller)
             .setNegativeButton("Close", null).create()
@@ -1491,6 +1504,38 @@ class MainActivity : Activity() {
         }.start()
     }
 
+    private var pulseAsked = false
+
+    /** Is the Pulse app running? Needs root (nothing else can see another app's process). */
+    private fun pulseRunning(pkg: String): Boolean {
+        val pid = rootRun("pidof $pkg").trim()
+        if (pid.isNotEmpty() && pid.matches(Regex("[0-9 ]+"))) return true
+        return rootRun("ps -A -o NAME | grep -x $pkg").trim() == pkg
+    }
+
+    /** With the Pulse CAN source, the Pulse app also reads the CAN bus; offer to close it so there is less traffic. */
+    private fun offerClosePulse() {
+        if (!useCan || pulseAsked || !prefs().getBoolean("askClosePulse", true)) return
+        val pkg = findPulse() ?: return
+        Thread {
+            if (Root.check() != null || !pulseRunning(pkg)) return@Thread
+            ui.post {
+                if (isFinishing || pulseAsked) return@post
+                pulseAsked = true
+                darkDialog().setTitle("Close the Pulse app?")
+                    .setMessage("When using this app, it is recommended to close the Pulse app to minimize CAN bus traffic.\n\nClose the Pulse app now?")
+                    .setPositiveButton("Close Pulse app") { _, _ ->
+                        Thread {
+                            rootRun("am force-stop $pkg")
+                            EventLog.add("closed the Pulse app ($pkg)")
+                            ui.post { Toast.makeText(this, "Pulse app closed", Toast.LENGTH_SHORT).show() }
+                        }.start()
+                    }
+                    .setNegativeButton("Not now", null).show()
+            }
+        }.start()
+    }
+
     private fun showDashboard(on: Boolean) {
         dashShown = on
         paintEdges()
@@ -1505,6 +1550,7 @@ class MainActivity : Activity() {
             window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
             updateDashTheme(true)
             refreshScreenSize()
+            offerClosePulse()
             if (!introDone) {
                 introDone = true
                 ui.postDelayed({ dashPowerGauge.intro(); dashSpeedGauge.intro() }, 400)
