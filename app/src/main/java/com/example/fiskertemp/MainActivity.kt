@@ -3575,7 +3575,7 @@ class ChargeBarView(ctx: Context) : View(ctx) {
         val bh = h * 0.70f
         val top = h * 0.06f
         val bot = top + bh
-        val capW = minOf(bh * 0.30f, barW * 0.08f)
+        val capW = minOf(bh * 0.5f, barW * 0.2f)
         val clamp = android.graphics.Shader.TileMode.CLAMP
         // soft shadow on the "floor" under the cylinder
         for (k in 0 until 5) {
@@ -3613,10 +3613,10 @@ class ChargeBarView(ctx: Context) : View(ctx) {
         rect.set(0f, top, barW, bot)
         c.drawRect(rect, p)
         // darken the two ends so they curve away
-        p.shader = LinearGradient(0f, 0f, capW * 1.6f, 0f, Color.argb(120, 0, 0, 0), Color.argb(0, 0, 0, 0), clamp)
-        rect.set(0f, top, capW * 1.6f, bot); c.drawRect(rect, p)
-        p.shader = LinearGradient(barW - capW * 1.6f, 0f, barW, 0f, Color.argb(0, 0, 0, 0), Color.argb(120, 0, 0, 0), clamp)
-        rect.set(barW - capW * 1.6f, top, barW, bot); c.drawRect(rect, p)
+        p.shader = LinearGradient(0f, 0f, capW * 1.2f, 0f, Color.argb(95, 0, 0, 0), Color.argb(0, 0, 0, 0), clamp)
+        rect.set(0f, top, capW * 1.2f, bot); c.drawRect(rect, p)
+        p.shader = LinearGradient(barW - capW * 1.2f, 0f, barW, 0f, Color.argb(0, 0, 0, 0), Color.argb(95, 0, 0, 0), clamp)
+        rect.set(barW - capW * 1.2f, top, barW, bot); c.drawRect(rect, p)
         p.shader = null
         c.restore()
         // the end of the charge, drawn as a cut across the tube
@@ -3626,11 +3626,15 @@ class ChargeBarView(ctx: Context) : View(ctx) {
             rect.set(fw - capW * 0.5f, top, fw + capW * 0.5f, bot)
             c.drawArc(rect, -90f, 180f, false, line3)
         }
-        // glass rim: a thin bright line along the top and the two end ellipses
-        line3.color = Color.argb(if (day) 110 else 150, 255, 255, 255); line3.strokeWidth = 1.5f
-        rect.set(barW - capW * 2f, top, barW, bot); c.drawOval(rect, line3)
-        line3.color = Color.argb(70, 255, 255, 255)
-        rect.set(0f, top, capW * 2f, bot); c.drawArc(rect, 90f, 180f, false, line3)
+        // thin glass rim around the whole rounded shape: bright on top, faint below
+        line3.strokeWidth = 1.5f
+        line3.color = Color.argb(if (day) 110 else 150, 255, 255, 255)
+        rect.set(0f, top, capW * 2f, bot); c.drawArc(rect, 180f, 90f, false, line3)
+        c.drawLine(capW, top + 0.75f, barW - capW, top + 0.75f, line3)
+        rect.set(barW - capW * 2f, top, barW, bot); c.drawArc(rect, 270f, 90f, false, line3)
+        line3.color = Color.argb(60, 255, 255, 255)
+        rect.set(0f, top, capW * 2f, bot); c.drawArc(rect, 90f, 90f, false, line3)
+        rect.set(barW - capW * 2f, top, barW, bot); c.drawArc(rect, 0f, 90f, false, line3)
         // faint marks inside the bar at 30 % and 20 %
         p.color = if (day) Color.argb(55, 20, 32, 46) else Color.argb(75, 255, 255, 255)
         for (m in floatArrayOf(0.20f, 0.30f)) {
