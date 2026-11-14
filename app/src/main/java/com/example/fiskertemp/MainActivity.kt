@@ -598,6 +598,7 @@ class MainActivity : Activity() {
             addView(exitBtn, LinearLayout.LayoutParams(-2, dp(36)))
         }
         edgeBox.addView(btnBar, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(8), dp(16)) })
+        applySkinChrome()
         setContentView(edgeBox)
         applyEdgePadding()
         applyTheme(getSharedPreferences("prefs", MODE_PRIVATE).getInt("theme", 0).coerceIn(0, THEMES.size - 1))
@@ -825,9 +826,17 @@ class MainActivity : Activity() {
         sg.setOnCheckedChangeListener { _, checkedId -> applySource(checkedId == sp.id) }
         box.add(sg, 6)
 
+        lateinit var dialog: AlertDialog
+        // --- Skin
+        box.add(TextView(this).apply { text = "Skin"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
+        box.add(Button(this).apply {
+            isAllCaps = false
+            text = "Skin: ${Skins.name(Skins.current)}   \u203A"
+            setOnClickListener { dialog.dismiss(); showSkinPicker() }
+        }, 6)
+
         // --- Background colour
         box.add(TextView(this).apply { text = "Background colour"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
-        lateinit var dialog: AlertDialog
         THEMES.forEachIndexed { i, t ->
             val b = Button(this).apply {
                 text = t.name + if (i == themeIndex) "  \u2713" else ""
@@ -886,6 +895,88 @@ class MainActivity : Activity() {
             .setNegativeButton("Close", null).create()
         dialog.show()
         styleDark(dialog)
+    }
+
+    // ------------------------------------------------------- Skins
+    private fun chooseSkin(id: Int) {
+        prefs().edit().putInt("skin", id).apply()
+        Skins.current = id
+        applySkinChrome()
+        if (::dashRoot.isInitialized) applyDashTheme(dashDay)
+        EventLog.add("skin: ${Skins.name(id)}")
+    }
+
+    /** A preview of a skin: the real power and speed gauges drawn with it, on its background, with its strip line. */
+    private fun skinThumb(id: Int): android.graphics.Bitmap {
+        val lk = Skins.lookOf(id)
+        val gw = 300
+        val bmp = android.graphics.Bitmap.createBitmap(gw * 2 + 40, gw + 100, android.graphics.Bitmap.Config.ARGB_8888)
+        val cv = Canvas(bmp)
+        GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(lk.bgTop, lk.bgBottom))
+            .apply { cornerRadius = 24f; setBounds(0, 0, bmp.width, bmp.height) }.draw(cv)
+        fun gauge(mirrored: Boolean, zero: Float, f: Float, setup: ArcGaugeView.() -> Unit): ArcGaugeView =
+            ArcGaugeView(this, mirrored, zero) { t -> Skins.gradFor(id, t) }.apply {
+                skinOverride = id; day = false; setup(); showStatic(f)
+                measure(View.MeasureSpec.makeMeasureSpec(gw, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(gw, View.MeasureSpec.EXACTLY))
+                layout(0, 0, gw, gw)
+            }
+        val power = gauge(false, 0.2f, 0.50f) {
+            topLabel = "CLIMATE"; topValue = "0.4 kW"; title = "POWER"; valueText = "38.4"; unit = "kW"; bottomLabel = "CHARGE"; bottomValue = "78 %"; barFrac = 0.78f
+            scale = powerScale()
+        }
+        val speed = gauge(true, 0f, 0.30f) {
+            topLabel = "BATTERY TEMP"; topValue = "21\u00B0C"; title = "SPEED"; valueText = "72"; unit = "km/h"; bottomLabel = "THERMAL"; bottomValue = "Idle"
+            scale = speedScale(false)
+        }
+        cv.save(); cv.translate(10f, 15f); power.draw(cv); cv.restore()
+        cv.save(); cv.translate(gw + 30f, 15f); speed.draw(cv); cv.restore()
+        // the stats strip: its line and four readouts
+        val sp = Paint(Paint.ANTI_ALIAS_FLAG)
+        val y0 = gw + 40f
+        val x0 = 40f; val x1 = bmp.width - 40f
+        sp.style = Paint.Style.STROKE; sp.strokeWidth = if (lk.stripFlat) 2f else 3f
+        sp.shader = LinearGradient(x0, 0f, x1, 0f,
+            intArrayOf(Color.argb(0, Color.red(lk.accent), Color.green(lk.accent), Color.blue(lk.accent)), lk.accent, lk.accent2, lk.accent, Color.argb(0, Color.red(lk.accent), Color.green(lk.accent), Color.blue(lk.accent))),
+            floatArrayOf(0f, 0.2f, 0.5f, 0.8f, 1f), android.graphics.Shader.TileMode.CLAMP)
+        if (lk.stripFlat) cv.drawLine(x0, y0, x1, y0, sp)
+        else { val pth = android.graphics.Path(); pth.moveTo(x0 - 30f, y0 + 50f); pth.lineTo(x0, y0); pth.lineTo(x1, y0); pth.lineTo(x1 + 30f, y0 + 50f); cv.drawPath(pth, sp) }
+        sp.shader = null; sp.style = Paint.Style.FILL; sp.textAlign = Paint.Align.CENTER
+        val labels = listOf("RANGE" to "312 km", "REGEN" to "0.4 kWh", "CELLS" to "18\u00B0C \u2013 20\u00B0C", "THERMAL" to "Idle")
+        val colW = (x1 - x0) / labels.size
+        for ((i, p) in labels.withIndex()) {
+            val cx = x0 + colW * (i + 0.5f)
+            sp.typeface = Typeface.create("sans-serif-light", Typeface.NORMAL); sp.textSize = 15f; sp.color = Color.argb(150, 255, 255, 255)
+            cv.drawText(p.first, cx, y0 + 26f, sp)
+            sp.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL); sp.textSize = 26f; sp.color = Color.WHITE
+            cv.drawText(p.second, cx, y0 + 56f, sp)
+        }
+        return bmp
+    }
+
+    private fun showSkinPicker() {
+        val cur = Skins.current
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), dp(8)) }
+        lateinit var d: AlertDialog
+        for (sk in Skins.list) {
+            val sel = sk.id == cur
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(10), dp(10), dp(10), dp(10))
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#1D2128")); cornerRadius = dp(12).toFloat()
+                    setStroke(dp(if (sel) 3 else 1), Color.parseColor(if (sel) "#2AA8FF" else "#3A4150"))
+                }
+                addView(ImageView(context).apply { adjustViewBounds = true; scaleType = ImageView.ScaleType.FIT_CENTER; setImageBitmap(skinThumb(sk.id)) },
+                    LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+                addView(TextView(context).apply { text = sk.name + if (sel) "  \u2713" else ""; textSize = 16f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD; setPadding(0, dp(8), 0, 0) })
+                addView(TextView(context).apply { text = sk.note; textSize = 12f; setTextColor(Color.parseColor("#B8C2D0")) })
+                setOnClickListener { chooseSkin(sk.id); d.dismiss() }
+            }
+            col.addView(card, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(12) })
+        }
+        d = darkDialog().setTitle("Skin").setView(ScrollView(this).apply { addView(col) }).setNegativeButton("Close", null).create()
+        d.show()
+        styleDark(d)
     }
 
     private fun dotDrawable(on: Boolean) = GradientDrawable().apply {
@@ -967,6 +1058,9 @@ class MainActivity : Activity() {
     private lateinit var dashGaugeRow: LinearLayout
     private lateinit var lowerTabs: LinearLayout
     private lateinit var lowerBox: LinearLayout
+    private lateinit var tripPanel: TripPanelView
+    private lateinit var tripBtn: TextView
+    private var tripDlgView: TripPanelView? = null
     private lateinit var resBtn: TextView
     private lateinit var flyBtn: TextView
     private lateinit var editBackdrop: View
@@ -1026,9 +1120,10 @@ class MainActivity : Activity() {
     private fun speedMph() = prefs().getBoolean("mph", false)
 
     private fun buildDashboard(): FrameLayout {
+        Skins.current = prefs().getInt("skin", 0)
         val f = FrameLayout(this)
         f.visibility = View.GONE
-        f.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#04070D"), Color.parseColor("#0B1626")))
+        f.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Skins.look.bgTop, Skins.look.bgBottom))
         val blue = Color.parseColor("#1E90FF")
         val violet = Color.parseColor("#8E5CFF")
         val pink = Color.parseColor("#FF4FA3")
@@ -1047,9 +1142,9 @@ class MainActivity : Activity() {
             val i = minOf(k.toInt(), stops.size - 2)
             return mix(stops[i], stops[i + 1], k - i)
         }
-        dashPowerGauge = ArcGaugeView(this, false, 0.2f) { t -> grad(t) }
+        dashPowerGauge = ArcGaugeView(this, false, 0.2f) { t -> Skins.grad(t) }
             .apply { topLabel = "CLIMATE"; title = "POWER"; unit = "kW"; bottomLabel = "CHARGE" }
-        dashSpeedGauge = ArcGaugeView(this, true, 0f) { t -> grad(t) }
+        dashSpeedGauge = ArcGaugeView(this, true, 0f) { t -> Skins.grad(t) }
             .apply { topLabel = "BATTERY TEMP"; title = "SPEED"; unit = "km/h"; bottomLabel = "BATTERY HEATING/COOLING" }
         val light = Typeface.create("sans-serif-light", Typeface.NORMAL)
         dashSign = SpeedSignView(this).apply { alpha = 0f }
@@ -1139,9 +1234,22 @@ class MainActivity : Activity() {
         }
         lowerIdx = prefs().getInt("lowerApp", 0).coerceIn(0, lowerNames.size - 1)
         paintLowerTabs()
+        tripPanel = TripPanelView(this).apply {
+            visibility = View.GONE
+            onReset = { pulse?.resetDrive(); Toast.makeText(context, "Trip reset", Toast.LENGTH_SHORT).show() }
+        }
+        f.addView(tripPanel, FrameLayout.LayoutParams(-1, dp(70), Gravity.BOTTOM).apply { setMargins(dp(8), 0, dp(8), dp(62)) })
+        tripBtn = TextView(this).apply {
+            text = "Trip"; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+            setPadding(dp(9), 0, dp(9), 0)
+            background = chipBg(12)
+            visibility = View.GONE
+            setOnClickListener { showTripDialog() }
+        }
         lowerBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(resBtn, LinearLayout.LayoutParams(-2, dp(42)))
+            addView(tripBtn, LinearLayout.LayoutParams(-2, dp(42)).apply { rightMargin = dp(6) })
             addView(lowerTabs, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) })
         }
         f.addView(lowerBox, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(10), 0, 0, dp(190)) })
@@ -1188,10 +1296,12 @@ class MainActivity : Activity() {
         paintEdges()
         dashRoot.background = if (day)
             GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#FFFFFF"), Color.parseColor("#E6ECF4")))
-        else bgDrawable(Color.argb(120, 0, 0, 0)) ?: GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#04070D"), Color.parseColor("#0B1626")))
+        else bgDrawable(Color.argb(120, 0, 0, 0)) ?: GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Skins.look.bgTop, Skins.look.bgBottom))
         dashSpeedGauge.day = day; dashPowerGauge.day = day; dashStrip.day = day; dashStrip.invalidate()
+        if (::tripPanel.isInitialized) { tripPanel.day = day; tripPanel.invalidate() }
         val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
         dashHeading.setTextColor(ink)
+        dashHeading.typeface = Typeface.create(Skins.look.numFont, if (Skins.look.italic) Typeface.ITALIC else Typeface.NORMAL)
         dashReady.setTextColor(Color.parseColor(if (day) "#2E9E1F" else "#7CFF3A"))
         dashLightDist.setTextColor(if (day) Color.argb(200, 20, 32, 46) else Color.argb(200, 255, 255, 255))
         dashRow.day = day; dashRow.invalidate()
@@ -1322,7 +1432,11 @@ class MainActivity : Activity() {
         var ti = tiers.size - 1
         for ((i, t) in tiers.withIndex()) if (hDp - stack(t) >= need) { ti = i; break }
         val t = tiers[ti]
-        val gaugeH = hDp - stack(t)
+        // the trip panel sits under the stats strip, only when the gauges keep a good height without squeezing
+        val tripH = 70
+        val showTrip = t.showStrip && hDp - stack(t) - tripH - 4 >= 215
+        val tripOff = if (showTrip) tripH + 4 else 0
+        val gaugeH = hDp - stack(t) - tripOff
         val midLevel = if (gaugeH >= 300) 0 else if (gaugeH >= 235) 1 else 2
         // a third-height split window (not half or full) keeps the bottom buttons at the left edge
         val third = try {
@@ -1332,13 +1446,22 @@ class MainActivity : Activity() {
         val half = try {
             if (android.os.Build.VERSION.SDK_INT >= 30) windowManager.currentWindowMetrics.bounds.height().let { it >= windowManager.maximumWindowMetrics.bounds.height() * 0.42 && it < windowManager.maximumWindowMetrics.bounds.height() * 0.8 } else false
         } catch (e: Exception) { false }
-        val key = "$narrow/$ti/$midLevel/$third/$half"
+        // in a tall window (full screen) the gauges stay at the top instead of being centred in all the free height
+        val gb = (if (t.showStrip) base + t.strip + 4 else base) + t.row + 8 + tripOff
+        val topM = if (midLevel > 0) 20 else 8
+        val wantH = maxOf((wDp - 16) * 1.15f / 3f * 1.1f, 340f)
+        val tall = hDp - gb - topM > wantH + 24f
+        val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$showTrip"
         if (key == layoutKey) return
         layoutKey = key
         compact = ti > 0
         val short = midLevel > 0
-        val stripBottom = base
+        val stripBottom = base + tripOff
         val rowBottom = if (t.showStrip) stripBottom + t.strip + 4 else base
+        tripPanel.visibility = if (showTrip) View.VISIBLE else View.GONE
+        tripBtn.visibility = if (showTrip) View.GONE else View.VISIBLE
+        (tripPanel.layoutParams as FrameLayout.LayoutParams).apply { height = dp(tripH); setMargins(dp(8), 0, dp(8), dp(base)) }
+        tripPanel.requestLayout()
         val lowerBottom = rowBottom + t.row + 4          // top of the info row: the stat editor sits here
         val gaugeBottom = lowerBottom + 4
         val sideL = 8
@@ -1365,7 +1488,11 @@ class MainActivity : Activity() {
         (dashRow.layoutParams as FrameLayout.LayoutParams).apply { height = dp(t.row); setMargins(dp(sideL), 0, dp(sideR), dp(rowBottom)) }
         (lowerBox.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8) + (if (third) 0 else if (half) 20 else 10), 0, 0, dp(10)) }
         (poolBar.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), 0, dp(8), dp(lowerBottom)) }
-        (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), dp(if (short) 20 else 8), dp(8), dp(gaugeBottom)) }
+        (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply {
+            gravity = Gravity.TOP or Gravity.START
+            if (tall) { height = dp(wantH.toInt()); setMargins(dp(8), dp(topM), dp(8), 0) }
+            else { height = FrameLayout.LayoutParams.MATCH_PARENT; setMargins(dp(8), dp(topM), dp(8), dp(gaugeBottom)) }
+        }
         (dashLight.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 22 else if (short) 26 else 42); height = dp(if (midLevel == 2) 46 else if (short) 56 else 88); topMargin = dp(if (short) 6 else 4) }
         dashReady.textSize = if (short) 11f else 13f
         // in a short window the gauges reach the top corners, so the mode badge gets its own strip above them
@@ -1387,11 +1514,51 @@ class MainActivity : Activity() {
         dashStrip.requestLayout(); dashRow.requestLayout(); dashGaugeRow.requestLayout(); dashLight.requestLayout(); dashSign.requestLayout()
     }
 
-    private fun paintLowerTabs() {
-        for (i in 0 until lowerTabs.childCount) {
-            lowerTabs.getChildAt(i).background = if (i == lowerIdx)
-                GradientDrawable().apply { setColor(Color.parseColor("#2AA8FF")); cornerRadius = dp(15).toFloat() } else null
+    /** Numbers printed on the numbered-scale skin, placed where the gauges' own scales put those values. */
+    private fun speedScale(mph: Boolean): List<Pair<Float, String>> {
+        val max = if (mph) 112.0 else 180.0
+        return (if (mph) listOf(0, 20, 40, 60, 80, 100) else listOf(0, 40, 80, 120, 160))
+            .map { Math.pow(it / max, 0.75).toFloat() to it.toString() }
+    }
+    private fun powerScale(): List<Pair<Float, String>> =
+        listOf(-50 to "-50", 0 to "0", 50 to "50", 100 to "100", 200 to "200").map { (kw, t) ->
+            (if (kw >= 0) 0.2 + 0.8 * Math.sqrt(kw / 250.0) else 0.2 - 0.2 * Math.sqrt(-kw / 80.0)).toFloat() to t
         }
+    private var scaleMph: Boolean? = null
+
+    private fun paintLowerTabs() {
+        val acc = Skins.look.accent
+        val pale = (0.299 * Color.red(acc) + 0.587 * Color.green(acc) + 0.114 * Color.blue(acc)) / 255.0 > 0.62
+        for (i in 0 until lowerTabs.childCount) {
+            val sel = i == lowerIdx
+            lowerTabs.getChildAt(i).background = if (sel) GradientDrawable().apply { setColor(acc); cornerRadius = dp(15).toFloat() } else null
+            (lowerTabs.getChildAt(i) as? TextView)?.setTextColor(if (sel && pale) Color.parseColor("#10151C") else Color.WHITE)
+        }
+    }
+
+    private fun chipBg(radiusDp: Int) = GradientDrawable().apply {
+        val lk = Skins.look
+        setColor(lk.chip); cornerRadius = dp(radiusDp).toFloat(); setStroke(dp(1), lk.chipStroke)
+    }
+
+    /** Give the dashboard's buttons, tabs and bars the skin's colours. */
+    private fun applySkinChrome() {
+        val lk = Skins.look
+        if (::dashBtn.isInitialized) dashBtn.background = chipBg(22)
+        if (::exitBtn.isInitialized) exitBtn.background = chipBg(22)
+        if (::resBtn.isInitialized) resBtn.background = chipBg(12)
+        if (::tripBtn.isInitialized) tripBtn.background = chipBg(12)
+        if (::lowerTabs.isInitialized) { lowerTabs.background = chipBg(18); paintLowerTabs() }
+        if (::poolBar.isInitialized) poolBar.background = GradientDrawable().apply {
+            setColor(Color.argb(245, 10, 14, 28)); cornerRadius = dp(22).toFloat()
+            setStroke(dp(2), Color.argb(230, Color.red(lk.accent), Color.green(lk.accent), Color.blue(lk.accent)))
+        }
+        if (::editBackdrop.isInitialized) editBackdrop.background = GradientDrawable().apply {
+            setColor(Color.argb(225, 6, 9, 20)); cornerRadius = dp(18).toFloat()
+            setStroke(dp(1), Color.argb(150, Color.red(lk.accent), Color.green(lk.accent), Color.blue(lk.accent)))
+        }
+        if (::dashStrip.isInitialized) dashStrip.invalidate()
+        if (::dashRow.isInitialized) dashRow.invalidate()
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
@@ -1614,6 +1781,7 @@ class MainActivity : Activity() {
         val s = canSnap
         val mph = speedMph()
         val spd = s.speedKmh?.let { if (mph) it * 0.621371 else it }
+        if (scaleMph != mph) { scaleMph = mph; dashSpeedGauge.scale = speedScale(mph); dashPowerGauge.scale = powerScale() }
         dashSpeedGauge.valueText = spd?.let { String.format("%.0f", it) } ?: "--"
         dashSpeedGauge.unit = if (mph) "mph" else "km/h"
         dashSpeedGauge.setFraction(spd?.let { Math.pow((it / (if (mph) 112.0 else 180.0)).coerceIn(0.0, 1.0), 0.75).toFloat() })
@@ -1704,6 +1872,70 @@ class MainActivity : Activity() {
         val everything = canStats(s)
         dashStrip.setItems(everything)
         dashRow.setItems(everything)
+        if (tripPanel.visibility == View.VISIBLE || tripDlgView != null) {
+            val cells = tripCells(s)
+            tripPanel.setCells(cells)
+            tripDlgView?.setCells(cells)
+        }
+    }
+
+    private fun fmtDur(secs: Double): String {
+        val t = secs.toLong().coerceAtLeast(0)
+        return if (t >= 3600) String.format("%dh %02dm", t / 3600, (t % 3600) / 60)
+        else if (t >= 60) String.format("%dm %02ds", t / 60, t % 60)
+        else "${t}s"
+    }
+
+    /** The trip readouts: counted by this app (distance, time, energy) and the car's own figures. */
+    private fun tripCells(s: CanSnapshot): List<Pair<String, String>> {
+        val mph = speedMph()
+        val unitEff = if (mph) "WH/MI" else "WH/KM"
+        // kWh per 100 km -> Wh/km (x10) or Wh/mi (x16.09344); negative means energy is coming back
+        fun eff(k: Double?): String = when {
+            k == null -> "--"
+            mph -> String.format("%.0f", k * 16.09344)
+            else -> String.format("%.0f", k * 10.0)
+        }
+        fun dist(km: Double?): String = km?.let { if (mph) String.format("%.1f mi", it * 0.621371) else String.format("%.1f km", it) } ?: "--"
+        val km = s.tripKm
+        val elapsed = if (s.tripStartMs == 0L) null else (System.currentTimeMillis() - s.tripStartMs) / 1000.0
+        val avgSpeed = if (s.tripMoveSecs >= 30.0) km / (s.tripMoveSecs / 3600.0) else null
+        val avgEff = if (km >= 0.3) s.tripKwh / km * 100.0 else null
+        val v = s.packVolts
+        val a = s.packAmps
+        val kw = if (v != null && a != null) v * a / 1000.0 * (if (prefs().getBoolean("flipPower", false)) -1 else 1) else null
+        val spd = s.speedKmh
+        val ownNow = if (kw != null && spd != null && spd >= 5.0) kw / spd * 100.0 else null
+        val now = if (spd != null && spd >= 3.0) (s.carInstKwh100 ?: ownNow) else null
+        return listOf(
+            "Distance" to dist(km),
+            "Time" to (elapsed?.let { fmtDur(it) } ?: "--"),
+            "Moving" to fmtDur(s.tripMoveSecs),
+            "Avg speed" to (avgSpeed?.let { if (mph) String.format("%.0f mph", it * 0.621371) else String.format("%.0f km/h", it) } ?: "--"),
+            "Energy" to String.format("%.1f kWh", s.tripKwh),
+            "Avg $unitEff" to eff(avgEff),
+            "Now $unitEff" to eff(now),
+            "Regen" to String.format("%.2f kWh", s.regenKwh),
+            "Car trip" to dist(s.carTripKm),
+            "Car $unitEff" to eff(s.carTripWhKm?.let { it / 10.0 }),
+        )
+    }
+
+    /** The trip readouts in a pop-up, for windows too small to show the panel. */
+    private fun showTripDialog() {
+        val v = TripPanelView(this).apply { cols = 2; day = false }
+        v.setCells(tripCells(canSnap))
+        tripDlgView = v
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(8), dp(12), dp(4)) }
+        col.addView(v, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(5 * 56)))
+        val d = darkDialog().setTitle("Trip").setView(col)
+            .setNeutralButton("Reset trip", null).setNegativeButton("Close", null).create()
+        d.setOnDismissListener { tripDlgView = null }
+        d.show()
+        d.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+            pulse?.resetDrive(); Toast.makeText(this, "Trip reset", Toast.LENGTH_SHORT).show()
+        }
+        styleDark(d)
     }
 
     private fun applySource(pulseMode: Boolean) {
@@ -2191,6 +2423,78 @@ class SocBarView(ctx: Context) : View(ctx) {
     }
 }
 
+/** The skins. A skin is a Look: which gauge drawing to use, its colours and fonts, and how the strip and buttons are
+ *  styled. To add one: add a Look to [list] (and, for a new gauge drawing, a function in ArcGaugeView). The picker and
+ *  its thumbnails are made from the list, and each thumbnail is the real gauge drawn with that skin. */
+object Skins {
+    class Look(
+        val id: Int, val name: String, val note: String,
+        val gauge: Int,              // 0 segmented arc, 1 fine ticks, 2 minimal, 3 analog pointer, 4 bold blocks, 5 glowing ring, 6 wedge bars, 7 numbered scale
+        val accent: Int,             // units, strip line, selected button
+        val accentDay: Int,          // the same on the light (day) background
+        val accent2: Int,            // second colour in the strip line
+        val bgTop: Int, val bgBottom: Int,   // dashboard background at night
+        val ramp: IntArray,          // gauge colours, low to high
+        val numFont: String, val italic: Boolean,
+        val stripFlat: Boolean,      // strip is a single hairline instead of the tapered outline
+        val chip: Int, val chipStroke: Int,  // buttons and tabs
+    )
+
+    private fun c(s: String) = Color.parseColor(s)
+
+    val list = listOf(
+        Look(0, "Modern 1", "Segmented arcs with italic numbers (the original look)", 0,
+            c("#2AA8FF"), c("#2A78C8"), c("#8E5CFF"), c("#04070D"), c("#0B1626"),
+            intArrayOf(c("#22D3EE"), c("#1E90FF"), c("#8E5CFF"), c("#FF4FA3"), c("#FF3B4E")),
+            "sans-serif-light", true, false, Color.argb(150, 20, 20, 40), Color.argb(120, 255, 255, 255)),
+        Look(1, "Modern 2", "A fine dial with tick marks, upright numbers and a glowing pointer", 1,
+            c("#8FD8FF"), c("#0B6FD6"), c("#4C7DFF"), c("#03060B"), c("#0A1424"),
+            intArrayOf(c("#22D3EE"), c("#1E90FF"), c("#8E5CFF"), c("#FF4FA3"), c("#FF3B4E")),
+            "sans-serif-light", false, false, Color.argb(150, 12, 20, 36), Color.argb(120, 143, 216, 255)),
+        Look(2, "Modern 3", "Minimal: one thin arc, very large numbers, nothing else", 2,
+            c("#EEF2F7"), c("#2A3340"), c("#9AA7B8"), c("#050506"), c("#0C0D10"),
+            intArrayOf(c("#FFFFFF"), c("#E8EDF2")),
+            "sans-serif-light", false, true, Color.argb(160, 18, 18, 20), Color.argb(90, 255, 255, 255)),
+        Look(3, "Modern 4", "An analog dial with tick marks and an amber pointer", 3,
+            c("#FF9F1C"), c("#C26A00"), c("#FF5A36"), c("#07090C"), c("#14171D"),
+            intArrayOf(c("#FFC53D"), c("#FF9F1C"), c("#FF5A36")),
+            "sans-serif-condensed", false, false, Color.argb(170, 22, 18, 12), Color.argb(130, 255, 159, 28)),
+        Look(4, "Modern 5", "Bold separate blocks in teal", 4,
+            c("#3DE0C8"), c("#0E9C8A"), c("#2AA8FF"), c("#04090B"), c("#0A171C"),
+            intArrayOf(c("#3DE0C8"), c("#2AD0F0"), c("#2AA8FF"), c("#6C8CFF")),
+            "sans-serif-medium", false, false, Color.argb(160, 8, 22, 26), Color.argb(120, 61, 224, 200)),
+        Look(5, "Modern 6", "A thick glowing ring in rose gold with fine inner lines", 5,
+            c("#FFB48A"), c("#C0583A"), c("#FF6B8A"), c("#08060C"), c("#15111D"),
+            intArrayOf(c("#FFD7A8"), c("#FFB48A"), c("#FF7A6B"), c("#FF4F8A")),
+            "sans-serif-light", false, false, Color.argb(165, 22, 14, 24), Color.argb(120, 255, 180, 138)),
+        Look(6, "Modern 7", "Radial bars that grow taller as the value rises, in red", 6,
+            c("#FF3B3B"), c("#C41E1E"), c("#D9DEE5"), c("#050505"), c("#101113"),
+            intArrayOf(c("#EDEFF2"), c("#FF8A5B"), c("#FF3B3B")),
+            "sans-serif-medium", false, true, Color.argb(170, 16, 16, 18), Color.argb(120, 255, 59, 59)),
+        Look(7, "Modern 8", "A numbered scale with a marker riding on it and a lit band, in steel blues", 7,
+            c("#5BB8FF"), c("#1F6FB8"), c("#3D7BFF"), c("#050A14"), c("#0C1830"),
+            intArrayOf(c("#86E4FF"), c("#3DB0FF"), c("#2A7BFF"), c("#2457E6")),
+            "sans-serif-condensed", false, false, Color.argb(160, 10, 20, 40), Color.argb(120, 91, 184, 255)),
+    )
+
+    @Volatile var current = 0
+    fun lookOf(id: Int): Look = list.firstOrNull { it.id == id } ?: list[0]
+    val look: Look get() = lookOf(current)
+    fun name(id: Int) = lookOf(id).name
+
+    /** A colour on a skin's ramp, t from 0 (low) to 1 (high). */
+    fun gradFor(id: Int, t: Float): Int {
+        val stops = lookOf(id).ramp
+        if (stops.size == 1) return stops[0]
+        val k = t.coerceIn(0f, 1f) * (stops.size - 1)
+        val i = minOf(k.toInt(), stops.size - 2)
+        val f = k - i
+        val a = stops[i]; val b = stops[i + 1]
+        return Color.rgb((Color.red(a) + (Color.red(b) - Color.red(a)) * f).toInt(), (Color.green(a) + (Color.green(b) - Color.green(a)) * f).toInt(), (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * f).toInt())
+    }
+    fun grad(t: Float) = gradFor(current, t)
+}
+
 /** Segmented arc gauge in the style of a modern instrument cluster: a "(" arc (or ")" when mirrored) with the
  *  readout in the middle. Fills from the zero position, so a regen value fills the other way. */
 class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Float, private val colorAt: (Float) -> Int) : View(ctx) {
@@ -2213,6 +2517,31 @@ class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Fl
     private val medium = Typeface.create("sans-serif-medium", Typeface.ITALIC)
 
     fun refresh() = invalidate()
+
+    /** Draw with this skin instead of the current one (used for the previews in the skin picker). */
+    var skinOverride: Int? = null
+    private val upright = Typeface.create("sans-serif-light", Typeface.NORMAL)
+    private val uprightMed = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+    /** Numbers to print along the dial (position 0..1 along the sweep, and the text); used by the numbered-scale skin. */
+    var scale: List<Pair<Float, String>> = emptyList()
+    private val rect2 = RectF()
+    private val needle = android.graphics.Path()
+    private val look: Skins.Look get() = Skins.lookOf(skinOverride ?: Skins.current)
+    private var tfKey = ""
+    private var tfNum: Typeface = upright
+    /** The skin's font for the big numbers. */
+    private fun numTf(): Typeface {
+        val k = look.numFont + look.italic
+        if (k != tfKey) { tfKey = k; tfNum = Typeface.create(look.numFont, if (look.italic) Typeface.ITALIC else Typeface.NORMAL) }
+        return tfNum
+    }
+
+    /** Show a fixed value at once, with no animation (previews). */
+    fun showStatic(f: Float) {
+        anim?.cancel(); sweeping = false
+        val v = f.coerceIn(0f, 1f)
+        has = true; liveHas = true; liveTarget = v; target = v; shown = v
+    }
 
     private var sweeping = false
     private var liveHas = false
@@ -2258,10 +2587,11 @@ class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Fl
         }
     }
 
-    private fun text(s: String, x: Float, y: Float, size: Float, color: Int, tf: Typeface) {
+    private fun text(s: String, x: Float, y: Float, size: Float, color: Int, tf: Typeface, ls: Float = 0f, limit: Float = 0f) {
+        txt.letterSpacing = ls
         txt.textSize = size; txt.color = color; txt.typeface = tf
         // keep long text inside the arc
-        val maxW = width * 0.62f
+        val maxW = if (limit > 0f) minOf(limit, width * 0.62f) else width * 0.62f
         val w = txt.measureText(s)
         if (w > maxW) txt.textSize = size * maxW / w
         arcCanvas?.drawText(s, x, y, txt)
@@ -2293,11 +2623,378 @@ class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Fl
         }
     }
 
+    /** Working values shared by the skin drawings. */
+    private inner class Geo(w: Float, h: Float) {
+        val cx = w / 2
+        val cy = h / 2
+        val r = minOf(w, h) / 2 * 0.92f
+        val start = if (mirrored) 75f else 105f
+        val dir = if (mirrored) -1f else 1f
+        val sweep = 210f
+        val ink = if (day) Color.parseColor("#14202E") else Color.parseColor("#F2F6FB")
+        val dim = if (day) Color.argb(150, 20, 32, 46) else Color.argb(140, 220, 232, 245)
+        val faint = if (day) Color.argb(46, 20, 32, 46) else Color.argb(58, 220, 232, 245)
+        val accent = look.let { if (day) it.accentDay else it.accent }
+        val live = sweeping || has
+        val lo = if (sweeping) 0f else if (has) minOf(zeroFrac, shown) else 0f
+        val hi = if (sweeping) shown else if (has) maxOf(zeroFrac, shown) else 0f
+        fun x(rad: Float, f: Float): Float = cx + Math.cos(Math.toRadians((start + dir * sweep * f).toDouble())).toFloat() * rad
+        fun y(rad: Float, f: Float): Float = cy + Math.sin(Math.toRadians((start + dir * sweep * f).toDouble())).toFloat() * rad
+    }
+
+    /** Colour of a filled stretch of the arc. [mid] is the position along the sweep; regen (below zero) is green. */
+    private fun segColor(mid: Float, lo: Float, hi: Float): Int {
+        val rel = if (hi > lo) ((mid - lo) / (hi - lo)).coerceIn(0f, 1f) else 0f
+        fun regen(k: Float) = Color.rgb((46 + (31 - 46) * k).toInt(), (204 + (163 - 204) * k).toInt(), (113 + (122 - 113) * k).toInt())
+        return if (sweeping && zeroFrac > 0f) {
+            if (mid < zeroFrac) regen(1f - mid / zeroFrac) else colorAt(((mid - zeroFrac) / maxOf(hi - zeroFrac, 0.001f)).coerceIn(0f, 1f))
+        } else if (shown < zeroFrac) regen(1f - rel) else colorAt(rel)
+    }
+
+    /** A soft dial face behind the gauge, tinted with the skin's accent. */
+    private fun face(c: Canvas, g: Geo) {
+        arc.style = Paint.Style.FILL
+        arc.shader = android.graphics.RadialGradient(g.cx, g.cy, g.r * 1.04f,
+            intArrayOf(if (day) Color.argb(120, 255, 255, 255) else Color.argb(52, Color.red(g.accent), Color.green(g.accent), Color.blue(g.accent)),
+                if (day) Color.argb(50, 190, 205, 228) else Color.argb(70, 8, 14, 26), Color.TRANSPARENT),
+            floatArrayOf(0f, 0.8f, 1f), android.graphics.Shader.TileMode.CLAMP)
+        c.drawCircle(g.cx, g.cy, g.r * 1.04f, arc)
+        arc.shader = null
+        arc.style = Paint.Style.STROKE
+        arc.strokeCap = Paint.Cap.BUTT
+    }
+
+    /** The texts in the middle of the gauge, the same places in every skin. */
+    private fun drawReadouts(c: Canvas, g: Geo, valueScale: Float, topIn: Float = 0f, barW: Float = 0.5f, ring: Float = 0f) {
+        val r = g.r; val cx = g.cx; val cy = g.cy
+        // with [ring] set, a line of text is kept narrower than the chord of that circle where its far edge is
+        fun lim(yEdge: Float): Float {
+            if (ring <= 0f) return 0f
+            val e = yEdge * r
+            return maxOf(r * 0.3f, 2f * Math.sqrt(maxOf(0.0, (ring * r * ring * r - e * e).toDouble())).toFloat() * 0.94f)
+        }
+        text(topLabel, cx, cy - r * (0.60f - topIn), r * 0.080f, g.dim, upright, 0.10f, lim(0.60f - topIn + 0.07f))
+        text(topValue, cx, cy - r * (0.48f - topIn * 0.75f), r * 0.12f, g.ink, numTf(), 0f, lim(0.48f - topIn * 0.75f + 0.09f))
+        text(title, cx, cy - r * 0.25f, r * 0.11f, g.dim, upright, 0.16f)
+        if (!hold) text(valueText, cx, cy + r * 0.14f, r * valueScale, g.ink, numTf())
+        text(unit, cx, cy + r * 0.34f, r * 0.13f, g.accent, uprightMed, 0.06f)
+        text(bottomLabel, cx, cy + r * 0.50f, r * 0.080f, g.dim, upright, 0.10f, lim(0.52f))
+        text(bottomValue, cx, cy + r * 0.62f, r * 0.12f, bottomColor ?: g.ink, numTf(), 0f, lim(0.65f))
+        drawHoldAndReady(c, cx, cy - r * 0.01f, r)
+        val bf = barFrac
+        if (bf != null) {
+            val bw = r * barW
+            val by = cy + r * 0.70f
+            arc.style = Paint.Style.FILL
+            arc.color = g.faint
+            rect.set(cx - bw / 2, by, cx + bw / 2, by + r * 0.04f)
+            c.drawRoundRect(rect, 6f, 6f, arc)
+            arc.color = g.accent
+            rect.set(cx - bw / 2, by, cx - bw / 2 + bw * bf.coerceIn(0f, 1f), by + r * 0.04f)
+            c.drawRoundRect(rect, 6f, 6f, arc)
+            arc.style = Paint.Style.STROKE
+        }
+    }
+
+    /** Skin "fine ticks": a dial face, tick marks that light up, a thin glowing arc and a bright pointer. */
+    private fun drawCluster(c: Canvas, w: Float, h: Float) {
+        val g = Geo(w, h)
+        face(c, g)
+        for (i in 0..42) {
+            val f = i / 42f
+            val major = i % 6 == 0
+            val r1 = g.r * 0.99f
+            val r2 = if (major) g.r * 0.89f else g.r * 0.94f
+            val lit = g.live && g.hi > g.lo && f >= g.lo - 0.002f && f <= g.hi + 0.002f
+            arc.strokeWidth = maxOf(1.5f, g.r * (if (major) 0.020f else 0.011f))
+            arc.color = if (lit) segColor(f, g.lo, g.hi) else if (major) g.dim else g.faint
+            c.drawLine(g.x(r1, f), g.y(r1, f), g.x(r2, f), g.y(r2, f), arc)
+        }
+        val ra = g.r * 0.80f
+        val sw = g.r * 0.045f
+        rect.set(g.cx - ra, g.cy - ra, g.cx + ra, g.cy + ra)
+        arc.strokeWidth = sw; arc.color = g.faint
+        c.drawArc(rect, g.start, g.dir * g.sweep, false, arc)
+        if (g.live && g.hi > g.lo) {
+            val seg = 120
+            for (i in (g.lo * seg).toInt() until minOf(seg, Math.ceil((g.hi * seg).toDouble()).toInt())) {
+                val f0 = i.toFloat() / seg
+                val f1 = (i + 1).toFloat() / seg
+                val s0 = maxOf(f0, g.lo)
+                val s1 = minOf(f1, g.hi)
+                if (s1 <= s0) continue
+                val col = segColor((f0 + f1) / 2, g.lo, g.hi)
+                arc.strokeWidth = sw * 2.6f
+                arc.color = Color.argb(38, Color.red(col), Color.green(col), Color.blue(col))
+                c.drawArc(rect, g.start + g.dir * s0 * g.sweep, g.dir * (s1 - s0) * g.sweep, false, arc)
+                arc.strokeWidth = sw
+                arc.color = col
+                c.drawArc(rect, g.start + g.dir * s0 * g.sweep, g.dir * (s1 - s0) * g.sweep, false, arc)
+            }
+        }
+        if (zeroFrac > 0f) {
+            arc.strokeWidth = maxOf(2f, g.r * 0.022f); arc.color = g.accent
+            c.drawLine(g.x(g.r * 0.70f, zeroFrac), g.y(g.r * 0.70f, zeroFrac), g.x(g.r * 0.88f, zeroFrac), g.y(g.r * 0.88f, zeroFrac), arc)
+        }
+        if (g.live) {
+            val px = g.x(ra, shown); val py = g.y(ra, shown)
+            val tip = segColor(shown, g.lo, g.hi)
+            arc.style = Paint.Style.FILL
+            arc.color = Color.argb(70, Color.red(tip), Color.green(tip), Color.blue(tip))
+            c.drawCircle(px, py, sw * 2.3f, arc)
+            arc.color = if (day) Color.parseColor("#14202E") else Color.WHITE
+            c.drawCircle(px, py, sw * 0.95f, arc)
+            arc.style = Paint.Style.STROKE
+        }
+        drawReadouts(c, g, 0.44f, 0f, 0.5f, 0.76f)
+    }
+
+    /** Skin "minimal": one thin arc in a single colour and very large numbers. */
+    private fun drawMinimal(c: Canvas, w: Float, h: Float) {
+        val g = Geo(w, h)
+        val ra = g.r * 0.86f
+        val sw = maxOf(2f, g.r * 0.022f)
+        rect.set(g.cx - ra, g.cy - ra, g.cx + ra, g.cy + ra)
+        arc.style = Paint.Style.STROKE; arc.strokeCap = Paint.Cap.BUTT
+        arc.strokeWidth = sw; arc.color = g.faint
+        c.drawArc(rect, g.start, g.dir * g.sweep, false, arc)
+        if (g.live && g.hi > g.lo) {
+            arc.strokeWidth = sw * 1.8f
+            arc.strokeCap = Paint.Cap.ROUND
+            arc.color = if (!sweeping && shown < zeroFrac) Color.parseColor("#4CD98A") else g.accent
+            c.drawArc(rect, g.start + g.dir * g.lo * g.sweep, g.dir * (g.hi - g.lo) * g.sweep, false, arc)
+            arc.strokeCap = Paint.Cap.BUTT
+        }
+        if (zeroFrac > 0f) {
+            arc.strokeWidth = maxOf(2f, g.r * 0.018f); arc.color = g.dim
+            c.drawLine(g.x(ra - g.r * 0.05f, zeroFrac), g.y(ra - g.r * 0.05f, zeroFrac), g.x(ra + g.r * 0.05f, zeroFrac), g.y(ra + g.r * 0.05f, zeroFrac), arc)
+        }
+        drawReadouts(c, g, 0.50f, 0f, 0.5f, 0.82f)
+    }
+
+    /** Skin "analog": a dial with tick marks and a short pointer blade riding on the outside of the dial. */
+    private fun drawAnalog(c: Canvas, w: Float, h: Float) {
+        val g = Geo(w, h)
+        face(c, g)
+        for (i in 0..42) {
+            val f = i / 42f
+            val major = i % 6 == 0
+            val r1 = g.r * 0.99f
+            val r2 = if (major) g.r * 0.86f else g.r * 0.93f
+            val lit = g.live && g.hi > g.lo && f >= g.lo - 0.002f && f <= g.hi + 0.002f
+            arc.strokeWidth = maxOf(1.5f, g.r * (if (major) 0.024f else 0.012f))
+            arc.color = if (lit) segColor(f, g.lo, g.hi) else if (major) g.dim else g.faint
+            c.drawLine(g.x(r1, f), g.y(r1, f), g.x(r2, f), g.y(r2, f), arc)
+        }
+        if (g.live) {
+            val a = Math.toRadians((g.start + g.dir * g.sweep * shown).toDouble())
+            val ux = Math.cos(a).toFloat(); val uy = Math.sin(a).toFloat()
+            val r0 = g.r * 0.70f; val r1 = g.r * 0.97f; val hw = g.r * 0.030f
+            needle.reset()
+            needle.moveTo(g.cx + ux * r0 - uy * hw, g.cy + uy * r0 + ux * hw)
+            needle.lineTo(g.cx + ux * r1, g.cy + uy * r1)
+            needle.lineTo(g.cx + ux * r0 + uy * hw, g.cy + uy * r0 - ux * hw)
+            needle.close()
+            arc.style = Paint.Style.STROKE
+            arc.strokeWidth = g.r * 0.05f
+            arc.strokeJoin = Paint.Join.ROUND
+            arc.color = Color.argb(50, Color.red(g.accent), Color.green(g.accent), Color.blue(g.accent))
+            c.drawPath(needle, arc)
+            arc.style = Paint.Style.FILL
+            arc.color = g.accent
+            c.drawPath(needle, arc)
+            arc.style = Paint.Style.STROKE
+            arc.strokeJoin = Paint.Join.MITER
+        }
+        if (zeroFrac > 0f) {
+            arc.strokeWidth = maxOf(2f, g.r * 0.022f); arc.color = g.ink
+            c.drawLine(g.x(g.r * 0.80f, zeroFrac), g.y(g.r * 0.80f, zeroFrac), g.x(g.r * 0.99f, zeroFrac), g.y(g.r * 0.99f, zeroFrac), arc)
+        }
+        drawReadouts(c, g, 0.44f, 0f, 0.5f, 0.68f)
+    }
+
+    /** Skin "bold blocks": 28 chunky separate blocks, lit one by one. */
+    private fun drawBold(c: Canvas, w: Float, h: Float) {
+        val g = Geo(w, h)
+        val stroke = g.r * 0.105f
+        val rr = g.r * 0.97f - stroke / 2
+        rect.set(g.cx - rr, g.cy - rr, g.cx + rr, g.cy + rr)
+        rect2.set(g.cx - g.r * 1.02f, g.cy - g.r * 1.02f, g.cx + g.r * 1.02f, g.cy + g.r * 1.02f)
+        arc.style = Paint.Style.STROKE; arc.strokeCap = Paint.Cap.BUTT
+        arc.strokeWidth = 2f; arc.color = g.faint
+        c.drawArc(rect2, g.start - g.dir * 4f, g.dir * (g.sweep + 8f), false, arc)
+        val n = 28
+        val gap = 2.6f
+        for (i in 0 until n) {
+            val f0 = i.toFloat() / n
+            val f1 = (i + 1).toFloat() / n
+            val a0 = f0 * g.sweep + gap / 2
+            val a1 = f1 * g.sweep - gap / 2
+            arc.strokeWidth = stroke; arc.color = g.faint
+            c.drawArc(rect, g.start + g.dir * a0, g.dir * (a1 - a0), false, arc)
+            if (g.live) {
+                val s0 = maxOf(a0, g.lo * g.sweep)
+                val s1 = minOf(a1, g.hi * g.sweep)
+                if (s1 > s0) {
+                    arc.color = segColor((f0 + f1) / 2, g.lo, g.hi)
+                    c.drawArc(rect, g.start + g.dir * s0, g.dir * (s1 - s0), false, arc)
+                }
+            }
+        }
+        drawReadouts(c, g, 0.42f, 0f, 0.5f, 0.84f)
+    }
+
+    /** Skin "glowing ring": a thick glowing ring with a bead at its tip and fine rings inside and outside. */
+    private fun drawRing(c: Canvas, w: Float, h: Float) {
+        val g = Geo(w, h)
+        face(c, g)
+        arc.style = Paint.Style.STROKE; arc.strokeCap = Paint.Cap.BUTT
+        rect2.set(g.cx - g.r * 0.995f, g.cy - g.r * 0.995f, g.cx + g.r * 0.995f, g.cy + g.r * 0.995f)
+        arc.strokeWidth = 2f; arc.color = g.faint
+        c.drawArc(rect2, g.start - g.dir * 5f, g.dir * (g.sweep + 10f), false, arc)
+        rect2.set(g.cx - g.r * 0.73f, g.cy - g.r * 0.73f, g.cx + g.r * 0.73f, g.cy + g.r * 0.73f)
+        c.drawArc(rect2, g.start, g.dir * g.sweep, false, arc)
+        val ra = g.r * 0.88f
+        val sw = g.r * 0.070f
+        rect.set(g.cx - ra, g.cy - ra, g.cx + ra, g.cy + ra)
+        arc.strokeWidth = sw; arc.color = g.faint
+        c.drawArc(rect, g.start, g.dir * g.sweep, false, arc)
+        if (g.live && g.hi > g.lo) {
+            val seg = 140
+            for (i in (g.lo * seg).toInt() until minOf(seg, Math.ceil((g.hi * seg).toDouble()).toInt())) {
+                val f0 = i.toFloat() / seg
+                val f1 = (i + 1).toFloat() / seg
+                val s0 = maxOf(f0, g.lo)
+                val s1 = minOf(f1, g.hi)
+                if (s1 <= s0) continue
+                val col = segColor((f0 + f1) / 2, g.lo, g.hi)
+                arc.strokeWidth = sw * 2.8f
+                arc.color = Color.argb(30, Color.red(col), Color.green(col), Color.blue(col))
+                c.drawArc(rect, g.start + g.dir * s0 * g.sweep, g.dir * (s1 - s0) * g.sweep, false, arc)
+                arc.strokeWidth = sw
+                arc.color = col
+                c.drawArc(rect, g.start + g.dir * s0 * g.sweep, g.dir * (s1 - s0) * g.sweep, false, arc)
+            }
+            val px = g.x(ra, shown); val py = g.y(ra, shown)
+            arc.style = Paint.Style.FILL
+            arc.color = if (day) Color.parseColor("#14202E") else Color.WHITE
+            c.drawCircle(px, py, sw * 0.62f, arc)
+            arc.style = Paint.Style.STROKE
+        }
+        drawReadouts(c, g, 0.46f, 0f, 0.5f, 0.70f)
+    }
+
+    /** Skin "numbered scale": ticks round the edge, numbers inside them, a lit band, and a marker riding on the scale. */
+    private fun drawScale(c: Canvas, w: Float, h: Float) {
+        val g = Geo(w, h)
+        face(c, g)
+        arc.style = Paint.Style.STROKE; arc.strokeCap = Paint.Cap.BUTT
+        for (i in 0..42) {
+            val f = i / 42f
+            val major = i % 6 == 0
+            val r1 = g.r * 0.995f
+            val r2 = if (major) g.r * 0.915f else g.r * 0.955f
+            val lit = g.live && g.hi > g.lo && f >= g.lo - 0.002f && f <= g.hi + 0.002f
+            arc.strokeWidth = maxOf(1.2f, g.r * (if (major) 0.016f else 0.009f))
+            arc.color = if (lit) segColor(f, g.lo, g.hi) else if (major) g.dim else g.faint
+            c.drawLine(g.x(r1, f), g.y(r1, f), g.x(r2, f), g.y(r2, f), arc)
+        }
+        // the wide band between the tick marks and an inner circle fills with the value, in a blue gradient
+        val ra = g.r * 0.825f
+        val sw = g.r * 0.17f
+        rect.set(g.cx - ra, g.cy - ra, g.cx + ra, g.cy + ra)
+        arc.strokeWidth = sw; arc.color = g.faint
+        c.drawArc(rect, g.start, g.dir * g.sweep, false, arc)
+        if (g.live && g.hi > g.lo) {
+            val seg = 120
+            for (i in (g.lo * seg).toInt() until minOf(seg, Math.ceil((g.hi * seg).toDouble()).toInt())) {
+                val f0 = i.toFloat() / seg
+                val f1 = (i + 1).toFloat() / seg
+                val s0 = maxOf(f0, g.lo)
+                val s1 = minOf(f1, g.hi)
+                if (s1 <= s0) continue
+                val col = segColor((f0 + f1) / 2, g.lo, g.hi)
+                arc.strokeWidth = sw
+                arc.color = Color.argb(205, Color.red(col), Color.green(col), Color.blue(col))
+                c.drawArc(rect, g.start + g.dir * s0 * g.sweep, g.dir * (s1 - s0) * g.sweep, false, arc)
+            }
+        }
+        // the inner circle that closes the band
+        rect.set(g.cx - g.r * 0.74f, g.cy - g.r * 0.74f, g.cx + g.r * 0.74f, g.cy + g.r * 0.74f)
+        arc.strokeWidth = 2f; arc.color = g.dim
+        c.drawArc(rect, g.start - g.dir * 3f, g.dir * (g.sweep + 6f), false, arc)
+        // the numbers sit on the band
+        for ((f, label) in scale) text(label, g.x(g.r * 0.825f, f), g.y(g.r * 0.825f, f) + g.r * 0.032f, g.r * 0.090f, g.ink, numTf())
+        // the marker: a small triangle on the scale, pointing in
+        if (g.live) {
+            val a = Math.toRadians((g.start + g.dir * g.sweep * shown).toDouble())
+            val ux = Math.cos(a).toFloat(); val uy = Math.sin(a).toFloat()
+            val rt = g.r * 0.895f; val rb = g.r * 1.01f; val hw = g.r * 0.045f
+            needle.reset()
+            needle.moveTo(g.cx + ux * rt, g.cy + uy * rt)
+            needle.lineTo(g.cx + ux * rb - uy * hw, g.cy + uy * rb + ux * hw)
+            needle.lineTo(g.cx + ux * rb + uy * hw, g.cy + uy * rb - ux * hw)
+            needle.close()
+            arc.style = Paint.Style.STROKE
+            arc.strokeWidth = g.r * 0.05f
+            arc.strokeJoin = Paint.Join.ROUND
+            arc.color = Color.argb(60, Color.red(g.accent), Color.green(g.accent), Color.blue(g.accent))
+            c.drawPath(needle, arc)
+            arc.style = Paint.Style.FILL
+            arc.color = g.accent
+            c.drawPath(needle, arc)
+            arc.style = Paint.Style.STROKE
+            arc.strokeJoin = Paint.Join.MITER
+        }
+        // the labels at the top sit a little lower and the charge bar is narrower, so neither touches the band or its numbers
+        drawReadouts(c, g, 0.42f, 0.04f, 0.30f, 0.72f)
+    }
+
+    /** Skin "wedge bars": radial bars that get taller towards the high end; the lit ones show the value. */
+    private fun drawWedge(c: Canvas, w: Float, h: Float) {
+        val g = Geo(w, h)
+        val nb = 56
+        val rIn = g.r * 0.78f
+        val len = g.r * 0.20f
+        arc.style = Paint.Style.STROKE; arc.strokeCap = Paint.Cap.BUTT
+        val rb = rIn - g.r * 0.02f
+        rect.set(g.cx - rb, g.cy - rb, g.cx + rb, g.cy + rb)
+        arc.strokeWidth = 2f; arc.color = g.faint
+        c.drawArc(rect, g.start, g.dir * g.sweep, false, arc)
+        for (i in 0 until nb) {
+            val f = (i + 0.5f) / nb
+            val l = len * (0.32f + 0.68f * f)
+            val lit = g.live && g.hi > g.lo && f >= g.lo && f <= g.hi
+            arc.strokeWidth = maxOf(2f, g.r * 0.034f)
+            arc.color = if (lit) segColor(f, g.lo, g.hi) else g.faint
+            c.drawLine(g.x(rIn, f), g.y(rIn, f), g.x(rIn + l, f), g.y(rIn + l, f), arc)
+        }
+        if (g.live) {
+            arc.strokeWidth = maxOf(3f, g.r * 0.05f); arc.color = g.ink
+            c.drawLine(g.x(rIn - g.r * 0.03f, shown), g.y(rIn - g.r * 0.03f, shown), g.x(rIn + len + g.r * 0.03f, shown), g.y(rIn + len + g.r * 0.03f, shown), arc)
+        }
+        drawReadouts(c, g, 0.44f, 0f, 0.5f, 0.70f)
+    }
+
     override fun onDraw(c: Canvas) {
         arcCanvas = c
         val w = width.toFloat()
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
+        val gs = look.gauge
+        if (gs != 0) {
+            when (gs) {
+                1 -> drawCluster(c, w, h)
+                2 -> drawMinimal(c, w, h)
+                3 -> drawAnalog(c, w, h)
+                4 -> drawBold(c, w, h)
+                5 -> drawRing(c, w, h)
+                7 -> drawScale(c, w, h)
+                else -> drawWedge(c, w, h)
+            }
+            arcCanvas = null
+            return
+        }
         val cx = w / 2
         val cy = h / 2
         val r = minOf(w, h) / 2 * 0.92f
@@ -2608,22 +3305,26 @@ class StatusStripView(ctx: Context) : View(ctx) {
         val taper = g[2]
         val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
         val grey = if (day) Color.argb(160, 20, 32, 46) else Color.argb(150, 255, 255, 255)
-        val accent = Color.parseColor("#2AA8FF")
+        val look = Skins.look
+        val accent = look.accent
+        val flat = look.stripFlat
         // outline: down the left side, across the top, down the right side; fading towards the ends
         path.reset()
         path.moveTo(0f, h - 2f)
         path.lineTo(taper, 3f)
         path.lineTo(w - taper, 3f)
         path.lineTo(w, h - 2f)
-        line.strokeWidth = 3f
+        if (flat) { path.reset(); path.moveTo(0f, 3f); path.lineTo(w, 3f) }
+        line.strokeWidth = if (flat) 2f else 3f
         line.shader = LinearGradient(0f, 0f, w, 0f,
-            intArrayOf(Color.argb(0, 42, 168, 255), accent, Color.parseColor("#8E5CFF"), accent, Color.argb(0, 42, 168, 255)),
+            intArrayOf(Color.argb(0, Color.red(accent), Color.green(accent), Color.blue(accent)), accent, look.accent2, accent, Color.argb(0, Color.red(accent), Color.green(accent), Color.blue(accent))),
             floatArrayOf(0f, 0.2f, 0.5f, 0.8f, 1f), android.graphics.Shader.TileMode.CLAMP)
         val panel = android.graphics.Path(path).apply { lineTo(0f, h - 2f); close() }
         fill.shader = LinearGradient(0f, 0f, 0f, h,
-            if (day) intArrayOf(Color.argb(28, 42, 120, 200), Color.argb(0, 42, 120, 200)) else intArrayOf(Color.argb(40, 42, 168, 255), Color.argb(0, 42, 168, 255)),
+            if (day) intArrayOf(Color.argb(28, Color.red(look.accentDay), Color.green(look.accentDay), Color.blue(look.accentDay)), Color.argb(0, Color.red(look.accentDay), Color.green(look.accentDay), Color.blue(look.accentDay)))
+            else intArrayOf(Color.argb(40, Color.red(accent), Color.green(accent), Color.blue(accent)), Color.argb(0, Color.red(accent), Color.green(accent), Color.blue(accent))),
             null, android.graphics.Shader.TileMode.CLAMP)
-        if (!plain) { c.drawPath(panel, fill); c.drawPath(path, line) }
+        if (!plain) { if (!flat) c.drawPath(panel, fill); c.drawPath(path, line) }
         line.shader = null
         // the + that opens the list of extra readouts (turns into an x while it is open)
         if (showPlus && !plain) {
@@ -2682,6 +3383,70 @@ class StatusStripView(ctx: Context) : View(ctx) {
             c.drawRoundRect(rect, 12f, 12f, fill)
             drawItem(c, p, cx, colW, h, ink, grey)
         }
+    }
+}
+
+/** The trip readouts in a grid of [cols] columns, drawn in the current skin's colours. Double-tap resets the trip. */
+class TripPanelView(ctx: Context) : View(ctx) {
+    var day = false
+    var cols = 5
+    var onReset: (() -> Unit)? = null
+    private var cells: List<Pair<String, String>> = emptyList()
+    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val div = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 1f }
+    private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
+    private val light = Typeface.create("sans-serif-light", Typeface.NORMAL)
+    private val medium = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+    private val taps = android.view.GestureDetector(ctx, object : android.view.GestureDetector.SimpleOnGestureListener() {
+        override fun onDown(e: android.view.MotionEvent) = true
+        override fun onDoubleTap(e: android.view.MotionEvent): Boolean { onReset?.invoke(); return true }
+    })
+
+    fun setCells(list: List<Pair<String, String>>) { if (list != cells) { cells = list; invalidate() } }
+
+    override fun onTouchEvent(e: android.view.MotionEvent): Boolean = taps.onTouchEvent(e)
+
+    private fun fit(s: String, size: Float, maxW: Float, tf: Typeface, color: Int, x: Float, y: Float, c: Canvas) {
+        txt.typeface = tf; txt.color = color; txt.textSize = size
+        val w = txt.measureText(s)
+        if (w > maxW) txt.textSize = size * maxW / w
+        c.drawText(s, x, y, txt)
+    }
+
+    override fun onDraw(c: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        if (w <= 0f || h <= 0f || cells.isEmpty()) return
+        val look = Skins.look
+        val accent = look.accent
+        val rows = (cells.size + cols - 1) / cols
+        val cw = w / cols
+        val ch = h / rows
+        val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
+        val grey = if (day) Color.argb(160, 20, 32, 46) else Color.argb(150, 255, 255, 255)
+        val base = if (day) look.accentDay else accent
+        fill.shader = LinearGradient(0f, 0f, 0f, h,
+            intArrayOf(Color.argb(if (day) 28 else 40, Color.red(base), Color.green(base), Color.blue(base)), Color.argb(0, Color.red(base), Color.green(base), Color.blue(base))),
+            null, android.graphics.Shader.TileMode.CLAMP)
+        c.drawRect(0f, 3f, w, h, fill)
+        line.strokeWidth = if (look.stripFlat) 2f else 3f
+        line.shader = LinearGradient(0f, 0f, w, 0f,
+            intArrayOf(Color.argb(0, Color.red(accent), Color.green(accent), Color.blue(accent)), accent, look.accent2, accent, Color.argb(0, Color.red(accent), Color.green(accent), Color.blue(accent))),
+            floatArrayOf(0f, 0.2f, 0.5f, 0.8f, 1f), android.graphics.Shader.TileMode.CLAMP)
+        c.drawLine(0f, 3f, w, 3f, line)
+        line.shader = null
+        div.color = if (day) Color.argb(40, 20, 32, 46) else Color.argb(45, 255, 255, 255)
+        for ((i, p) in cells.withIndex()) {
+            val r = i / cols
+            val k = i % cols
+            val cx = cw * (k + 0.5f)
+            val top = ch * r
+            fit(p.first.uppercase(), ch * 0.20f, cw * 0.92f, light, grey, cx, top + ch * 0.38f, c)
+            fit(p.second, ch * 0.38f, cw * 0.92f, medium, ink, cx, top + ch * 0.82f, c)
+            if (k > 0) c.drawLine(cw * k, top + ch * 0.16f, cw * k, top + ch * 0.92f, div)
+        }
+        for (r in 1 until rows) c.drawLine(cw * 0.04f, ch * r, w - cw * 0.04f, ch * r, div)
     }
 }
 
