@@ -371,7 +371,15 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         EventLog.init(this)
         EventLog.add("app start")
-        ui.postDelayed(heartbeat, 30_000)
+        logLastExits()
+        logBootInfo()
+        // a crash writes its stack trace to the event log before the app goes down
+        val prevHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { th, ex ->
+            try { EventLog.add("CRASH in thread '${th.name}':\n" + ex.stackTraceToString().lines().take(16).joinToString("\n")) } catch (_: Throwable) {}
+            prevHandler?.uncaughtException(th, ex)
+        }
+        startHeartbeat()
         title = "Fisker Battery Buddy"
         useFahrenheit = getSharedPreferences("prefs", MODE_PRIVATE).getBoolean("fahrenheit", false)
         buildUi()
@@ -1464,6 +1472,7 @@ class MainActivity : Activity() {
         val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$showTrip"
         if (key == layoutKey) return
         layoutKey = key
+        EventLog.add("layout ${wDp}x${hDp}dp tier=$ti trip=$showTrip third=$third half=$half tall=$tall")
         compact = ti > 0
         val short = midLevel > 0
         val stripBottom = base + tripOff
@@ -1982,13 +1991,58 @@ class MainActivity : Activity() {
         if (::dotView.isInitialized) runOnUiThread { paintDot(on) }
     }
 
-    private val heartbeat = object : Runnable {
-        override fun run() {
-            val n = pulse?.frames ?: 0L
-            Thread { EventLog.add("alive " + EventLog.system() + " frames=$n " + CanDiag.quick()) }.start()
-            ui.postDelayed(this, 30_000)
-        }
+    @Volatile private var uiPong = 0L
+
+    /** Every 30 s, from its own thread (so it keeps going if the screen thread hangs): load, memory, and whether the screen thread answers. */
+    private fun startHeartbeat() {
+        Thread {
+            while (true) {
+                try { Thread.sleep(30_000) } catch (e: InterruptedException) { return@Thread }
+                val sent = System.currentTimeMillis()
+                ui.post { uiPong = System.currentTimeMillis() }
+                try { Thread.sleep(2_000) } catch (e: InterruptedException) { return@Thread }
+                val answered = uiPong >= sent
+                val n = pulse?.frames ?: 0L
+                EventLog.add("alive up=" + uptimeSecs() + "s " + EventLog.system() + " frames=$n ui=" + (if (answered) "ok" else "NOT ANSWERING") + " " + CanDiag.quick())
+            }
+        }.also { it.isDaemon = true }.start()
     }
+
+    private fun uptimeSecs(): String = try { java.io.File("/proc/uptime").readText().trim().split(" ")[0].toDouble().toInt().toString() } catch (e: Exception) { "?" }
+
+    /** At start: how long the Pulse has been up and what Android and the kernel kept about the last crash or restart (needs root). */
+    private fun logBootInfo() {
+        Thread {
+            try {
+                EventLog.add("boot: Pulse up for " + uptimeSecs() + " s")
+                val r = Root.exec("getprop sys.boot.reason; getprop ro.boot.bootreason; echo '--pstore'; ls -l /sys/fs/pstore 2>&1 | head -n 8; echo '--dropbox'; ls -l /data/system/dropbox 2>&1 | tail -n 14; echo '--crash log'; logcat -b crash -d -t 25 2>&1 | cut -c1-200")
+                if (r.timedOut) EventLog.add("boot info: root shell timed out")
+                else EventLog.add("boot info:\n" + r.out.trim().take(3000))
+            } catch (e: Throwable) { EventLog.add("boot info failed: ${e.message}") }
+        }.also { it.isDaemon = true }.start()
+    }
+
+    /** Why the app's previous runs ended, as Android recorded it (crash, ANR, low memory, killed...). */
+    private fun logLastExits() {
+        if (Build.VERSION.SDK_INT < 30) return
+        try {
+            val am = getSystemService(android.app.ActivityManager::class.java)
+            val f = java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.US)
+            for (x in am.getHistoricalProcessExitReasons(packageName, 0, 3)) {
+                val why = when (x.reason) {
+                    1 -> "exit by itself"; 2 -> "KILLED BY SIGNAL"; 3 -> "LOW MEMORY"; 4 -> "CRASH"; 5 -> "NATIVE CRASH"; 6 -> "ANR (not responding)"
+                    7 -> "start failed"; 8 -> "permission change"; 9 -> "too many resources"; 10 -> "user requested"; 11 -> "user stopped"
+                    12 -> "dependency died"; 13 -> "other"; 14 -> "frozen"; else -> "reason ${x.reason}"
+                }
+                EventLog.add("previous run ended ${f.format(java.util.Date(x.timestamp))}: $why status=${x.status} ${x.description ?: ""} importance=${x.importance} rss=${x.rss / 1024}MB")
+            }
+        } catch (e: Throwable) { EventLog.add("could not read exit reasons: ${e.message}") }
+    }
+
+    override fun onTrimMemory(level: Int) { super.onTrimMemory(level); EventLog.add("trim memory level $level") }
+    override fun onLowMemory() { super.onLowMemory(); EventLog.add("LOW MEMORY warning") }
+    override fun onPause() { super.onPause(); EventLog.add("paused") }
+    override fun onResume() { super.onResume(); EventLog.add("resumed") }
 
     private fun log(s: String) {
         EventLog.add(s)
@@ -2181,6 +2235,7 @@ class MainActivity : Activity() {
     /** Not visible any more (another app full screen, or the screen is off): stop reading the CAN bus until we are seen again. */
     override fun onStop() {
         super.onStop()
+        EventLog.add("stopped")
         if (useCan && prefs().getBoolean("pauseHidden", true) && pulse != null) {
             pulse?.stop(); pausedHidden = true
             EventLog.add("hidden: CAN reading paused")
@@ -2189,6 +2244,7 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        EventLog.add("started")
         if (pausedHidden) {
             pausedHidden = false
             if (useCan) { pulse?.start(); EventLog.add("visible: CAN reading resumed") }
