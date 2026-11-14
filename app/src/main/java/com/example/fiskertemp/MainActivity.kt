@@ -3870,11 +3870,11 @@ class TripPanelView(ctx: Context) : View(ctx) {
             val k = i % cols
             val mid = cw * k + cw / 2f
             val top = titleH + ch * r
-            // icon and caption, centred together
+            // icon and caption, left aligned
             txt.typeface = light; txt.textSize = ls
             val lw = txt.measureText(cell.label.uppercase())
             val gw = isz * 1.35f + lw
-            val lx = mid - gw / 2f
+            val lx = cw * k + cw * 0.10f   // icons line up on the left of every cell
             icon(c, cell.icon, lx, top + ch * 0.10f, isz, accent)
             put(cell.label.uppercase(), ls, 1e6f, light, grey, lx + isz * 1.35f, top + ch * 0.10f + isz * 0.78f, c)
             // value and unit, centred together
