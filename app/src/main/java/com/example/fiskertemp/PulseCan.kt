@@ -108,6 +108,7 @@ class PulseCan(
         snap = snap.copy(regenKwh = 0.0, tripKm = 0.0, tripKwh = 0.0, tripMoveSecs = 0.0, tripStartMs = tripStartMs)
     }
 
+    private val seenFirst = HashSet<String>()      // "bus/id" of the uncommon IDs already reported (reader thread only)
     private val held = HashMap<String, String>()   // "bus/id" -> last payload (reader thread only)
 
     companion object {
@@ -256,7 +257,7 @@ class PulseCan(
                     if (why == null) filtersDone = true
                     onStatus(if (why == null) "CAN filters: $filterReadback" else "CAN filters not changed: $why")
                 }
-                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505")
+                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD,1A9,5EA,505", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505")
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
@@ -315,6 +316,9 @@ class PulseCan(
         for (i in bytes.indices) bytes[i] = hex.substring(i * 2, i * 2 + 2).toIntOrNull(16) ?: return
 
         frames++
+        // note once where the less common IDs turn up (they may be on either bus)
+        if ((id == 0x1A9 || id == 0x5EA || id == 0x505 || id == 0x491) && seenFirst.add("$bus/$id"))
+            onStatus("First frame of 0x" + Integer.toHexString(id).uppercase() + " seen on IBUS$bus")
         val key = "$bus/$id"
         // keep the load down: a frame of the same ID is used at most every 90 ms (40 ms for brake and drive mode)
         val tnow = System.currentTimeMillis()
@@ -456,17 +460,17 @@ class PulseCan(
             return s.copy(lightDistM = b[6].takeIf { it in 1..254 })
         }
         // 0x1A9 ECC_0x1A9 (IBUS2, 100 ms): power requested by the climate system's HV parts, 0.01 kW
-        if (bus == 2 && id == 0x1A9) {
+        if (id == 0x1A9) {
             return s.copy(climateKw = ((b[2] shl 8) or b[3]) * 0.01)
         }
         // 0x5EA VCU_0x5EA (IBUS2): VCU_TripMilg trip distance 0.1 km (bytes 2-3), VCU_TripAvgEgyConsmd average Wh/km (10 bits from byte 4)
-        if (bus == 2 && id == 0x5EA) {
+        if (id == 0x5EA) {
             val km = (b[2] shl 8) or b[3]
             val wh = (b[4] shl 2) or (b[5] shr 6)
             return s.copy(carTripKm = if (km == 0xFFFF) null else km * 0.1, carTripWhKm = if (wh >= 1023) null else wh)
         }
         // 0x505 VCU_0x505 (IBUS2): VCU_InsntEgyCnse, instantaneous consumption, 0.01 kWh/100 km with offset -100 (bytes 2-3)
-        if (bus == 2 && id == 0x505) {
+        if (id == 0x505) {
             val raw = (b[2] shl 8) or b[3]
             return s.copy(carInstKwh100 = if (raw == 0xFFFF) null else raw * 0.01 - 100.0)
         }
