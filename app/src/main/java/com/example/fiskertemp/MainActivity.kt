@@ -1635,7 +1635,7 @@ class MainActivity : Activity() {
         val v = s.packVolts
         val a = s.packAmps
         val kw = if (v != null && a != null) v * a / 1000.0 * (if (prefs().getBoolean("flipPower", false)) -1 else 1) else null
-        dashPowerGauge.valueText = kw?.let { String.format("%.0f", it) } ?: "--"
+        dashPowerGauge.valueText = kw?.let { String.format("%.1f", it) } ?: "--"
         dashPowerGauge.setFraction(kw?.let {
             // square-root scale so everyday power fills a good part of the arc; zero sits at 20%
             if (it >= 0) (0.2 + 0.8 * Math.sqrt((it / 250.0).coerceIn(0.0, 1.0))).toFloat()
