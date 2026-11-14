@@ -761,7 +761,7 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("speedLeft", on).apply(); applyGaugeSides() }
         }, 4)
         box.add(CheckBox(this).apply {
-            text = "Safe mode: do not change the CAN chip filters (power and climate may show --)"; isChecked = prefs().getBoolean("canSafe", false)
+            text = "Safe mode: never write the CAN chip filters, only read them (climate kW and the heat pump may show --)"; isChecked = prefs().getBoolean("canSafe", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("canSafe", on).apply(); pulse?.safeMode = on; toast("Takes effect the next time the app starts") }
         }, 4)
         box.add(Button(this).apply {
@@ -1078,6 +1078,8 @@ class MainActivity : Activity() {
     private lateinit var lowerBox: LinearLayout
     private lateinit var tripPanel: TripPanelView
     private lateinit var tripBtn: TextView
+    private lateinit var dashSlot: FrameLayout
+    private var tripMidRows = 0
     private var tripDlgView: TripPanelView? = null
     private lateinit var resBtn: TextView
     private lateinit var flyBtn: TextView
@@ -1196,14 +1198,24 @@ class MainActivity : Activity() {
             text = "READY"; textSize = 17f; letterSpacing = 0.18f; gravity = Gravity.CENTER; visibility = View.INVISIBLE
             typeface = Typeface.create("sans-serif-black", Typeface.BOLD); setTextColor(Color.parseColor("#7CFF3A"))
         }
+        tripPanel = TripPanelView(this).apply {
+            cols = 2
+            visibility = View.GONE
+            onReset = { pulse?.resetDrive(); Toast.makeText(context, "Trip reset", Toast.LENGTH_SHORT).show() }
+        }
+        // the speed sign and the traffic light share one slot at the top of the middle column: one fades out as the other fades in
+        dashSlot = FrameLayout(this).apply {
+            addView(dashLight, FrameLayout.LayoutParams(dp(42), dp(88), Gravity.CENTER))
+            addView(dashSign, FrameLayout.LayoutParams(dp(64), dp(64), Gravity.CENTER))
+        }
         val mid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
             addView(dashReady, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
-            addView(dashLight, LinearLayout.LayoutParams(dp(42), dp(88)).apply { topMargin = dp(4) })
+            addView(dashSlot, LinearLayout.LayoutParams(-1, dp(92)).apply { topMargin = dp(4) })
             addView(dashLightDist, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
-            addView(dashBrake, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
-            addView(dashHeading, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
-            addView(dashSign, LinearLayout.LayoutParams(dp(64), dp(64)).apply { topMargin = dp(8) })
+            addView(tripPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(4); bottomMargin = dp(4) })
+            addView(dashBrake, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
+            addView(dashHeading, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         }
         dashMid = mid
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; clipChildren = false }
@@ -1252,11 +1264,6 @@ class MainActivity : Activity() {
         }
         lowerIdx = prefs().getInt("lowerApp", 0).coerceIn(0, lowerNames.size - 1)
         paintLowerTabs()
-        tripPanel = TripPanelView(this).apply {
-            visibility = View.GONE
-            onReset = { pulse?.resetDrive(); Toast.makeText(context, "Trip reset", Toast.LENGTH_SHORT).show() }
-        }
-        f.addView(tripPanel, FrameLayout.LayoutParams(-1, dp(70), Gravity.BOTTOM).apply { setMargins(dp(8), 0, dp(8), dp(62)) })
         tripBtn = TextView(this).apply {
             text = "Trip"; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
             setPadding(dp(9), 0, dp(9), 0)
@@ -1451,9 +1458,7 @@ class MainActivity : Activity() {
         for ((i, t) in tiers.withIndex()) if (hDp - stack(t) >= need) { ti = i; break }
         val t = tiers[ti]
         // the trip panel sits under the stats strip, only when the gauges keep a good height without squeezing
-        val tripH = 70
-        val showTrip = t.showStrip && hDp - stack(t) - tripH - 4 >= 215
-        val tripOff = if (showTrip) tripH + 4 else 0
+        val tripOff = 0
         val gaugeH = hDp - stack(t) - tripOff
         val midLevel = if (gaugeH >= 300) 0 else if (gaugeH >= 235) 1 else 2
         // a third-height split window (not half or full) keeps the bottom buttons at the left edge
@@ -1469,18 +1474,23 @@ class MainActivity : Activity() {
         val topM = if (midLevel > 0) 20 else 8
         val wantH = maxOf((wDp - 16) * 1.15f / 3f * 1.1f, 340f)
         val tall = hDp - gb - topM > wantH + 24f
-        val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$showTrip"
+        // the trip readouts sit in the middle column under the traffic light; rows by the height left there
+        val midFixed = when (midLevel) { 0 -> 235f; 1 -> 165f; else -> 125f }
+        val midFree = (if (tall) wantH else gaugeH - topM.toFloat()) - midFixed
+        val midRows = if (midFree >= 96f) 3 else if (midFree >= 62f) 2 else 0
+        val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$midRows"
         if (key == layoutKey) return
         layoutKey = key
-        EventLog.add("layout ${wDp}x${hDp}dp tier=$ti trip=$showTrip third=$third half=$half tall=$tall")
+        EventLog.add("layout ${wDp}x${hDp}dp tier=$ti trip=$midRows third=$third half=$half tall=$tall")
         compact = ti > 0
         val short = midLevel > 0
         val stripBottom = base + tripOff
         val rowBottom = if (t.showStrip) stripBottom + t.strip + 4 else base
-        tripPanel.visibility = if (showTrip) View.VISIBLE else View.GONE
-        tripBtn.visibility = if (showTrip) View.GONE else View.VISIBLE
-        (tripPanel.layoutParams as FrameLayout.LayoutParams).apply { height = dp(tripH); setMargins(dp(8), 0, dp(8), dp(base)) }
-        tripPanel.requestLayout()
+        tripMidRows = midRows
+        tripPanel.visibility = if (midRows > 0) View.VISIBLE else View.GONE
+        tripBtn.visibility = if (midRows > 0) View.GONE else View.VISIBLE
+        (dashSlot.layoutParams as LinearLayout.LayoutParams).apply { height = dp(if (midLevel == 2) 48 else if (short) 58 else 92); topMargin = dp(if (short) 4 else 4) }
+        dashSlot.requestLayout()
         val lowerBottom = rowBottom + t.row + 4          // top of the info row: the stat editor sits here
         val gaugeBottom = lowerBottom + 4
         val sideL = 8
@@ -1512,7 +1522,7 @@ class MainActivity : Activity() {
             if (tall) { height = dp(wantH.toInt()); setMargins(dp(8), dp(topM), dp(8), 0) }
             else { height = FrameLayout.LayoutParams.MATCH_PARENT; setMargins(dp(8), dp(topM), dp(8), dp(gaugeBottom)) }
         }
-        (dashLight.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 22 else if (short) 26 else 42); height = dp(if (midLevel == 2) 46 else if (short) 56 else 88); topMargin = dp(if (short) 6 else 4) }
+        (dashLight.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 22 else if (short) 26 else 42); height = dp(if (midLevel == 2) 46 else if (short) 56 else 88) }
         dashReady.textSize = if (short) 11f else 13f
         // in a short window the gauges reach the top corners, so the mode badge gets its own strip above them
         dashMode.textSize = if (short) 9f else 11f
@@ -1528,7 +1538,7 @@ class MainActivity : Activity() {
         dashBrake.textSize = if (midLevel == 2) 11f else if (short) 13f else 16f
         (dashBrake.layoutParams as LinearLayout.LayoutParams).apply { topMargin = dp(if (midLevel == 2) 3 else 8) }
         dashBrake.setPadding(dp(if (midLevel == 2) 10 else 18), dp(if (midLevel == 2) 1 else 4), dp(if (midLevel == 2) 10 else 18), dp(if (midLevel == 2) 1 else 4))
-        (dashSign.layoutParams as LinearLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 38 else if (short) 48 else 64); height = dp(if (midLevel == 2) 38 else if (short) 48 else 64); topMargin = dp(if (midLevel == 2) 3 else 8) }
+        (dashSign.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 38 else if (short) 48 else 64); height = dp(if (midLevel == 2) 38 else if (short) 48 else 64) }
         poolBar.requestLayout(); lowerBox.requestLayout()
         dashStrip.requestLayout(); dashRow.requestLayout(); dashGaugeRow.requestLayout(); dashLight.requestLayout(); dashSign.requestLayout()
     }
@@ -1855,19 +1865,23 @@ class MainActivity : Activity() {
             dashSign.euro = prefs().getString("signStyle", "us") == "eu"
             dashSign.invalidate()
         }
-        val signSeen = lim != null || nowMs - signSeenAt < 1500
-        if (signSeen != signShown) {
-            signShown = signSeen
-            dashSign.animate().alpha(if (signSeen) 1f else 0f).setDuration(if (signSeen) 250L else 700L).start()
-        }
         val lc = s.lightColor
         if (lc != null) { lightColor = lc; lightSeenAt = nowMs; dashLight.setColor(lc) }
         val seen = lc != null || nowMs - lightSeenAt < 1500   // brief hold so one missed frame does not flicker
+        val lightEnded = lightShown && !seen
         if (seen != lightShown) {
             lightShown = seen
             val to = if (seen) 1f else 0f
             dashLight.animate().alpha(to).setDuration(if (seen) 200L else 700L).start()
             dashLightDist.animate().alpha(to).setDuration(if (seen) 200L else 700L).start()
+        }
+        // the speed sign gives way to the traffic light (same spot), and fades back in once the light has gone
+        val wantSign = (lim != null || nowMs - signSeenAt < 1500) && !seen
+        if (wantSign != signShown) {
+            signShown = wantSign
+            dashSign.animate().alpha(if (wantSign) 1f else 0f)
+                .setStartDelay(if (wantSign && lightEnded) 700L else 0L)
+                .setDuration(if (wantSign) 300L else 250L).start()
         }
         dashLightDist.text = s.lightDistM?.let { "$it m" } ?: ""
         val dm = s.driveMode
@@ -1895,7 +1909,9 @@ class MainActivity : Activity() {
         dashRow.setItems(everything)
         if (tripPanel.visibility == View.VISIBLE || tripDlgView != null) {
             val cells = tripCells(s)
-            tripPanel.setCells(cells)
+            // order in tripCells: 0 Distance 1 Time 2 Moving 3 Avg speed 4 Energy 5 Avg eff 6 Now eff 7 Car trip 8 Car eff
+            val pick = if (tripMidRows >= 3) listOf(5, 6, 0, 1, 4, 3) else listOf(5, 6, 0, 4)
+            tripPanel.setCells(pick.mapNotNull { cells.getOrNull(it) })
             tripDlgView?.setCells(cells)
         }
     }
