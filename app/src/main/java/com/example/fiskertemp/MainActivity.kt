@@ -1996,13 +1996,11 @@ class MainActivity : Activity() {
         val avgSpeed = if (s.tripMoveSecs >= 30.0) km / (s.tripMoveSecs / 3600.0) else null
         val effUnit = when (effMode()) { "perkwh" -> "$dU/kWh"; "kwhper" -> "kWh/$dU"; else -> "Wh/$dU" }
         return listOf(
-            TripCell(0, "Travelled", dist(km), dU),
+            TripCell(0, "Distance Driven", dist(km), dU),
             TripCell(5, "Efficiency", effText(avgEffKwh100(s)), effUnit),
-            TripCell(3, "Avg speed", avgSpeed?.let { String.format("%.0f", if (mph) it * 0.621371 else it) } ?: "--", if (mph) "mph" else "km/h"),
-            TripCell(4, "Energy", String.format("%.1f", s.tripKwh), "kWh"),
-            TripCell(1, "Time", elapsed?.let { dur(it) } ?: "--"),
-            TripCell(2, "Moving", dur(s.tripMoveSecs)),
-            TripCell(6, "Car trip", dist(s.carTripKm), dU),
+            TripCell(3, "Average Speed", avgSpeed?.let { String.format("%.0f", if (mph) it * 0.621371 else it) } ?: "--", if (mph) "mph" else "km/h"),
+            TripCell(4, "Energy Consumed", String.format("%.1f", s.tripKwh), "kWh"),
+            TripCell(1, "Elapsed Time", elapsed?.let { dur(it) } ?: "--"),
         )
     }
 
@@ -3786,32 +3784,44 @@ class TripPanelView(ctx: Context) : View(ctx) {
         // title
         val titleH = if (title != null) minOf(h * 0.20f, 24f * d) else 0f
         val padX = w * 0.045f
-        title?.let { put(it, titleH * 0.66f, w - 2 * padX, medium, ink, padX, titleH * 0.86f, c) }
+        title?.let {
+            txt.typeface = medium; txt.textSize = titleH * 0.66f
+            val tw = minOf(txt.measureText(it), w - 2 * padX)
+            put(it, titleH * 0.66f, w - 2 * padX, medium, ink, (w - tw) / 2f, titleH * 0.86f, c)
+        }
         val cw = w / cols
         val ch = (h - titleH - 4f) / rows
         val div = if (day) Color.argb(40, 20, 32, 46) else Color.argb(50, 255, 255, 255)
         line.color = div; line.strokeWidth = 1f
         for (k in 1 until cols) c.drawLine(cw * k, titleH + ch * 0.10f, cw * k, h - ch * 0.10f, line)
         for (r in 1 until rows) c.drawLine(w * 0.04f, titleH + ch * r, w * 0.96f, titleH + ch * r, line)
-        for ((i, cell) in cells.withIndex()) {
-            val r = i / cols
-            val k = i % cols
-            val x0 = cw * k + cw * 0.10f
-            val inner = cw * 0.84f
-            val top = titleH + ch * r
-            val isz = minOf(ch * 0.30f, 15f * d)
-            icon(c, cell.icon, x0, top + ch * 0.10f, isz, accent)
-            put(cell.label.uppercase(), isz * 0.66f, inner - isz * 1.4f, light, grey, x0 + isz * 1.35f, top + ch * 0.10f + isz * 0.78f, c)
-            // value and unit, left aligned, on one baseline
-            val base = top + ch * 0.90f
-            var vs = ch * 0.40f
+        // one label size and one value size for every cell: the largest that lets the longest of each fit
+        val inner = cw * 0.84f
+        val isz = minOf(ch * 0.30f, 15f * d)
+        var ls = isz * 0.66f
+        for (cell in cells) {
+            txt.typeface = light; txt.textSize = ls
+            val lw = txt.measureText(cell.label.uppercase())
+            val room = inner - isz * 1.4f
+            if (lw > room) ls *= room / lw
+        }
+        var vs = ch * 0.40f
+        for (cell in cells) {
             txt.typeface = medium; txt.textSize = vs
             val vw = txt.measureText(cell.value)
             txt.typeface = light; txt.textSize = vs * 0.48f
             val uw = if (cell.unit.isEmpty()) 0f else txt.measureText(cell.unit)
-            val gap = if (cell.unit.isEmpty()) 0f else vs * 0.14f
-            val total = vw + gap + uw
+            val total = vw + (if (cell.unit.isEmpty()) 0f else vs * 0.14f) + uw
             if (total > inner) vs *= inner / total
+        }
+        for ((i, cell) in cells.withIndex()) {
+            val r = i / cols
+            val k = i % cols
+            val x0 = cw * k + cw * 0.10f
+            val top = titleH + ch * r
+            icon(c, cell.icon, x0, top + ch * 0.10f, isz, accent)
+            put(cell.label.uppercase(), ls, 1e6f, light, grey, x0 + isz * 1.35f, top + ch * 0.10f + isz * 0.78f, c)
+            val base = top + ch * 0.90f
             txt.typeface = medium; txt.textSize = vs; txt.color = ink
             val vw2 = txt.measureText(cell.value)
             c.drawText(cell.value, x0, base, txt)
