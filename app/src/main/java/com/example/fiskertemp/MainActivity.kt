@@ -1201,7 +1201,7 @@ class MainActivity : Activity() {
         }
         chargeBar = ChargeBarView(this)
         tripPanel = TripPanelView(this).apply {
-            cols = 2
+            cols = 3
             visibility = View.GONE
             onReset = { pulse?.resetDrive(); Toast.makeText(context, "Trip reset", Toast.LENGTH_SHORT).show() }
         }
@@ -1479,9 +1479,9 @@ class MainActivity : Activity() {
         val wantH = maxOf((wDp - 16) * 1.15f / 3f * 1.1f, 340f)
         val tall = hDp - gb - topM > wantH + 24f
         // the trip readouts sit in the middle column under the traffic light; rows by the height left there
-        val midFixed = when (midLevel) { 0 -> 267f; 1 -> 197f; else -> 157f }
+        val midFixed = when (midLevel) { 0 -> 250f; 1 -> 197f; else -> 158f }
         val midFree = (if (tall) wantH else gaugeH - topM.toFloat()) - midFixed
-        val midRows = if (midFree >= 96f) 3 else if (midFree >= 62f) 2 else 0
+        val midRows = if (midFree >= 84f) 3 else if (midFree >= 56f) 2 else 0
         val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$midRows"
         if (key == layoutKey) return
         layoutKey = key
@@ -1912,11 +1912,8 @@ class MainActivity : Activity() {
         dashStrip.setItems(everything)
         dashRow.setItems(everything)
         if (tripPanel.visibility == View.VISIBLE || tripDlgView != null) {
-            val cells = tripCells(s)
-            // order in tripCells: 0 Distance 1 Time 2 Moving 3 Avg speed 4 Energy 5 Avg eff 6 Now eff 7 Car trip 8 Car eff
-            val pick = if (tripMidRows >= 3) listOf(5, 6, 0, 1, 4, 3) else listOf(5, 6, 0, 4)
-            tripPanel.setCells(pick.mapNotNull { cells.getOrNull(it) })
-            tripDlgView?.setCells(cells)
+            tripPanel.setCells(tripCells(s, true).take(if (tripMidRows >= 3) 9 else 6))
+            tripDlgView?.setCells(tripCells(s))
         }
     }
 
@@ -1928,7 +1925,7 @@ class MainActivity : Activity() {
     }
 
     /** The trip readouts: counted by this app (distance, time, energy) and the car's own figures. */
-    private fun tripCells(s: CanSnapshot): List<Pair<String, String>> {
+    private fun tripCells(s: CanSnapshot, compact: Boolean = false): List<Pair<String, String>> {
         val mph = speedMph()
         val unitEff = if (mph) "WH/MI" else "WH/KM"
         // kWh per 100 km -> Wh/km (x10) or Wh/mi (x16.09344); negative means energy is coming back
@@ -1948,6 +1945,26 @@ class MainActivity : Activity() {
         val spd = s.speedKmh
         val ownNow = if (kw != null && spd != null && spd >= 5.0) kw / spd * 100.0 else null
         val now = if (spd != null && spd >= 3.0) (s.carInstKwh100 ?: ownNow) else null
+        if (compact) {
+            // narrow cells: the unit goes in the caption and the value is just the number
+            fun num(v: Double?): String = v?.let { String.format("%.1f", if (mph) it * 0.621371 else it) } ?: "--"
+            fun short(secs: Double): String {
+                val t = secs.toLong().coerceAtLeast(0)
+                return if (t >= 3600) String.format("%dh%02dm", t / 3600, (t % 3600) / 60) else if (t >= 60) String.format("%dm%02ds", t / 60, t % 60) else "${t}s"
+            }
+            val dk = if (mph) "MI" else "KM"
+            return listOf(
+                "Avg $unitEff" to eff(avgEff),
+                "Now $unitEff" to eff(now),
+                "Energy kWh" to String.format("%.1f", s.tripKwh),
+                "Dist $dk" to num(km),
+                "Time" to (elapsed?.let { short(it) } ?: "--"),
+                "Moving" to short(s.tripMoveSecs),
+                "Avg ${if (mph) "MPH" else "KM/H"}" to (avgSpeed?.let { String.format("%.0f", if (mph) it * 0.621371 else it) } ?: "--"),
+                "Car $dk" to num(s.carTripKm),
+                "Car $unitEff" to eff(s.carTripWhKm?.let { it / 10.0 }),
+            )
+        }
         return listOf(
             "Distance" to dist(km),
             "Time" to (elapsed?.let { fmtDur(it) } ?: "--"),
@@ -3520,10 +3537,10 @@ class ChargeBarView(ctx: Context) : View(ctx) {
             rect.set(0f, top, maxOf(bh, barW * f.coerceIn(0f, 1f)), top + bh)
             c.drawRoundRect(rect, rad, rad, p)
         }
-        // small notches at the 30 % and 20 % marks
-        p.color = if (day) Color.argb(110, 20, 32, 46) else Color.argb(130, 255, 255, 255)
+        // faint marks inside the bar at 30 % and 20 %
+        p.color = if (day) Color.argb(55, 20, 32, 46) else Color.argb(75, 255, 255, 255)
         for (m in floatArrayOf(0.20f, 0.30f)) {
-            rect.set(barW * m - 1f, top - bh * 0.25f, barW * m + 1f, top + bh * 1.25f)
+            rect.set(barW * m - 0.75f, top, barW * m + 0.75f, top + bh)
             c.drawRect(rect, p)
         }
     }
