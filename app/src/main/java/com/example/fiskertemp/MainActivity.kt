@@ -322,6 +322,9 @@ private class QueueInputStream : InputStream() {
 }
 
 @Suppress("DEPRECATION")
+/** True once this run of the app has done its start-up split screen, so a rebuilt screen never repeats it. */
+private var startSplitDone = false
+
 @SuppressLint("MissingPermission")
 class MainActivity : Activity() {
 
@@ -386,7 +389,22 @@ class MainActivity : Activity() {
         val saved = getSharedPreferences("prefs", MODE_PRIVATE).getString("source", null)
         applySource(when (saved) { "pulse" -> true; "dongle" -> false; else -> PulseCan.available() })
         if (getSharedPreferences("prefs", MODE_PRIVATE).getBoolean("dashDefault", false)) showDashboard(true)
+        // optionally go into split screen right after a fresh start (not when the screen is only being rebuilt)
+        val startSplit = prefs().getString("startSplit", "")
+        if (savedInstanceState == null && !splitOnStartDone && (startSplit == "spotify" || startSplit == "maps")) {
+            splitOnStartDone = true
+            ui.postDelayed({
+                if (!isInMultiWindowMode && !isFinishing) {
+                    EventLog.add("start option: split screen with $startSplit at the bottom")
+                    openLower(if (startSplit == "spotify") 1 else 0)
+                }
+            }, 2500)
+        }
     }
+
+    private var splitOnStartDone: Boolean
+        get() = startSplitDone
+        set(v) { startSplitDone = v }
 
     // ------------------------------------------------------------------ UI
     private var themeIndex = 0
@@ -756,6 +774,16 @@ class MainActivity : Activity() {
             text = "Show the dashboard when the app starts"; isChecked = prefs().getBoolean("dashDefault", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("dashDefault", on).apply() }
         }, 4)
+        box.add(TextView(this).apply { text = "When the app starts"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 14)
+        val ssNone = RadioButton(this).apply { text = "Full screen"; id = View.generateViewId() }
+        val ssSpotify = RadioButton(this).apply { text = "Split screen: this app on top, Spotify at the bottom"; id = View.generateViewId() }
+        val ssMaps = RadioButton(this).apply { text = "Split screen: this app on top, Maps at the bottom"; id = View.generateViewId() }
+        val ssg = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL; addView(ssNone); addView(ssSpotify); addView(ssMaps) }
+        when (prefs().getString("startSplit", "")) { "spotify" -> ssSpotify.isChecked = true; "maps" -> ssMaps.isChecked = true; else -> ssNone.isChecked = true }
+        ssg.setOnCheckedChangeListener { _, checkedId ->
+            prefs().edit().putString("startSplit", when (checkedId) { ssSpotify.id -> "spotify"; ssMaps.id -> "maps"; else -> "" }).apply()
+        }
+        box.add(ssg, 4)
         box.add(CheckBox(this).apply {
             text = "Speed gauge on the left (power on the right)"; isChecked = prefs().getBoolean("speedLeft", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("speedLeft", on).apply(); applyGaugeSides() }
@@ -1081,6 +1109,7 @@ class MainActivity : Activity() {
     private lateinit var dashSlot: FrameLayout
     private lateinit var chargeBar: ChargeBarView
     private lateinit var dashClock: DashClockView
+    private lateinit var dashTop: LinearLayout
     private var tripMidRows = 0
     private var tripDlgView: TripPanelView? = null
     private lateinit var resBtn: TextView
@@ -1216,10 +1245,9 @@ class MainActivity : Activity() {
             addView(dashReady, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
             addView(dashSlot, LinearLayout.LayoutParams(-1, dp(92)).apply { topMargin = dp(4) })
             addView(dashLightDist, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
-            addView(chargeBar, LinearLayout.LayoutParams(-1, dp(22)).apply { topMargin = dp(4) })
-            addView(tripPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(6); bottomMargin = dp(4) })
             addView(dashBrake, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
-            addView(dashHeading, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+            addView(tripPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(6); bottomMargin = dp(6) })
+            addView(chargeBar, LinearLayout.LayoutParams(-1, dp(22)).apply { bottomMargin = dp(2) })
         }
         dashMid = mid
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; clipChildren = false }
@@ -1292,7 +1320,13 @@ class MainActivity : Activity() {
         }
         f.addView(flyBtn, FrameLayout.LayoutParams(dp(38), dp(38), Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(10), 0, 0, dp(190)) })
         f.addOnLayoutChangeListener { v, _, top, _, bottom, _, _, _, _ -> adaptDashLayout((v.width / resources.displayMetrics.density).toInt(), ((bottom - top) / resources.displayMetrics.density).toInt()) }
-        f.addView(dashMode, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(6), dp(8), 0) })
+        // top right: the compass heading beside the drive-mode badge
+        dashTop = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            addView(dashHeading, LinearLayout.LayoutParams(-2, -2).apply { rightMargin = dp(10) })
+            addView(dashMode, LinearLayout.LayoutParams(-2, -2))
+        }
+        f.addView(dashTop, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(6), dp(8), 0) })
         dashClock = DashClockView(this).apply { visibility = View.GONE }
         f.addView(dashClock, FrameLayout.LayoutParams(dp(150), dp(80), Gravity.TOP or Gravity.START).apply { setMargins(dp(14), dp(8), 0, 0) })
         return f
@@ -1483,7 +1517,7 @@ class MainActivity : Activity() {
         val wantH = maxOf((wDp - 16) * 1.15f / 3f * 1.1f, 340f)
         val tall = hDp - gb - topM > wantH + 24f
         // the trip readouts sit in the middle column under the traffic light; rows by the height left there
-        val midFixed = when (midLevel) { 0 -> 242f; 1 -> 189f; else -> 150f }
+        val midFixed = when (midLevel) { 0 -> 208f; 1 -> 161f; else -> 129f }
         val midFree = (if (tall) wantH else gaugeH - topM.toFloat()) - midFixed
         val midRows = if (midFree >= 84f) 3 else if (midFree >= 56f) 2 else 0
         // the clock goes in the free band above the left gauge (the gauge circle is centred in its height)
@@ -1544,13 +1578,14 @@ class MainActivity : Activity() {
         dashMode.textSize = if (short) 9f else 11f
         dashMode.minWidth = dp(if (short) 60 else 84)
         dashMode.setPadding(dp(if (short) 6 else 10), dp(if (short) 1 else 3), dp(if (short) 6 else 10), dp(if (short) 1 else 3))
-        (dashMode.layoutParams as FrameLayout.LayoutParams).apply { setMargins(0, dp(if (short) 2 else 6), dp(8), 0) }
+        (dashTop.layoutParams as FrameLayout.LayoutParams).apply { setMargins(0, dp(if (short) 2 else 6), dp(8), 0) }
+        dashTop.requestLayout()
         dashMode.requestLayout()
         dashLightDist.textSize = if (short) 12f else 15f
         dashLightDist.visibility = if (midLevel == 2) View.GONE else View.VISIBLE
         dashHeading.visibility = View.VISIBLE
-        dashHeading.textSize = if (midLevel == 2) 12f else if (short) 15f else 20f
-        (dashHeading.layoutParams as LinearLayout.LayoutParams).apply { topMargin = dp(if (midLevel == 2) 2 else if (short) 6 else 10) }
+        dashHeading.textSize = if (short) 12f else 16f
+        dashHeading.gravity = Gravity.CENTER_VERTICAL
         dashBrake.textSize = if (midLevel == 2) 11f else if (short) 13f else 16f
         (dashBrake.layoutParams as LinearLayout.LayoutParams).apply { topMargin = dp(if (midLevel == 2) 3 else 8) }
         dashBrake.setPadding(dp(if (midLevel == 2) 10 else 18), dp(if (midLevel == 2) 1 else 4), dp(if (midLevel == 2) 10 else 18), dp(if (midLevel == 2) 1 else 4))
@@ -3503,8 +3538,7 @@ class StatusStripView(ctx: Context) : View(ctx) {
     }
 }
 
-/** The battery charge level: a thin horizontal bar with "BATTERY" centred in it and the percentage beside it.
- *  Amber at 30 % or less, red at 20 % or less. */
+/** The battery charge level: a square-ended bar, red at 0 % to green at 100 %, with "BATTERY" centred in it and the percentage beside it. */
 class ChargeBarView(ctx: Context) : View(ctx) {
     var day = false
     var frac: Float? = null
@@ -3513,36 +3547,50 @@ class ChargeBarView(ctx: Context) : View(ctx) {
     private val t = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.RIGHT; typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL) }
     private val cap = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL); letterSpacing = 0.14f }
     private val rect = RectF()
+    // red at 0 %, through amber and yellow, to green at 100 %
+    private val stopPos = floatArrayOf(0f, 0.25f, 0.55f, 1f)
+    private val stopCol = intArrayOf(Color.parseColor("#FF3B4E"), Color.parseColor("#FFB020"), Color.parseColor("#E3D43A"), Color.parseColor("#2ECC71"))
+
+    private fun colorAt(f: Float): Int {
+        val x = f.coerceIn(0f, 1f)
+        for (i in 1 until stopPos.size) if (x <= stopPos[i]) {
+            val k = (x - stopPos[i - 1]) / (stopPos[i] - stopPos[i - 1])
+            val a = stopCol[i - 1]; val b = stopCol[i]
+            return Color.rgb(
+                (Color.red(a) + (Color.red(b) - Color.red(a)) * k).toInt(),
+                (Color.green(a) + (Color.green(b) - Color.green(a)) * k).toInt(),
+                (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * k).toInt())
+        }
+        return stopCol.last()
+    }
 
     override fun onDraw(c: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
         val f = frac
-        val red = f != null && f <= 0.20f
-        val amber = f != null && f <= 0.30f && !red
         val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
-        val warn = if (red) Color.parseColor("#FF3B4E") else Color.parseColor("#FFB020")
-        val fillCol = if (red || amber) warn else if (day) Skins.look.accentDay else Skins.look.accent
-        // percentage on the right
+        // percentage on the right, in the colour the bar has reached
         t.textSize = h * 0.62f
-        t.color = if (red || amber) warn else ink
+        t.color = if (f == null) ink else colorAt(f)
         val label = if (f == null) "--" else "${Math.round(f.coerceIn(0f, 1f) * 100)}%"
         val tw = t.measureText("100%")
         val gap = h * 0.35f
         val barW = maxOf(h, w - tw - gap)
         c.drawText(label, w, h / 2f - (t.descent() + t.ascent()) / 2f, t)
-        // the bar fills the height; the word sits in its middle
+        // a square-ended bar that fills the height; the word sits in its middle
         val bh = h * 0.86f
         val top = (h - bh) / 2f
-        val rad = bh / 2f
+        p.shader = null
         p.color = if (day) Color.argb(40, 20, 32, 46) else Color.argb(60, 255, 255, 255)
         rect.set(0f, top, barW, top + bh)
-        c.drawRoundRect(rect, rad, rad, p)
+        c.drawRect(rect, p)
         if (f != null && f > 0f) {
-            p.color = fillCol
-            rect.set(0f, top, maxOf(bh, barW * f.coerceIn(0f, 1f)), top + bh)
-            c.drawRoundRect(rect, rad, rad, p)
+            // one gradient across the whole bar, so the colour at any point is fixed by its level
+            p.shader = LinearGradient(0f, 0f, barW, 0f, stopCol, stopPos, android.graphics.Shader.TileMode.CLAMP)
+            rect.set(0f, top, barW * f.coerceIn(0f, 1f), top + bh)
+            c.drawRect(rect, p)
+            p.shader = null
         }
         // faint marks inside the bar at 30 % and 20 %
         p.color = if (day) Color.argb(55, 20, 32, 46) else Color.argb(75, 255, 255, 255)
@@ -3551,10 +3599,9 @@ class ChargeBarView(ctx: Context) : View(ctx) {
             c.drawRect(rect, p)
         }
         cap.textSize = bh * 0.46f
-        val fits = cap.measureText("BATTERY") <= barW * 0.9f
-        if (!fits) cap.textSize = cap.textSize * barW * 0.9f / cap.measureText("BATTERY")
-        cap.color = if (day && (f ?: 0f) < 0.5f) Color.argb(230, 20, 32, 46) else Color.argb(240, 255, 255, 255)
-        cap.setShadowLayer(bh * 0.10f, 0f, 0f, Color.argb(if (day) 0 else 140, 0, 0, 0))
+        if (cap.measureText("BATTERY") > barW * 0.9f) cap.textSize = cap.textSize * barW * 0.9f / cap.measureText("BATTERY")
+        cap.color = if (day && (f ?: 0f) < 0.5f) Color.argb(230, 20, 32, 46) else Color.argb(245, 255, 255, 255)
+        cap.setShadowLayer(bh * 0.12f, 0f, 0f, Color.argb(if (day) 70 else 150, 0, 0, 0))
         c.drawText("BATTERY", barW / 2f, h / 2f - (cap.descent() + cap.ascent()) / 2f, cap)
     }
 }
@@ -3588,7 +3635,7 @@ class DashClockView(ctx: Context) : View(ctx) {
         val withDate = h >= 52f * resources.displayMetrics.density
         val timeH = if (withDate) h * 0.70f else h
         tp.typeface = tfc; tp.color = ink
-        var size = timeH * 0.86f
+        var size = timeH * 0.64f
         tp.textSize = size
         val timeStr = tf.format(now)
         val ap = if (is24) "" else af.format(now)
