@@ -129,49 +129,91 @@ class PulseCan(
         }
     }
 
+    /** One CAN chip's receive filters as found, and what (if anything) would be added to them. */
+    private class ChipPlan(
+        val chip: Int, val mask: List<Int>, val filt: List<Int>,
+        val newFilt: List<Int>, val missing: List<Int>, val added: List<Int>, val unfit: List<Int>,
+    )
+
+    /** The IDs this app reads, per chip (0 = IBUS1, 1 = IBUS2). Must match the helper's ID lists in loop(). */
+    private val wanted = mapOf(
+        0 to listOf(0x382, 0x2F5, 0x318, 0x179, 0x234, 0x335, 0x2AC, 0x373, 0x507, 0x6DD),
+        1 to listOf(0x0E9, 0x1A9, 0x210, 0x351, 0x504, 0x580, 0x582, 0x332, 0x311, 0x491, 0x5EA, 0x505),
+    )
+
+    private fun hex(l: List<Int>) = l.joinToString(",") { "0x" + Integer.toHexString(it).uppercase() }
+
+    /** Which IDs the chip lets through at the moment: buffer 0 (filters 0-1, mask 0) and buffer 1 (filters 2-5, mask 1). */
+    private fun admits(mask: List<Int>, f: List<Int>, id: Int): Boolean =
+        (id and mask[0]) == (f[0] and mask[0]) || (id and mask[0]) == (f[1] and mask[0]) ||
+            (2..5).any { (id and mask[1]) == (f[it] and mask[1]) }
+
     /**
-     * The Pulse's CAN chips only let through the IDs their acceptance filters allow, and the defaults
-     * block 0x491 (compressor). This programs exact filters for just the IDs this app reads
-     * (chip 0 = IBUS1, chip 1 = IBUS2), the same driver parameters the sunnypilot HwFilters code uses.
-     * It only changes what is RECEIVED; nothing is sent. Needs root. Returns null on success, else why not.
+     * Reads the chips' current filters (set by the Pulse itself) and works out which of our IDs they already let
+     * through. Only the IDs that are missing get a place, and only in a SPARE filter slot (one that repeats another
+     * slot of the same buffer), so nothing the Pulse itself receives is ever taken away. Nothing is written here.
+     */
+    private fun readAndPlan(dir: File): Pair<List<ChipPlan>?, String> {
+        val q = Root.exec("cat ${dir.path}/rxb_mask_0; cat ${dir.path}/rxb_filter_0; cat ${dir.path}/rxb_mask_1; cat ${dir.path}/rxb_filter_1")
+        if (q.timedOut) return null to "root shell timed out (is root allowed for this app?)"
+        if (!q.ok) return null to "no root: ${q.out}"
+        val rows = q.out.lines().map { it.trim() }.filter { it.isNotEmpty() && it.all { c -> c.isDigit() || c == ',' || c == ' ' } }
+            .map { r -> r.split(',', ' ').filter { it.isNotEmpty() }.mapNotNull { it.toIntOrNull() } }
+        if (rows.size != 4 || rows[0].size != 2 || rows[2].size != 2 || rows[1].size != 6 || rows[3].size != 6)
+            return null to "could not read the filters (${q.out.trim().replace('\n', ' ').take(120)})"
+        val plans = (0..1).map { c ->
+            val mask = rows[c * 2]
+            val filt = rows[c * 2 + 1]
+            val nf = filt.toMutableList()
+            val missing = wanted.getValue(c).filter { !admits(mask, filt, it) }
+            val added = mutableListOf<Int>()
+            val unfit = mutableListOf<Int>()
+            for (id in missing) {
+                if (admits(mask, nf, id)) { added.add(id); continue }          // an earlier addition already covers it
+                // buffer 1: a slot that repeats an earlier slot (same value under the mask) is spare
+                var slot = (3..5).firstOrNull { k -> (2 until k).any { (nf[it] and mask[1]) == (nf[k] and mask[1]) } }
+                var m = mask[1]
+                if (slot == null && (nf[1] and mask[0]) == (nf[0] and mask[0])) { slot = 1; m = mask[0] }
+                if (slot == null) { unfit.add(id); continue }
+                nf[slot] = id and m
+                added.add(id)
+            }
+            ChipPlan(c, mask, filt, nf, missing, added, unfit)
+        }
+        return plans to ""
+    }
+
+    /**
+     * The Pulse's CAN chips only let through the IDs their acceptance filters allow. This looks at what the Pulse
+     * set (chip 0 = IBUS1, chip 1 = IBUS2) and adds only what is missing, in spare slots; if nothing is missing,
+     * nothing is written. In safe mode it only reads and reports. It changes what is RECEIVED; nothing is sent.
+     * Needs root. Returns null on success, else why not.
      */
     private fun openFilters(): String? {
-        if (safeMode) return "safe mode is on, filters left as they are"
         val dir = File("/sys/module/mcp251x/parameters")
         if (!dir.isDirectory) return "no mcp251x driver parameters on this device"
-        // Each chip has two receive buffers: buffer 0 (2 filters, one mask) and buffer 1 (4 filters, one mask).
-        // The six filters are given buffer 0 first. Masks let one filter cover a block of IDs; the helper's own
-        // socket filters then keep only the exact IDs this app wants.
-        val plan = listOf(
-            // IBUS1: buffer 0 (mask 0x700) passes 0x200-0x3FF (0x234 0x2AC 0x2F5 0x318 0x335 0x373 0x382);
-            // buffer 1 (mask 0x7FF, exact) passes 0x179, 0x507 and 0x6DD (0x6DD repeated, the fourth slot is spare)
-            Triple(0, "0x700,0x7FF", "0x200,0x300,0x179,0x507,0x6DD,0x6DD"),
-            // IBUS2: buffer 0 (mask 0x600) passes 0x000-0x1FF (0x0E9 0x1A9) and 0x400-0x5FF (0x491 0x504 0x505 0x580 0x582 0x5EA);
-            // buffer 1 (mask 0x7FF, exact) passes 0x210, 0x311, 0x332 and 0x351. Admits about half the frames of the old plan.
-            Triple(1, "0x600,0x7FF", "0x000,0x400,0x210,0x311,0x332,0x351"),
-        )
-        fun dec(csv: String) = csv.split(',').joinToString(",") { Integer.decode(it.trim()).toString() }
-        // already as wanted? then write nothing
-        try {
-            val want = plan.flatMap { (_, mask, filt) -> listOf(dec(mask), dec(filt)) }   // chip 0 mask, filter; chip 1 mask, filter
-            val q = Root.exec("cat ${dir.path}/rxb_mask_0; cat ${dir.path}/rxb_filter_0; cat ${dir.path}/rxb_mask_1; cat ${dir.path}/rxb_filter_1")
-            if (q.timedOut) return "root shell timed out (is root allowed for this app?)"
-            if (!q.ok) return "no root: ${q.out}"
-            val cur = q.out.lines().map { it.trim().replace(" ", "") }.filter { it.isNotEmpty() }
-            if (cur == want) { filterReadback = cur.joinToString(" "); return null }
-        } catch (e: Exception) { /* fall through and write them */ }
-        val sb = StringBuilder()
-        for ((chip, mask, filt) in plan) {
-            sb.append("echo '${dec(mask)}' > ${dir.path}/rxb_mask_$chip; ")
-            sb.append("echo '${dec(filt)}' > ${dir.path}/rxb_filter_$chip; ")
+        val (plans, err) = try { readAndPlan(dir) } catch (e: Exception) { null to "filter check failed: ${e.message}" }
+        if (plans == null) return err
+        val found = plans.joinToString("; ") { "chip${it.chip} mask=${hex(it.mask)} filters=${hex(it.filt)}" }
+        val gaps = plans.joinToString("; ") { "chip${it.chip} not admitted: ${if (it.missing.isEmpty()) "none" else hex(it.missing)}" }
+        if (safeMode) return "safe mode, nothing written. As found: $found. $gaps"
+        val changes = plans.filter { it.newFilt != it.filt }
+        val left = plans.flatMap { p -> p.unfit.map { "chip${p.chip}:0x" + Integer.toHexString(it).uppercase() } }
+        if (changes.isEmpty()) {
+            filterReadback = "as found, nothing written. $found. $gaps" + (if (left.isNotEmpty()) " (no spare slot for ${left.joinToString(",")})" else "")
+            return null
         }
-        sb.append("echo 1 > ${dir.path}/apply_filters; echo '--'; cat ${dir.path}/rxb_mask_0 ${dir.path}/rxb_filter_0 ${dir.path}/rxb_mask_1 ${dir.path}/rxb_filter_1")
+        val sb = StringBuilder()
+        for (p in changes) sb.append("echo '${p.newFilt.joinToString(",")}' > ${dir.path}/rxb_filter_${p.chip}; ")
+        sb.append("echo 1 > ${dir.path}/apply_filters; echo '--'; cat ${dir.path}/rxb_filter_0 ${dir.path}/rxb_filter_1")
         return try {
             val r = Root.exec(sb.toString())
             if (r.timedOut) return "root shell timed out (is root allowed for this app?)"
             if (!r.ok) return "no root: ${r.out}"
             val out = r.out
-            filterReadback = out.substringAfter("--", "").trim().replace('\n', ' ')
+            val addedTxt = changes.joinToString("; ") { "chip${it.chip} added ${hex(it.added)}" }
+            filterReadback = "$addedTxt. Before: $found. Now: " + out.substringAfter("--", "").trim().replace('\n', ' ') +
+                (if (left.isNotEmpty()) " (no spare slot for ${left.joinToString(",")})" else "")
             if (out.contains("denied", true) || out.contains("not found", true) || r.code != 0) "root command failed: ${out.trim()}" else null
         } catch (e: Exception) {
             "no root shell (${e.message})"
