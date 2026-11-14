@@ -625,7 +625,7 @@ class MainActivity : Activity() {
         edgeBox.addView(rootScroll, FrameLayout.LayoutParams(-1, -1))
         edgeBox.addView(dashRoot, FrameLayout.LayoutParams(-1, -1))
         // both buttons sit together at the bottom right
-        val btnBar = LinearLayout(this).apply {
+        btnBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             addView(skinBtn, LinearLayout.LayoutParams(-2, dp(36)).apply { rightMargin = dp(8) })
             addView(dashBtn, LinearLayout.LayoutParams(-2, dp(36)).apply { rightMargin = dp(8) })
@@ -792,6 +792,28 @@ class MainActivity : Activity() {
             prefs().edit().putString("startSplit", when (checkedId) { ssSpotify.id -> "spotify"; ssMaps.id -> "maps"; else -> "" }).apply()
         }
         box.add(ssg, 4)
+        box.add(CheckBox(this).apply {
+            text = "Right-hand drive layout (clock, compass, drive mode and the buttons swap sides)"; isChecked = prefs().getBoolean("rhd", false)
+            setOnCheckedChangeListener { _, on ->
+                prefs().edit().putBoolean("rhd", on).apply()
+                layoutKey = ""
+                if (::dashRoot.isInitialized && dashRoot.width > 0) {
+                    val dn = resources.displayMetrics.density
+                    adaptDashLayout((dashRoot.width / dn).toInt(), (dashRoot.height / dn).toInt())
+                }
+            }
+        }, 4)
+        box.add(label("Gauge arcs", 13f), 8)
+        val arcMirror = RadioButton(this).apply { text = "Mirrored (the two arcs curve toward each other)"; id = View.generateViewId() }
+        val arcLeft = RadioButton(this).apply { text = "Both arcs the same: curved like ("; id = View.generateViewId() }
+        val arcRight = RadioButton(this).apply { text = "Both arcs the same: curved like )"; id = View.generateViewId() }
+        val arcG = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL; addView(arcMirror); addView(arcLeft); addView(arcRight) }
+        when (prefs().getString("arcStyle", "mirror")) { "left" -> arcLeft.isChecked = true; "right" -> arcRight.isChecked = true; else -> arcMirror.isChecked = true }
+        arcG.setOnCheckedChangeListener { _, checkedId ->
+            prefs().edit().putString("arcStyle", when (checkedId) { arcLeft.id -> "left"; arcRight.id -> "right"; else -> "mirror" }).apply()
+            applyGaugeSides()
+        }
+        box.add(arcG, 4)
         box.add(CheckBox(this).apply {
             text = "Speed gauge on the left (power on the right)"; isChecked = prefs().getBoolean("speedLeft", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("speedLeft", on).apply(); applyGaugeSides() }
@@ -973,7 +995,7 @@ class MainActivity : Activity() {
                 layout(0, 0, gw, gw)
             }
         val power = gauge(false, 0.2f, 0.50f) {
-            topLabel = "AVG WH/KM"; topValue = "185"; title = "POWER"; valueText = "38.4"; unit = "kW"; bottomLabel = "CHARGE"; bottomValue = "78 %"
+            topLabel = "AVG WH/KM"; topValue = "185"; title = "POWER"; valueText = "38.4"; unit = "kW"; bottomLabel = "HV BATTERY"; bottomValue = "78 %"
             scale = powerScale()
         }
         val speed = gauge(true, 0f, 0.30f) {
@@ -1119,6 +1141,9 @@ class MainActivity : Activity() {
     private lateinit var dashClock: DashClockView
     private lateinit var dashTop: LinearLayout
     private var tripMidRows = 0
+    private lateinit var btnBar: LinearLayout
+    private var gaugeWeight = 1.15f
+    private var midWeight = 0.7f
     private var tripDlgView: TripPanelView? = null
     private lateinit var resBtn: TextView
     private lateinit var flyBtn: TextView
@@ -1202,7 +1227,7 @@ class MainActivity : Activity() {
             return mix(stops[i], stops[i + 1], k - i)
         }
         dashPowerGauge = ArcGaugeView(this, false, 0.2f) { t -> Skins.grad(t) }
-            .apply { topLabel = "AVG WH/KM"; title = "POWER"; unit = "kW"; bottomLabel = "CHARGE" }
+            .apply { topLabel = "AVG WH/KM"; title = "POWER"; unit = "kW"; bottomLabel = "HV BATTERY" }
         dashSpeedGauge = ArcGaugeView(this, true, 0f) { t -> Skins.grad(t) }
             .apply { topLabel = "BATTERY TEMP"; title = "SPEED"; unit = "km/h"; bottomLabel = "BATTERY HEATING/COOLING" }
         val light = Typeface.create("sans-serif-light", Typeface.NORMAL)
@@ -1422,14 +1447,17 @@ class MainActivity : Activity() {
     /** Speed gauge on the left or the right (a setting); the arcs open towards the middle either way. */
     private fun applyGaugeSides() {
         val speedLeft = prefs().getBoolean("speedLeft", false)
-        dashSpeedGauge.mirrored = !speedLeft
-        dashPowerGauge.mirrored = speedLeft
+        val arcStyle = prefs().getString("arcStyle", "mirror")
+        val leftG = if (speedLeft) dashSpeedGauge else dashPowerGauge
+        val rightG = if (speedLeft) dashPowerGauge else dashSpeedGauge
+        leftG.mirrored = arcStyle == "right"
+        rightG.mirrored = arcStyle != "left"
         dashGaugeRow.removeAllViews()
         val left = if (speedLeft) dashSpeedGauge else dashPowerGauge
         val right = if (speedLeft) dashPowerGauge else dashSpeedGauge
-        dashGaugeRow.addView(left, LinearLayout.LayoutParams(0, -1, 1.15f))
-        dashGaugeRow.addView(dashMid, LinearLayout.LayoutParams(0, -1, 0.7f))
-        dashGaugeRow.addView(right, LinearLayout.LayoutParams(0, -1, 1.15f))
+        dashGaugeRow.addView(left, LinearLayout.LayoutParams(0, -1, gaugeWeight))
+        dashGaugeRow.addView(dashMid, LinearLayout.LayoutParams(0, -1, midWeight))
+        dashGaugeRow.addView(right, LinearLayout.LayoutParams(0, -1, gaugeWeight))
         dashSpeedGauge.invalidate(); dashPowerGauge.invalidate()
     }
 
@@ -1530,11 +1558,15 @@ class MainActivity : Activity() {
         val midFree = (if (tall) wantH else gaugeH - topM.toFloat()) - midFixed
         val midRows = if (midFree >= 104f) 3 else if (midFree >= 72f) 2 else 0
         // the clock goes in the free band above the left gauge (the gauge circle is centred in its height)
-        val gaugeWdp = (wDp - 16) * 1.15f / 3.0f
         val rowHdp = if (tall) wantH else gaugeH - topM.toFloat()
+        // the gauge circles are limited by the row height, so any spare width goes to the middle column (bigger trip text)
+        val gwDefault = (wDp - 16) * 1.15f / 3.0f
+        val gaugeWdp = maxOf(minOf(gwDefault, rowHdp), gwDefault * 0.85f)
+        val midWdp = (wDp - 16) - 2f * gaugeWdp
         val band = rowHdp / 2f - minOf(gaugeWdp, rowHdp) / 2f * 0.92f - 6f
         val clockH = if (band >= 30f) band.toInt().coerceAtMost(110) else 0
-        val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH"
+        val rhd = prefs().getBoolean("rhd", false)
+        val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$rhd"
         if (key == layoutKey) return
         layoutKey = key
         EventLog.add("layout ${wDp}x${hDp}dp tier=$ti trip=$midRows third=$third half=$half tall=$tall")
@@ -1543,8 +1575,18 @@ class MainActivity : Activity() {
         val stripBottom = base + tripOff
         val rowBottom = if (t.showStrip) stripBottom + t.strip + 4 else base
         tripMidRows = midRows
+        gaugeWeight = gaugeWdp; midWeight = midWdp
+        (dashGaugeRow.getChildAt(0).layoutParams as LinearLayout.LayoutParams).weight = gaugeWdp
+        (dashGaugeRow.getChildAt(1).layoutParams as LinearLayout.LayoutParams).weight = midWdp
+        (dashGaugeRow.getChildAt(2).layoutParams as LinearLayout.LayoutParams).weight = gaugeWdp
+        dashGaugeRow.requestLayout()
         dashClock.visibility = if (clockH > 0) View.VISIBLE else View.GONE
-        (dashClock.layoutParams as FrameLayout.LayoutParams).apply { width = dp(gaugeWdp.toInt() - 6); height = dp(clockH); setMargins(dp(14), dp(topM), 0, 0) }
+        dashClock.alignRight = rhd
+        (dashClock.layoutParams as FrameLayout.LayoutParams).apply {
+            width = dp(gaugeWdp.toInt() - 6); height = dp(clockH)
+            gravity = Gravity.TOP or (if (rhd) Gravity.END else Gravity.START)
+            if (rhd) setMargins(0, dp(topM), dp(14), 0) else setMargins(dp(14), dp(topM), 0, 0)
+        }
         dashClock.requestLayout()
         tripPanel.visibility = if (midRows > 0) View.VISIBLE else View.GONE
         tripBtn.visibility = if (midRows > 0) View.GONE else View.VISIBLE
@@ -1574,7 +1616,27 @@ class MainActivity : Activity() {
         editBackdrop.requestLayout()
         (dashStrip.layoutParams as FrameLayout.LayoutParams).apply { height = dp(maxOf(t.strip, 1)); setMargins(dp(sideL), 0, dp(sideR), dp(stripBottom)) }
         (dashRow.layoutParams as FrameLayout.LayoutParams).apply { height = dp(t.row); setMargins(dp(sideL), 0, dp(sideR), dp(rowBottom)) }
-        (lowerBox.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8) + (if (third) 0 else if (half) 20 else 10), 0, 0, dp(10)) }
+        val edgeOff = dp(8) + (if (third) 0 else if (half) 20 else 10)
+        (lowerBox.layoutParams as FrameLayout.LayoutParams).apply {
+            gravity = Gravity.BOTTOM or (if (rhd) Gravity.END else Gravity.START)
+            if (rhd) setMargins(0, 0, dp(8), dp(10)) else setMargins(edgeOff, 0, 0, dp(10))
+        }
+        // children in mirrored order for right-hand drive
+        val lowerKids = listOf(resBtn, tripBtn, lowerTabs)
+        lowerBox.removeAllViews()
+        for (v in if (rhd) lowerKids.reversed() else lowerKids) lowerBox.addView(v)
+        (resBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
+        (tripBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
+        (btnBar.layoutParams as FrameLayout.LayoutParams).apply {
+            gravity = Gravity.BOTTOM or (if (rhd) Gravity.START else Gravity.END)
+            if (rhd) setMargins(edgeOff, 0, 0, dp(16)) else setMargins(0, 0, dp(8), dp(16))
+        }
+        val barKids = listOf(skinBtn, dashBtn, exitBtn)
+        btnBar.removeAllViews()
+        for ((i, v) in (if (rhd) barKids.reversed() else barKids).withIndex()) {
+            btnBar.addView(v, LinearLayout.LayoutParams(-2, dp(36)).apply { if (i < barKids.size - 1) rightMargin = dp(8) })
+        }
+        btnBar.requestLayout(); lowerBox.requestLayout()
         (poolBar.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), 0, dp(8), dp(lowerBottom)) }
         (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -1587,7 +1649,18 @@ class MainActivity : Activity() {
         dashMode.textSize = if (short) 9f else 11f
         dashMode.minWidth = dp(if (short) 60 else 84)
         dashMode.setPadding(dp(if (short) 6 else 10), dp(if (short) 1 else 3), dp(if (short) 6 else 10), dp(if (short) 1 else 3))
-        (dashTop.layoutParams as FrameLayout.LayoutParams).apply { setMargins(0, dp(if (short) 2 else 6), dp(8), 0) }
+        (dashTop.layoutParams as FrameLayout.LayoutParams).apply {
+            gravity = Gravity.TOP or (if (rhd) Gravity.START else Gravity.END)
+            if (rhd) setMargins(dp(8), dp(if (short) 2 else 6), 0, 0) else setMargins(0, dp(if (short) 2 else 6), dp(8), 0)
+        }
+        dashTop.removeAllViews()
+        if (rhd) {
+            dashTop.addView(dashMode, LinearLayout.LayoutParams(-2, -2).apply { rightMargin = dp(10) })
+            dashTop.addView(dashHeading, LinearLayout.LayoutParams(-2, -2))
+        } else {
+            dashTop.addView(dashHeading, LinearLayout.LayoutParams(-2, -2).apply { rightMargin = dp(10) })
+            dashTop.addView(dashMode, LinearLayout.LayoutParams(-2, -2))
+        }
         dashTop.requestLayout()
         dashMode.requestLayout()
         dashLightDist.textSize = if (short) 12f else 15f
@@ -3661,6 +3734,7 @@ class ChargeBarView(ctx: Context) : View(ctx) {
 /** The time with seconds, and the date under it when there is room. */
 class DashClockView(ctx: Context) : View(ctx) {
     var day = false
+    var alignRight = false
     private val is24 = android.text.format.DateFormat.is24HourFormat(ctx)
     private val tf = java.text.SimpleDateFormat(if (is24) "HH:mm:ss" else "h:mm:ss", java.util.Locale.getDefault())
     private val af = java.text.SimpleDateFormat("a", java.util.Locale.getDefault())
@@ -3697,10 +3771,11 @@ class DashClockView(ctx: Context) : View(ctx) {
         val total = tw + (if (is24) 0f else apGap + aw)
         if (total > w) { size *= w / total; tp.textSize = size; tw = tp.measureText(timeStr); aw = if (is24) 0f else tp.measureText(ap) * 0.38f }
         val base = timeH * 0.80f
-        c.drawText(timeStr, 0f, base, tp)
+        val tx = if (alignRight) w - (tw + (if (is24) 0f else size * 0.12f + aw)) else 0f
+        c.drawText(timeStr, tx, base, tp)
         if (!is24) {
             tp.textSize = size * 0.38f; tp.color = grey
-            c.drawText(ap, tw + size * 0.12f, base, tp)
+            c.drawText(ap, tx + tw + size * 0.12f, base, tp)
         }
         if (withDate) {
             dp2.typeface = tfc; dp2.color = grey
@@ -3708,7 +3783,7 @@ class DashClockView(ctx: Context) : View(ctx) {
             val ds = df.format(now)
             val dw = dp2.measureText(ds)
             if (dw > w) dp2.textSize = dp2.textSize * w / dw
-            c.drawText(ds, 0f, h * 0.96f, dp2)
+            c.drawText(ds, if (alignRight) w - minOf(dw, w) else 0f, h * 0.96f, dp2)
         }
     }
 }
@@ -3848,7 +3923,7 @@ class TripPanelView(ctx: Context) : View(ctx) {
         for (r in 1 until rows) c.drawLine(w * 0.04f, titleH + ch * r, w * 0.96f, titleH + ch * r, line)
         // one label size and one value size for every cell: the largest that lets the longest of each fit
         val inner = cw * 0.84f
-        val isz = minOf(ch * 0.30f, 15f * d)
+        val isz = minOf(ch * 0.30f, 22f * d)
         var ls = isz * 0.66f
         for (cell in cells) {
             txt.typeface = light; txt.textSize = ls
