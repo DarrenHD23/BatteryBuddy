@@ -937,7 +937,7 @@ class MainActivity : Activity() {
                 layout(0, 0, gw, gw)
             }
         val power = gauge(false, 0.2f, 0.50f) {
-            topLabel = "CLIMATE"; topValue = "0.4 kW"; title = "POWER"; valueText = "38.4"; unit = "kW"; bottomLabel = "CHARGE"; bottomValue = "78 %"; barFrac = 0.78f
+            topLabel = "CLIMATE"; topValue = "0.4 kW"; title = "POWER"; valueText = "38.4"; unit = "kW"; bottomLabel = "CHARGE"; bottomValue = "78 %"
             scale = powerScale()
         }
         val speed = gauge(true, 0f, 0.30f) {
@@ -1079,6 +1079,7 @@ class MainActivity : Activity() {
     private lateinit var tripPanel: TripPanelView
     private lateinit var tripBtn: TextView
     private lateinit var dashSlot: FrameLayout
+    private lateinit var chargeBar: ChargeBarView
     private var tripMidRows = 0
     private var tripDlgView: TripPanelView? = null
     private lateinit var resBtn: TextView
@@ -1198,6 +1199,7 @@ class MainActivity : Activity() {
             text = "READY"; textSize = 17f; letterSpacing = 0.18f; gravity = Gravity.CENTER; visibility = View.INVISIBLE
             typeface = Typeface.create("sans-serif-black", Typeface.BOLD); setTextColor(Color.parseColor("#7CFF3A"))
         }
+        chargeBar = ChargeBarView(this)
         tripPanel = TripPanelView(this).apply {
             cols = 2
             visibility = View.GONE
@@ -1213,7 +1215,8 @@ class MainActivity : Activity() {
             addView(dashReady, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
             addView(dashSlot, LinearLayout.LayoutParams(-1, dp(92)).apply { topMargin = dp(4) })
             addView(dashLightDist, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
-            addView(tripPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(4); bottomMargin = dp(4) })
+            addView(chargeBar, LinearLayout.LayoutParams(-1, dp(30)).apply { topMargin = dp(4) })
+            addView(tripPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(6); bottomMargin = dp(4) })
             addView(dashBrake, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
             addView(dashHeading, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         }
@@ -1324,6 +1327,7 @@ class MainActivity : Activity() {
         else bgDrawable(Color.argb(120, 0, 0, 0)) ?: GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Skins.look.bgTop, Skins.look.bgBottom))
         dashSpeedGauge.day = day; dashPowerGauge.day = day; dashStrip.day = day; dashStrip.invalidate()
         if (::tripPanel.isInitialized) { tripPanel.day = day; tripPanel.invalidate() }
+        if (::chargeBar.isInitialized) { chargeBar.day = day; chargeBar.invalidate() }
         val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
         dashHeading.setTextColor(ink)
         dashHeading.typeface = Typeface.create(Skins.look.numFont, if (Skins.look.italic) Typeface.ITALIC else Typeface.NORMAL)
@@ -1475,7 +1479,7 @@ class MainActivity : Activity() {
         val wantH = maxOf((wDp - 16) * 1.15f / 3f * 1.1f, 340f)
         val tall = hDp - gb - topM > wantH + 24f
         // the trip readouts sit in the middle column under the traffic light; rows by the height left there
-        val midFixed = when (midLevel) { 0 -> 235f; 1 -> 165f; else -> 125f }
+        val midFixed = when (midLevel) { 0 -> 267f; 1 -> 197f; else -> 157f }
         val midFree = (if (tall) wantH else gaugeH - topM.toFloat()) - midFixed
         val midRows = if (midFree >= 96f) 3 else if (midFree >= 62f) 2 else 0
         val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$midRows"
@@ -1842,7 +1846,7 @@ class MainActivity : Activity() {
         })
         dashPowerGauge.topValue = s.climateKw?.let { String.format("%.1f kW", it) } ?: "--"
         dashPowerGauge.bottomValue = s.socUsable?.let { "$it %" } ?: "--"
-        dashPowerGauge.barFrac = s.socUsable?.let { it / 100f }
+        chargeBar.frac = s.socUsable?.let { it / 100f }
         dashPowerGauge.refresh()
 
         dashBrake.visibility = if (s.brakeBcm ?: s.brakeVcu ?: false) View.VISIBLE else View.INVISIBLE
@@ -3465,6 +3469,62 @@ class StatusStripView(ctx: Context) : View(ctx) {
             rect.set(cx - colW * 0.48f, h * 0.12f, cx + colW * 0.48f, h * 0.96f)
             c.drawRoundRect(rect, 12f, 12f, fill)
             drawItem(c, p, cx, colW, h, ink, grey)
+        }
+    }
+}
+
+/** The battery charge level: a "BATTERY" caption over a thin horizontal bar with the percentage beside it.
+ *  Amber at 30 % or less, red at 20 % or less. */
+class ChargeBarView(ctx: Context) : View(ctx) {
+    var day = false
+    var frac: Float? = null
+        set(v) { if (field != v) { field = v; invalidate() } }
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val t = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.RIGHT; typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL) }
+    private val cap = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.LEFT; typeface = Typeface.create("sans-serif-light", Typeface.NORMAL); letterSpacing = 0.12f }
+    private val rect = RectF()
+
+    override fun onDraw(c: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        if (w <= 0f || h <= 0f) return
+        val f = frac
+        val red = f != null && f <= 0.20f
+        val amber = f != null && f <= 0.30f && !red
+        val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
+        val grey = if (day) Color.argb(160, 20, 32, 46) else Color.argb(150, 255, 255, 255)
+        val warn = if (red) Color.parseColor("#FF3B4E") else Color.parseColor("#FFB020")
+        val fillCol = if (red || amber) warn else if (day) Skins.look.accentDay else Skins.look.accent
+        // caption on top
+        cap.textSize = h * 0.25f
+        cap.color = grey
+        c.drawText("BATTERY", 0f, h * 0.28f, cap)
+        // bar and percentage on the row below
+        val rowTop = h * 0.38f
+        val rowH = h - rowTop
+        t.textSize = rowH * 0.80f
+        t.color = if (red || amber) warn else ink
+        val label = if (f == null) "--" else "${Math.round(f.coerceIn(0f, 1f) * 100)}%"
+        val tw = t.measureText("100%")
+        val gap = rowH * 0.45f
+        val barW = maxOf(rowH, w - tw - gap)
+        c.drawText(label, w, rowTop + rowH / 2f - (t.descent() + t.ascent()) / 2f, t)
+        val bh = rowH * 0.48f
+        val top = rowTop + (rowH - bh) / 2f
+        val rad = bh / 2f
+        p.color = if (day) Color.argb(40, 20, 32, 46) else Color.argb(55, 255, 255, 255)
+        rect.set(0f, top, barW, top + bh)
+        c.drawRoundRect(rect, rad, rad, p)
+        if (f != null && f > 0f) {
+            p.color = fillCol
+            rect.set(0f, top, maxOf(bh, barW * f.coerceIn(0f, 1f)), top + bh)
+            c.drawRoundRect(rect, rad, rad, p)
+        }
+        // small notches at the 30 % and 20 % marks
+        p.color = if (day) Color.argb(110, 20, 32, 46) else Color.argb(130, 255, 255, 255)
+        for (m in floatArrayOf(0.20f, 0.30f)) {
+            rect.set(barW * m - 1f, top - bh * 0.25f, barW * m + 1f, top + bh * 1.25f)
+            c.drawRect(rect, p)
         }
     }
 }
