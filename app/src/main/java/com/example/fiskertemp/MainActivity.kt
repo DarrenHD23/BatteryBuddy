@@ -769,6 +769,14 @@ class MainActivity : Activity() {
         val spg = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL; addView(kmh); addView(mph) }
         spg.setOnCheckedChangeListener { _, checkedId -> prefs().edit().putBoolean("mph", checkedId == mph.id).apply() }
         box.add(spg, 6)
+        box.add(TextView(this).apply { text = "Efficiency units"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
+        val dU = if (speedMph()) "mi" else "km"
+        val ef1 = RadioButton(this).apply { text = "Wh/$dU  (Wh used per $dU)"; id = View.generateViewId(); isChecked = effMode() == "wh" }
+        val ef2 = RadioButton(this).apply { text = "$dU/kWh  ($dU per kWh)"; id = View.generateViewId(); isChecked = effMode() == "perkwh" }
+        val ef3 = RadioButton(this).apply { text = "kWh/$dU  (kWh used per $dU)"; id = View.generateViewId(); isChecked = effMode() == "kwhper" }
+        val efg = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL; addView(ef1); addView(ef2); addView(ef3) }
+        efg.setOnCheckedChangeListener { _, checkedId -> prefs().edit().putString("effUnit", when (checkedId) { ef2.id -> "perkwh"; ef3.id -> "kwhper"; else -> "wh" }).apply() }
+        box.add(efg, 6)
         box.add(TextView(this).apply { text = "Dashboard"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
         box.add(CheckBox(this).apply {
             text = "Show the dashboard when the app starts"; isChecked = prefs().getBoolean("dashDefault", false)
@@ -965,7 +973,7 @@ class MainActivity : Activity() {
                 layout(0, 0, gw, gw)
             }
         val power = gauge(false, 0.2f, 0.50f) {
-            topLabel = "CLIMATE"; topValue = "0.4 kW"; title = "POWER"; valueText = "38.4"; unit = "kW"; bottomLabel = "CHARGE"; bottomValue = "78 %"
+            topLabel = "AVG WH/KM"; topValue = "185"; title = "POWER"; valueText = "38.4"; unit = "kW"; bottomLabel = "CHARGE"; bottomValue = "78 %"
             scale = powerScale()
         }
         val speed = gauge(true, 0f, 0.30f) {
@@ -1194,7 +1202,7 @@ class MainActivity : Activity() {
             return mix(stops[i], stops[i + 1], k - i)
         }
         dashPowerGauge = ArcGaugeView(this, false, 0.2f) { t -> Skins.grad(t) }
-            .apply { topLabel = "CLIMATE"; title = "POWER"; unit = "kW"; bottomLabel = "CHARGE" }
+            .apply { topLabel = "AVG WH/KM"; title = "POWER"; unit = "kW"; bottomLabel = "CHARGE" }
         dashSpeedGauge = ArcGaugeView(this, true, 0f) { t -> Skins.grad(t) }
             .apply { topLabel = "BATTERY TEMP"; title = "SPEED"; unit = "km/h"; bottomLabel = "BATTERY HEATING/COOLING" }
         val light = Typeface.create("sans-serif-light", Typeface.NORMAL)
@@ -1232,6 +1240,7 @@ class MainActivity : Activity() {
         chargeBar = ChargeBarView(this)
         tripPanel = TripPanelView(this).apply {
             cols = 3
+            title = "Trip Information"
             visibility = View.GONE
             onReset = { pulse?.resetDrive(); Toast.makeText(context, "Trip reset", Toast.LENGTH_SHORT).show() }
         }
@@ -1519,7 +1528,7 @@ class MainActivity : Activity() {
         // the trip readouts sit in the middle column under the traffic light; rows by the height left there
         val midFixed = when (midLevel) { 0 -> 208f; 1 -> 161f; else -> 129f }
         val midFree = (if (tall) wantH else gaugeH - topM.toFloat()) - midFixed
-        val midRows = if (midFree >= 84f) 3 else if (midFree >= 56f) 2 else 0
+        val midRows = if (midFree >= 96f) 3 else if (midFree >= 66f) 2 else 0
         // the clock goes in the free band above the left gauge (the gauge circle is centred in its height)
         val gaugeWdp = (wDp - 16) * 1.15f / 3.0f
         val rowHdp = if (tall) wantH else gaugeH - topM.toFloat()
@@ -1891,7 +1900,8 @@ class MainActivity : Activity() {
             if (it >= 0) (0.2 + 0.8 * Math.sqrt((it / 250.0).coerceIn(0.0, 1.0))).toFloat()
             else (0.2 - 0.2 * Math.sqrt((-it / 80.0).coerceIn(0.0, 1.0))).toFloat()
         })
-        dashPowerGauge.topValue = s.climateKw?.let { String.format("%.1f kW", it) } ?: "--"
+        dashPowerGauge.topLabel = "AVG " + effUnitLabel()
+        dashPowerGauge.topValue = effText(avgEffKwh100(s))
         dashPowerGauge.bottomValue = s.socUsable?.let { "$it %" } ?: "--"
         chargeBar.frac = s.socUsable?.let { it / 100f }
         if (dashClock.visibility == View.VISIBLE) dashClock.tick()
@@ -1975,56 +1985,59 @@ class MainActivity : Activity() {
     /** The trip readouts: counted by this app (distance, time, energy) and the car's own figures. */
     private fun tripCells(s: CanSnapshot, compact: Boolean = false): List<Pair<String, String>> {
         val mph = speedMph()
-        val unitEff = if (mph) "WH/MI" else "WH/KM"
-        // kWh per 100 km -> Wh/km (x10) or Wh/mi (x16.09344); negative means energy is coming back
-        fun eff(k: Double?): String = when {
-            k == null -> "--"
-            mph -> String.format("%.0f", k * 16.09344)
-            else -> String.format("%.0f", k * 10.0)
-        }
+        val unitEff = effUnitLabel()
         fun dist(km: Double?): String = km?.let { if (mph) String.format("%.1f mi", it * 0.621371) else String.format("%.1f km", it) } ?: "--"
         val km = s.tripKm
         val elapsed = if (s.tripStartMs == 0L) null else (System.currentTimeMillis() - s.tripStartMs) / 1000.0
         val avgSpeed = if (s.tripMoveSecs >= 30.0) km / (s.tripMoveSecs / 3600.0) else null
-        val avgEff = if (km >= 0.3) s.tripKwh / km * 100.0 else null
-        val v = s.packVolts
-        val a = s.packAmps
-        val kw = if (v != null && a != null) v * a / 1000.0 * (if (prefs().getBoolean("flipPower", false)) -1 else 1) else null
-        val spd = s.speedKmh
-        val ownNow = if (kw != null && spd != null && spd >= 5.0) kw / spd * 100.0 else null
-        val now = if (spd != null && spd >= 3.0) (s.carInstKwh100 ?: ownNow) else null
+        val avgEff = avgEffKwh100(s)
         if (compact) {
-            // narrow cells: the unit goes in the caption and the value is just the number
-            fun num(v: Double?): String = v?.let { String.format("%.1f", if (mph) it * 0.621371 else it) } ?: "--"
             fun short(secs: Double): String {
                 val t = secs.toLong().coerceAtLeast(0)
                 return if (t >= 3600) String.format("%dh%02dm", t / 3600, (t % 3600) / 60) else if (t >= 60) String.format("%dm%02ds", t / 60, t % 60) else "${t}s"
             }
-            val dk = if (mph) "MI" else "KM"
-            return listOf(
-                "Avg $unitEff" to eff(avgEff),
-                "Now $unitEff" to eff(now),
+            val cells = mutableListOf(
+                "Avg $unitEff" to effText(avgEff),
                 "Energy kWh" to String.format("%.1f", s.tripKwh),
-                "Dist $dk" to num(km),
+                "Travelled" to dist(km),
                 "Time" to (elapsed?.let { short(it) } ?: "--"),
                 "Moving" to short(s.tripMoveSecs),
                 "Avg ${if (mph) "MPH" else "KM/H"}" to (avgSpeed?.let { String.format("%.0f", if (mph) it * 0.621371 else it) } ?: "--"),
-                "Car $dk" to num(s.carTripKm),
-                "Car $unitEff" to eff(s.carTripWhKm?.let { it / 10.0 }),
             )
+            if (s.carTripKm != null) cells.add("Car trip" to dist(s.carTripKm))
+            return cells
         }
         return listOf(
-            "Distance" to dist(km),
+            "Travelled" to dist(km),
             "Time" to (elapsed?.let { fmtDur(it) } ?: "--"),
             "Moving" to fmtDur(s.tripMoveSecs),
             "Avg speed" to (avgSpeed?.let { if (mph) String.format("%.0f mph", it * 0.621371) else String.format("%.0f km/h", it) } ?: "--"),
             "Energy" to String.format("%.1f kWh", s.tripKwh),
-            "Avg $unitEff" to eff(avgEff),
-            "Now $unitEff" to eff(now),
+            "Avg $unitEff" to effText(avgEff),
             "Car trip" to dist(s.carTripKm),
-            "Car $unitEff" to eff(s.carTripWhKm?.let { it / 10.0 }),
         )
     }
+
+    // ---- efficiency units: Wh per distance, distance per kWh, or kWh per distance (km or miles follow the speed unit)
+    private fun effMode(): String = prefs().getString("effUnit", "wh") ?: "wh"
+
+    private fun effUnitLabel(): String {
+        val d = if (speedMph()) "MI" else "KM"
+        return when (effMode()) { "perkwh" -> "$d/KWH"; "kwhper" -> "KWH/$d"; else -> "WH/$d" }
+    }
+
+    /** [k] is kWh per 100 km, which is how the trip is worked out; converted to the chosen unit. */
+    private fun effText(k: Double?): String {
+        if (k == null) return "--"
+        val mph = speedMph()
+        return when (effMode()) {
+            "perkwh" -> if (k <= 0.5) "--" else String.format("%.1f", (if (mph) 62.1371 else 100.0) / k)
+            "kwhper" -> String.format("%.3f", if (mph) k * 0.01609344 else k / 100.0)
+            else -> String.format("%.0f", if (mph) k * 16.09344 else k * 10.0)
+        }
+    }
+
+    private fun avgEffKwh100(s: CanSnapshot): Double? = if (s.tripKm >= 0.3) s.tripKwh / s.tripKm * 100.0 else null
 
     /** The trip readouts in a pop-up, for windows too small to show the panel. */
     private fun showTripDialog() {
@@ -3674,6 +3687,7 @@ class DashClockView(ctx: Context) : View(ctx) {
 class TripPanelView(ctx: Context) : View(ctx) {
     var day = false
     var cols = 5
+    var title: String? = null
     var onReset: (() -> Unit)? = null
     private var cells: List<Pair<String, String>> = emptyList()
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
@@ -3706,7 +3720,8 @@ class TripPanelView(ctx: Context) : View(ctx) {
         val accent = look.accent
         val rows = (cells.size + cols - 1) / cols
         val cw = w / cols
-        val ch = h / rows
+        val titleH = if (title != null) minOf(h * 0.2f, 22f * resources.displayMetrics.density) else 0f
+        val ch = (h - titleH) / rows
         val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
         val grey = if (day) Color.argb(160, 20, 32, 46) else Color.argb(150, 255, 255, 255)
         val base = if (day) look.accentDay else accent
@@ -3721,16 +3736,17 @@ class TripPanelView(ctx: Context) : View(ctx) {
         c.drawLine(0f, 3f, w, 3f, line)
         line.shader = null
         div.color = if (day) Color.argb(40, 20, 32, 46) else Color.argb(45, 255, 255, 255)
+        title?.let { fit(it.uppercase(), titleH * 0.60f, w * 0.96f, medium, grey, w / 2f, titleH * 0.88f, c) }
         for ((i, p) in cells.withIndex()) {
             val r = i / cols
             val k = i % cols
             val cx = cw * (k + 0.5f)
-            val top = ch * r
+            val top = titleH + ch * r
             fit(p.first.uppercase(), ch * 0.20f, cw * 0.92f, light, grey, cx, top + ch * 0.38f, c)
             fit(p.second, ch * 0.38f, cw * 0.92f, medium, ink, cx, top + ch * 0.82f, c)
             if (k > 0) c.drawLine(cw * k, top + ch * 0.16f, cw * k, top + ch * 0.92f, div)
         }
-        for (r in 1 until rows) c.drawLine(cw * 0.04f, ch * r, w - cw * 0.04f, ch * r, div)
+        for (r in 1 until rows) c.drawLine(cw * 0.04f, titleH + ch * r, w - cw * 0.04f, titleH + ch * r, div)
     }
 }
 
