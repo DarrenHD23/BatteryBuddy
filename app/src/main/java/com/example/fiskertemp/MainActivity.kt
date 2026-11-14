@@ -2001,6 +2001,7 @@ class MainActivity : Activity() {
             TripCell(3, "Average Speed", avgSpeed?.let { String.format("%.0f", if (mph) it * 0.621371 else it) } ?: "--", if (mph) "mph" else "km/h"),
             TripCell(4, "Energy Consumed", String.format("%.1f", s.tripKwh), "kWh"),
             TripCell(1, "Elapsed Time", elapsed?.let { dur(it) } ?: "--"),
+            TripCell(7, "Regen", String.format("%.2f", s.regenKwh), "kWh"),
         )
     }
 
@@ -3570,23 +3571,56 @@ class ChargeBarView(ctx: Context) : View(ctx) {
         val f = frac
         // the bar runs the full width, so it lines up with the trip readouts above it
         val barW = w
-        val bh = h * 0.86f
-        val top = (h - bh) / 2f
-        p.shader = null
-        p.color = if (day) Color.argb(40, 20, 32, 46) else Color.argb(60, 255, 255, 255)
-        rect.set(0f, top, barW, top + bh)
+        val bh = h * 0.72f
+        val top = h * 0.07f
+        val bot = top + bh
+        val clamp = android.graphics.Shader.TileMode.CLAMP
+        // floating: a soft shadow under the bar
+        for (k in 0 until 6) {
+            val gr = (k + 1) * h * 0.035f
+            p.shader = null
+            p.color = Color.argb(if (day) 16 else 26, 0, 0, 0)
+            rect.set(barW * 0.03f + gr * 0.5f, bot + h * 0.02f, barW * 0.97f - gr * 0.5f, bot + h * 0.02f + gr)
+            c.drawRect(rect, p)
+        }
+        // the glass track: translucent, lighter at the top
+        p.shader = LinearGradient(0f, top, 0f, bot, intArrayOf(
+            if (day) Color.argb(70, 255, 255, 255) else Color.argb(95, 255, 255, 255),
+            if (day) Color.argb(40, 20, 32, 46) else Color.argb(38, 200, 220, 255)), null, clamp)
+        rect.set(0f, top, barW, bot)
         c.drawRect(rect, p)
+        p.shader = null
         if (f != null && f > 0f) {
-            // one gradient across the whole bar, so the colour at any point is fixed by its level
-            p.shader = LinearGradient(0f, 0f, barW, 0f, stopCol, stopPos, android.graphics.Shader.TileMode.CLAMP)
-            rect.set(0f, top, barW * f.coerceIn(0f, 1f), top + bh)
+            val fw = barW * f.coerceIn(0f, 1f)
+            // one gradient across the whole bar, semi-transparent, so the colour at a point is fixed by its level
+            val tr = IntArray(stopCol.size) { Color.argb(215, Color.red(stopCol[it]), Color.green(stopCol[it]), Color.blue(stopCol[it])) }
+            p.shader = LinearGradient(0f, 0f, barW, 0f, tr, stopPos, clamp)
+            rect.set(0f, top, fw, bot)
+            c.drawRect(rect, p)
+            // rounded-tube shading: bright band near the top, dark toward the bottom
+            p.shader = LinearGradient(0f, top, 0f, bot, intArrayOf(
+                Color.argb(120, 255, 255, 255), Color.argb(20, 255, 255, 255), Color.argb(0, 0, 0, 0), Color.argb(90, 0, 0, 0)),
+                floatArrayOf(0f, 0.45f, 0.6f, 1f), clamp)
             c.drawRect(rect, p)
             p.shader = null
+            // bright end edge of the charge
+            p.color = Color.argb(150, 255, 255, 255)
+            rect.set(maxOf(0f, fw - 1.5f), top, fw, bot)
+            c.drawRect(rect, p)
         }
+        // glass outline: bright along the top edge, faint around the rest
+        p.color = Color.argb(if (day) 120 else 170, 255, 255, 255)
+        rect.set(0f, top, barW, top + 1.5f)
+        c.drawRect(rect, p)
+        p.color = Color.argb(if (day) 60 else 70, 255, 255, 255)
+        rect.set(0f, top, 1f, bot); c.drawRect(rect, p)
+        rect.set(barW - 1f, top, barW, bot); c.drawRect(rect, p)
+        p.color = Color.argb(70, 0, 0, 0)
+        rect.set(0f, bot - 1f, barW, bot); c.drawRect(rect, p)
         // faint marks inside the bar at 30 % and 20 %
         p.color = if (day) Color.argb(55, 20, 32, 46) else Color.argb(75, 255, 255, 255)
         for (m in floatArrayOf(0.20f, 0.30f)) {
-            rect.set(barW * m - 0.75f, top, barW * m + 0.75f, top + bh)
+            rect.set(barW * m - 0.75f, top, barW * m + 0.75f, bot)
             c.drawRect(rect, p)
         }
         // "BATTERY" and the percentage, together, centred in the bar
@@ -3608,9 +3642,10 @@ class ChargeBarView(ctx: Context) : View(ctx) {
         cap.setShadowLayer(bh * 0.12f, 0f, 0f, shadow)
         t.setShadowLayer(bh * 0.12f, 0f, 0f, shadow)
         val x0 = (barW - total) / 2f
-        val base = h / 2f - (cap.descent() + cap.ascent()) / 2f
+        val my = top + bh / 2f
+        val base = my - (cap.descent() + cap.ascent()) / 2f
         c.drawText("BATTERY", x0, base, cap)
-        c.drawText(label, x0 + cap.measureText("BATTERY") + gap, h / 2f - (t.descent() + t.ascent()) / 2f, t)
+        c.drawText(label, x0 + cap.measureText("BATTERY") + gap, my - (t.descent() + t.ascent()) / 2f, t)
     }
 }
 
@@ -3750,6 +3785,13 @@ class TripPanelView(ctx: Context) : View(ctx) {
                 c.drawPath(path, line)
                 c.drawLine(x + 0.14f * s, y + 0.86f * s, x + 0.56f * s, y + 0.44f * s, line)
             }
+            7 -> { // regen: a circular arrow
+                rect.set(x + 0.08f * s, y + 0.08f * s, x + 0.92f * s, y + 0.92f * s)
+                c.drawArc(rect, 40f, 280f, false, line)
+                path.reset()
+                path.moveTo(x + 0.60f * s, y + 0.02f * s); path.lineTo(x + 0.92f * s, y + 0.30f * s); path.lineTo(x + 0.52f * s, y + 0.34f * s); path.close()
+                c.drawPath(path, fill)
+            }
             else -> { // car
                 rect.set(x, y + 0.36f * s, x + s, y + 0.76f * s)
                 c.drawRoundRect(rect, 0.12f * s, 0.12f * s, line)
@@ -3817,17 +3859,28 @@ class TripPanelView(ctx: Context) : View(ctx) {
         for ((i, cell) in cells.withIndex()) {
             val r = i / cols
             val k = i % cols
-            val x0 = cw * k + cw * 0.10f
+            val mid = cw * k + cw / 2f
             val top = titleH + ch * r
-            icon(c, cell.icon, x0, top + ch * 0.10f, isz, accent)
-            put(cell.label.uppercase(), ls, 1e6f, light, grey, x0 + isz * 1.35f, top + ch * 0.10f + isz * 0.78f, c)
+            // icon and caption, centred together
+            txt.typeface = light; txt.textSize = ls
+            val lw = txt.measureText(cell.label.uppercase())
+            val gw = isz * 1.35f + lw
+            val lx = mid - gw / 2f
+            icon(c, cell.icon, lx, top + ch * 0.10f, isz, accent)
+            put(cell.label.uppercase(), ls, 1e6f, light, grey, lx + isz * 1.35f, top + ch * 0.10f + isz * 0.78f, c)
+            // value and unit, centred together
             val base = top + ch * 0.90f
-            txt.typeface = medium; txt.textSize = vs; txt.color = ink
+            txt.typeface = medium; txt.textSize = vs
             val vw2 = txt.measureText(cell.value)
-            c.drawText(cell.value, x0, base, txt)
+            txt.typeface = light; txt.textSize = vs * 0.48f
+            val uw2 = if (cell.unit.isEmpty()) 0f else txt.measureText(cell.unit)
+            val g2 = if (cell.unit.isEmpty()) 0f else vs * 0.14f
+            val vx = mid - (vw2 + g2 + uw2) / 2f
+            txt.typeface = medium; txt.textSize = vs; txt.color = ink
+            c.drawText(cell.value, vx, base, txt)
             if (cell.unit.isNotEmpty()) {
                 txt.typeface = light; txt.textSize = vs * 0.48f; txt.color = grey
-                c.drawText(cell.unit, x0 + vw2 + vs * 0.14f, base, txt)
+                c.drawText(cell.unit, vx + vw2 + g2, base, txt)
             }
         }
     }
