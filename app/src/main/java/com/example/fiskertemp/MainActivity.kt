@@ -1996,8 +1996,8 @@ class MainActivity : Activity() {
         val avgSpeed = if (s.tripMoveSecs >= 30.0) km / (s.tripMoveSecs / 3600.0) else null
         val effUnit = when (effMode()) { "perkwh" -> "$dU/kWh"; "kwhper" -> "kWh/$dU"; else -> "Wh/$dU" }
         return listOf(
-            TripCell(0, "Distance Driven", dist(km), dU),
             TripCell(5, "Efficiency", effText(avgEffKwh100(s)), effUnit),
+            TripCell(0, "Distance Driven", dist(km), dU),
             TripCell(3, "Average Speed", avgSpeed?.let { String.format("%.0f", if (mph) it * 0.621371 else it) } ?: "--", if (mph) "mph" else "km/h"),
             TripCell(4, "Energy Consumed", String.format("%.1f", s.tripKwh), "kWh"),
             TripCell(1, "Elapsed Time", elapsed?.let { dur(it) } ?: "--"),
@@ -3547,6 +3547,7 @@ class ChargeBarView(ctx: Context) : View(ctx) {
     private val t = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.RIGHT; typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL) }
     private val cap = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL); letterSpacing = 0.14f }
     private val rect = RectF()
+    private val line3 = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     // red at 0 %, through amber and yellow, to green at 100 %
     private val stopPos = floatArrayOf(0f, 0.25f, 0.55f, 1f)
     private val stopCol = intArrayOf(Color.parseColor("#FF3B4E"), Color.parseColor("#FFB020"), Color.parseColor("#E3D43A"), Color.parseColor("#2ECC71"))
@@ -3571,52 +3572,65 @@ class ChargeBarView(ctx: Context) : View(ctx) {
         val f = frac
         // the bar runs the full width, so it lines up with the trip readouts above it
         val barW = w
-        val bh = h * 0.72f
-        val top = h * 0.07f
+        val bh = h * 0.70f
+        val top = h * 0.06f
         val bot = top + bh
+        val capW = minOf(bh * 0.30f, barW * 0.08f)
         val clamp = android.graphics.Shader.TileMode.CLAMP
-        // floating: a soft shadow under the bar
-        for (k in 0 until 6) {
-            val gr = (k + 1) * h * 0.035f
+        // soft shadow on the "floor" under the cylinder
+        for (k in 0 until 5) {
+            val gr = (k + 1) * h * 0.03f
             p.shader = null
-            p.color = Color.argb(if (day) 16 else 26, 0, 0, 0)
-            rect.set(barW * 0.03f + gr * 0.5f, bot + h * 0.02f, barW * 0.97f - gr * 0.5f, bot + h * 0.02f + gr)
-            c.drawRect(rect, p)
+            p.color = Color.argb(if (day) 18 else 30, 0, 0, 0)
+            rect.set(barW * 0.05f + gr, bot + h * 0.01f, barW * 0.95f - gr, bot + h * 0.01f + gr * 0.9f)
+            c.drawOval(rect, p)
         }
-        // the glass track: translucent, lighter at the top
-        p.shader = LinearGradient(0f, top, 0f, bot, intArrayOf(
-            if (day) Color.argb(70, 255, 255, 255) else Color.argb(95, 255, 255, 255),
-            if (day) Color.argb(40, 20, 32, 46) else Color.argb(38, 200, 220, 255)), null, clamp)
+        // the cylinder's outline: a body with an elliptical cap at each end
+        val body = android.graphics.Path()
+        body.addRect(capW, top, barW - capW, bot, android.graphics.Path.Direction.CW)
+        rect.set(0f, top, capW * 2f, bot); body.addOval(rect, android.graphics.Path.Direction.CW)
+        rect.set(barW - capW * 2f, top, barW, bot); body.addOval(rect, android.graphics.Path.Direction.CW)
+        c.save()
+        c.clipPath(body)
+        // empty glass
+        p.shader = null
+        p.color = if (day) Color.argb(55, 20, 32, 46) else Color.argb(70, 190, 210, 255)
         rect.set(0f, top, barW, bot)
         c.drawRect(rect, p)
-        p.shader = null
         if (f != null && f > 0f) {
             val fw = barW * f.coerceIn(0f, 1f)
-            // one gradient across the whole bar, semi-transparent, so the colour at a point is fixed by its level
-            val tr = IntArray(stopCol.size) { Color.argb(215, Color.red(stopCol[it]), Color.green(stopCol[it]), Color.blue(stopCol[it])) }
+            val tr = IntArray(stopCol.size) { Color.argb(235, Color.red(stopCol[it]), Color.green(stopCol[it]), Color.blue(stopCol[it])) }
             p.shader = LinearGradient(0f, 0f, barW, 0f, tr, stopPos, clamp)
             rect.set(0f, top, fw, bot)
             c.drawRect(rect, p)
-            // rounded-tube shading: bright band near the top, dark toward the bottom
-            p.shader = LinearGradient(0f, top, 0f, bot, intArrayOf(
-                Color.argb(120, 255, 255, 255), Color.argb(20, 255, 255, 255), Color.argb(0, 0, 0, 0), Color.argb(90, 0, 0, 0)),
-                floatArrayOf(0f, 0.45f, 0.6f, 1f), clamp)
-            c.drawRect(rect, p)
             p.shader = null
-            // bright end edge of the charge
-            p.color = Color.argb(150, 255, 255, 255)
-            rect.set(maxOf(0f, fw - 1.5f), top, fw, bot)
-            c.drawRect(rect, p)
         }
-        // glass outline: bright along the top edge, faint around the rest
-        p.color = Color.argb(if (day) 120 else 170, 255, 255, 255)
-        rect.set(0f, top, barW, top + 1.5f)
+        // round shading over the whole tube: dark edge, bright highlight a third of the way down, dark underside
+        p.shader = LinearGradient(0f, top, 0f, bot,
+            intArrayOf(Color.argb(150, 0, 0, 0), Color.argb(10, 0, 0, 0), Color.argb(150, 255, 255, 255), Color.argb(30, 255, 255, 255),
+                Color.argb(0, 0, 0, 0), Color.argb(95, 0, 0, 0), Color.argb(170, 0, 0, 0)),
+            floatArrayOf(0f, 0.10f, 0.24f, 0.36f, 0.55f, 0.85f, 1f), clamp)
+        rect.set(0f, top, barW, bot)
         c.drawRect(rect, p)
-        p.color = Color.argb(if (day) 60 else 70, 255, 255, 255)
-        rect.set(0f, top, 1f, bot); c.drawRect(rect, p)
-        rect.set(barW - 1f, top, barW, bot); c.drawRect(rect, p)
-        p.color = Color.argb(70, 0, 0, 0)
-        rect.set(0f, bot - 1f, barW, bot); c.drawRect(rect, p)
+        // darken the two ends so they curve away
+        p.shader = LinearGradient(0f, 0f, capW * 1.6f, 0f, Color.argb(120, 0, 0, 0), Color.argb(0, 0, 0, 0), clamp)
+        rect.set(0f, top, capW * 1.6f, bot); c.drawRect(rect, p)
+        p.shader = LinearGradient(barW - capW * 1.6f, 0f, barW, 0f, Color.argb(0, 0, 0, 0), Color.argb(120, 0, 0, 0), clamp)
+        rect.set(barW - capW * 1.6f, top, barW, bot); c.drawRect(rect, p)
+        p.shader = null
+        c.restore()
+        // the end of the charge, drawn as a cut across the tube
+        if (f != null && f > 0.02f && f < 0.995f) {
+            val fw = barW * f.coerceIn(0f, 1f)
+            line3.color = Color.argb(110, 0, 0, 0); line3.strokeWidth = 1.5f
+            rect.set(fw - capW * 0.5f, top, fw + capW * 0.5f, bot)
+            c.drawArc(rect, -90f, 180f, false, line3)
+        }
+        // glass rim: a thin bright line along the top and the two end ellipses
+        line3.color = Color.argb(if (day) 110 else 150, 255, 255, 255); line3.strokeWidth = 1.5f
+        rect.set(barW - capW * 2f, top, barW, bot); c.drawOval(rect, line3)
+        line3.color = Color.argb(70, 255, 255, 255)
+        rect.set(0f, top, capW * 2f, bot); c.drawArc(rect, 90f, 180f, false, line3)
         // faint marks inside the bar at 30 % and 20 %
         p.color = if (day) Color.argb(55, 20, 32, 46) else Color.argb(75, 255, 255, 255)
         for (m in floatArrayOf(0.20f, 0.30f)) {
