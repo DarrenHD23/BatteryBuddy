@@ -1080,6 +1080,7 @@ class MainActivity : Activity() {
     private lateinit var tripBtn: TextView
     private lateinit var dashSlot: FrameLayout
     private lateinit var chargeBar: ChargeBarView
+    private lateinit var dashClock: DashClockView
     private var tripMidRows = 0
     private var tripDlgView: TripPanelView? = null
     private lateinit var resBtn: TextView
@@ -1215,7 +1216,7 @@ class MainActivity : Activity() {
             addView(dashReady, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
             addView(dashSlot, LinearLayout.LayoutParams(-1, dp(92)).apply { topMargin = dp(4) })
             addView(dashLightDist, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
-            addView(chargeBar, LinearLayout.LayoutParams(-1, dp(30)).apply { topMargin = dp(4) })
+            addView(chargeBar, LinearLayout.LayoutParams(-1, dp(22)).apply { topMargin = dp(4) })
             addView(tripPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(6); bottomMargin = dp(4) })
             addView(dashBrake, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
             addView(dashHeading, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
@@ -1292,6 +1293,8 @@ class MainActivity : Activity() {
         f.addView(flyBtn, FrameLayout.LayoutParams(dp(38), dp(38), Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(10), 0, 0, dp(190)) })
         f.addOnLayoutChangeListener { v, _, top, _, bottom, _, _, _, _ -> adaptDashLayout((v.width / resources.displayMetrics.density).toInt(), ((bottom - top) / resources.displayMetrics.density).toInt()) }
         f.addView(dashMode, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(6), dp(8), 0) })
+        dashClock = DashClockView(this).apply { visibility = View.GONE }
+        f.addView(dashClock, FrameLayout.LayoutParams(dp(150), dp(80), Gravity.TOP or Gravity.START).apply { setMargins(dp(14), dp(8), 0, 0) })
         return f
     }
 
@@ -1328,6 +1331,7 @@ class MainActivity : Activity() {
         dashSpeedGauge.day = day; dashPowerGauge.day = day; dashStrip.day = day; dashStrip.invalidate()
         if (::tripPanel.isInitialized) { tripPanel.day = day; tripPanel.invalidate() }
         if (::chargeBar.isInitialized) { chargeBar.day = day; chargeBar.invalidate() }
+        if (::dashClock.isInitialized) { dashClock.day = day; dashClock.invalidate() }
         val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
         dashHeading.setTextColor(ink)
         dashHeading.typeface = Typeface.create(Skins.look.numFont, if (Skins.look.italic) Typeface.ITALIC else Typeface.NORMAL)
@@ -1479,10 +1483,15 @@ class MainActivity : Activity() {
         val wantH = maxOf((wDp - 16) * 1.15f / 3f * 1.1f, 340f)
         val tall = hDp - gb - topM > wantH + 24f
         // the trip readouts sit in the middle column under the traffic light; rows by the height left there
-        val midFixed = when (midLevel) { 0 -> 250f; 1 -> 197f; else -> 158f }
+        val midFixed = when (midLevel) { 0 -> 242f; 1 -> 189f; else -> 150f }
         val midFree = (if (tall) wantH else gaugeH - topM.toFloat()) - midFixed
         val midRows = if (midFree >= 84f) 3 else if (midFree >= 56f) 2 else 0
-        val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$midRows"
+        // the clock goes in the free band above the left gauge (the gauge circle is centred in its height)
+        val gaugeWdp = (wDp - 16) * 1.15f / 3.0f
+        val rowHdp = if (tall) wantH else gaugeH - topM.toFloat()
+        val band = rowHdp / 2f - minOf(gaugeWdp, rowHdp) / 2f * 0.92f - 6f
+        val clockH = if (band >= 30f) band.toInt().coerceAtMost(110) else 0
+        val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH"
         if (key == layoutKey) return
         layoutKey = key
         EventLog.add("layout ${wDp}x${hDp}dp tier=$ti trip=$midRows third=$third half=$half tall=$tall")
@@ -1491,6 +1500,9 @@ class MainActivity : Activity() {
         val stripBottom = base + tripOff
         val rowBottom = if (t.showStrip) stripBottom + t.strip + 4 else base
         tripMidRows = midRows
+        dashClock.visibility = if (clockH > 0) View.VISIBLE else View.GONE
+        (dashClock.layoutParams as FrameLayout.LayoutParams).apply { width = dp(gaugeWdp.toInt() - 6); height = dp(clockH); setMargins(dp(14), dp(topM), 0, 0) }
+        dashClock.requestLayout()
         tripPanel.visibility = if (midRows > 0) View.VISIBLE else View.GONE
         tripBtn.visibility = if (midRows > 0) View.GONE else View.VISIBLE
         (dashSlot.layoutParams as LinearLayout.LayoutParams).apply { height = dp(if (midLevel == 2) 48 else if (short) 58 else 92); topMargin = dp(if (short) 4 else 4) }
@@ -1847,6 +1859,7 @@ class MainActivity : Activity() {
         dashPowerGauge.topValue = s.climateKw?.let { String.format("%.1f kW", it) } ?: "--"
         dashPowerGauge.bottomValue = s.socUsable?.let { "$it %" } ?: "--"
         chargeBar.frac = s.socUsable?.let { it / 100f }
+        if (dashClock.visibility == View.VISIBLE) dashClock.tick()
         dashPowerGauge.refresh()
 
         dashBrake.visibility = if (s.brakeBcm ?: s.brakeVcu ?: false) View.VISIBLE else View.INVISIBLE
@@ -3490,7 +3503,7 @@ class StatusStripView(ctx: Context) : View(ctx) {
     }
 }
 
-/** The battery charge level: a "BATTERY" caption over a thin horizontal bar with the percentage beside it.
+/** The battery charge level: a thin horizontal bar with "BATTERY" centred in it and the percentage beside it.
  *  Amber at 30 % or less, red at 20 % or less. */
 class ChargeBarView(ctx: Context) : View(ctx) {
     var day = false
@@ -3498,7 +3511,7 @@ class ChargeBarView(ctx: Context) : View(ctx) {
         set(v) { if (field != v) { field = v; invalidate() } }
     private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val t = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.RIGHT; typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL) }
-    private val cap = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.LEFT; typeface = Typeface.create("sans-serif-light", Typeface.NORMAL); letterSpacing = 0.12f }
+    private val cap = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL); letterSpacing = 0.14f }
     private val rect = RectF()
 
     override fun onDraw(c: Canvas) {
@@ -3509,27 +3522,21 @@ class ChargeBarView(ctx: Context) : View(ctx) {
         val red = f != null && f <= 0.20f
         val amber = f != null && f <= 0.30f && !red
         val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
-        val grey = if (day) Color.argb(160, 20, 32, 46) else Color.argb(150, 255, 255, 255)
         val warn = if (red) Color.parseColor("#FF3B4E") else Color.parseColor("#FFB020")
         val fillCol = if (red || amber) warn else if (day) Skins.look.accentDay else Skins.look.accent
-        // caption on top
-        cap.textSize = h * 0.25f
-        cap.color = grey
-        c.drawText("BATTERY", 0f, h * 0.28f, cap)
-        // bar and percentage on the row below
-        val rowTop = h * 0.38f
-        val rowH = h - rowTop
-        t.textSize = rowH * 0.80f
+        // percentage on the right
+        t.textSize = h * 0.62f
         t.color = if (red || amber) warn else ink
         val label = if (f == null) "--" else "${Math.round(f.coerceIn(0f, 1f) * 100)}%"
         val tw = t.measureText("100%")
-        val gap = rowH * 0.45f
-        val barW = maxOf(rowH, w - tw - gap)
-        c.drawText(label, w, rowTop + rowH / 2f - (t.descent() + t.ascent()) / 2f, t)
-        val bh = rowH * 0.48f
-        val top = rowTop + (rowH - bh) / 2f
+        val gap = h * 0.35f
+        val barW = maxOf(h, w - tw - gap)
+        c.drawText(label, w, h / 2f - (t.descent() + t.ascent()) / 2f, t)
+        // the bar fills the height; the word sits in its middle
+        val bh = h * 0.86f
+        val top = (h - bh) / 2f
         val rad = bh / 2f
-        p.color = if (day) Color.argb(40, 20, 32, 46) else Color.argb(55, 255, 255, 255)
+        p.color = if (day) Color.argb(40, 20, 32, 46) else Color.argb(60, 255, 255, 255)
         rect.set(0f, top, barW, top + bh)
         c.drawRoundRect(rect, rad, rad, p)
         if (f != null && f > 0f) {
@@ -3542,6 +3549,67 @@ class ChargeBarView(ctx: Context) : View(ctx) {
         for (m in floatArrayOf(0.20f, 0.30f)) {
             rect.set(barW * m - 0.75f, top, barW * m + 0.75f, top + bh)
             c.drawRect(rect, p)
+        }
+        cap.textSize = bh * 0.46f
+        val fits = cap.measureText("BATTERY") <= barW * 0.9f
+        if (!fits) cap.textSize = cap.textSize * barW * 0.9f / cap.measureText("BATTERY")
+        cap.color = if (day && (f ?: 0f) < 0.5f) Color.argb(230, 20, 32, 46) else Color.argb(240, 255, 255, 255)
+        cap.setShadowLayer(bh * 0.10f, 0f, 0f, Color.argb(if (day) 0 else 140, 0, 0, 0))
+        c.drawText("BATTERY", barW / 2f, h / 2f - (cap.descent() + cap.ascent()) / 2f, cap)
+    }
+}
+
+/** The time with seconds, and the date under it when there is room. */
+class DashClockView(ctx: Context) : View(ctx) {
+    var day = false
+    private val is24 = android.text.format.DateFormat.is24HourFormat(ctx)
+    private val tf = java.text.SimpleDateFormat(if (is24) "HH:mm:ss" else "h:mm:ss", java.util.Locale.getDefault())
+    private val af = java.text.SimpleDateFormat("a", java.util.Locale.getDefault())
+    private val df = java.text.SimpleDateFormat("EEE, MMM d", java.util.Locale.getDefault())
+    private val tp = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val dp2 = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var lastSec = -1L
+
+    /** Called often; redraws once a second. */
+    fun tick() {
+        val sec = System.currentTimeMillis() / 1000
+        if (sec != lastSec) { lastSec = sec; invalidate() }
+    }
+
+    override fun onDraw(c: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        if (w <= 0f || h <= 0f) return
+        val now = java.util.Date()
+        val look = Skins.look
+        val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
+        val grey = if (day) Color.argb(170, 20, 32, 46) else Color.argb(165, 255, 255, 255)
+        val tfc = Typeface.create("sans-serif-light", if (look.italic) Typeface.ITALIC else Typeface.NORMAL)
+        val withDate = h >= 52f * resources.displayMetrics.density
+        val timeH = if (withDate) h * 0.70f else h
+        tp.typeface = tfc; tp.color = ink
+        var size = timeH * 0.86f
+        tp.textSize = size
+        val timeStr = tf.format(now)
+        val ap = if (is24) "" else af.format(now)
+        var tw = tp.measureText(timeStr)
+        val apGap = size * 0.12f
+        var aw = if (is24) 0f else tp.measureText(ap) * 0.38f
+        val total = tw + (if (is24) 0f else apGap + aw)
+        if (total > w) { size *= w / total; tp.textSize = size; tw = tp.measureText(timeStr); aw = if (is24) 0f else tp.measureText(ap) * 0.38f }
+        val base = timeH * 0.80f
+        c.drawText(timeStr, 0f, base, tp)
+        if (!is24) {
+            tp.textSize = size * 0.38f; tp.color = grey
+            c.drawText(ap, tw + size * 0.12f, base, tp)
+        }
+        if (withDate) {
+            dp2.typeface = tfc; dp2.color = grey
+            dp2.textSize = minOf(h * 0.26f, size * 0.45f)
+            val ds = df.format(now)
+            val dw = dp2.measureText(ds)
+            if (dw > w) dp2.textSize = dp2.textSize * w / dw
+            c.drawText(ds, 0f, h * 0.96f, dp2)
         }
     }
 }
