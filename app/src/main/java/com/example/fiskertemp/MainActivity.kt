@@ -3569,16 +3569,8 @@ class ChargeBarView(ctx: Context) : View(ctx) {
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
         val f = frac
-        val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
-        // percentage on the right, in the colour the bar has reached
-        t.textSize = h * 0.62f
-        t.color = if (f == null) ink else colorAt(f)
-        val label = if (f == null) "--" else "${Math.round(f.coerceIn(0f, 1f) * 100)}%"
-        val tw = t.measureText("100%")
-        val gap = h * 0.35f
-        val barW = maxOf(h, w - tw - gap)
-        c.drawText(label, w, h / 2f - (t.descent() + t.ascent()) / 2f, t)
-        // a square-ended bar that fills the height; the word sits in its middle
+        // the bar runs the full width, so it lines up with the trip readouts above it
+        val barW = w
         val bh = h * 0.86f
         val top = (h - bh) / 2f
         p.shader = null
@@ -3598,11 +3590,28 @@ class ChargeBarView(ctx: Context) : View(ctx) {
             rect.set(barW * m - 0.75f, top, barW * m + 0.75f, top + bh)
             c.drawRect(rect, p)
         }
+        // "BATTERY" and the percentage, together, centred in the bar
+        val label = if (f == null) "--" else "${Math.round(f.coerceIn(0f, 1f) * 100)}%"
+        cap.textAlign = Paint.Align.LEFT
+        t.textAlign = Paint.Align.LEFT
         cap.textSize = bh * 0.46f
-        if (cap.measureText("BATTERY") > barW * 0.9f) cap.textSize = cap.textSize * barW * 0.9f / cap.measureText("BATTERY")
-        cap.color = if (day && (f ?: 0f) < 0.5f) Color.argb(230, 20, 32, 46) else Color.argb(245, 255, 255, 255)
-        cap.setShadowLayer(bh * 0.12f, 0f, 0f, Color.argb(if (day) 70 else 150, 0, 0, 0))
-        c.drawText("BATTERY", barW / 2f, h / 2f - (cap.descent() + cap.ascent()) / 2f, cap)
+        t.textSize = bh * 0.58f
+        var gap = bh * 0.40f
+        var total = cap.measureText("BATTERY") + gap + t.measureText(label)
+        if (total > barW * 0.92f) {
+            val k = barW * 0.92f / total
+            cap.textSize *= k; t.textSize *= k; gap *= k
+            total = cap.measureText("BATTERY") + gap + t.measureText(label)
+        }
+        val ink = if (day && (f ?: 0f) < 0.5f) Color.argb(235, 20, 32, 46) else Color.argb(248, 255, 255, 255)
+        cap.color = ink; t.color = ink
+        val shadow = Color.argb(if (day) 70 else 150, 0, 0, 0)
+        cap.setShadowLayer(bh * 0.12f, 0f, 0f, shadow)
+        t.setShadowLayer(bh * 0.12f, 0f, 0f, shadow)
+        val x0 = (barW - total) / 2f
+        val base = h / 2f - (cap.descent() + cap.ascent()) / 2f
+        c.drawText("BATTERY", x0, base, cap)
+        c.drawText(label, x0 + cap.measureText("BATTERY") + gap, h / 2f - (t.descent() + t.ascent()) / 2f, t)
     }
 }
 
