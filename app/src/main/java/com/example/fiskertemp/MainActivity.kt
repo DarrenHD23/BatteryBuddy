@@ -1239,7 +1239,7 @@ class MainActivity : Activity() {
         }
         chargeBar = ChargeBarView(this)
         tripPanel = TripPanelView(this).apply {
-            cols = 3
+            cols = 2
             title = "Trip Information"
             visibility = View.GONE
             onReset = { pulse?.resetDrive(); Toast.makeText(context, "Trip reset", Toast.LENGTH_SHORT).show() }
@@ -1528,7 +1528,7 @@ class MainActivity : Activity() {
         // the trip readouts sit in the middle column under the traffic light; rows by the height left there
         val midFixed = when (midLevel) { 0 -> 208f; 1 -> 161f; else -> 129f }
         val midFree = (if (tall) wantH else gaugeH - topM.toFloat()) - midFixed
-        val midRows = if (midFree >= 96f) 3 else if (midFree >= 66f) 2 else 0
+        val midRows = if (midFree >= 104f) 3 else if (midFree >= 72f) 2 else 0
         // the clock goes in the free band above the left gauge (the gauge circle is centred in its height)
         val gaugeWdp = (wDp - 16) * 1.15f / 3.0f
         val rowHdp = if (tall) wantH else gaugeH - topM.toFloat()
@@ -1970,7 +1970,7 @@ class MainActivity : Activity() {
         dashStrip.setItems(everything)
         dashRow.setItems(everything)
         if (tripPanel.visibility == View.VISIBLE || tripDlgView != null) {
-            tripPanel.setCells(tripCells(s, true).take(if (tripMidRows >= 3) 9 else 6))
+            tripPanel.setCells(tripCells(s, true).take(if (tripMidRows >= 3) 6 else 4))
             tripDlgView?.setCells(tripCells(s))
         }
     }
@@ -1983,38 +1983,26 @@ class MainActivity : Activity() {
     }
 
     /** The trip readouts: counted by this app (distance, time, energy) and the car's own figures. */
-    private fun tripCells(s: CanSnapshot, compact: Boolean = false): List<Pair<String, String>> {
+    private fun tripCells(s: CanSnapshot, compact: Boolean = false): List<TripCell> {
         val mph = speedMph()
-        val unitEff = effUnitLabel()
-        fun dist(km: Double?): String = km?.let { if (mph) String.format("%.1f mi", it * 0.621371) else String.format("%.1f km", it) } ?: "--"
+        val dU = if (mph) "mi" else "km"
+        fun dist(km: Double?): String = km?.let { String.format("%.1f", if (mph) it * 0.621371 else it) } ?: "--"
+        fun dur(secs: Double): String {
+            val t = secs.toLong().coerceAtLeast(0)
+            return if (t >= 3600) String.format("%dh%02dm", t / 3600, (t % 3600) / 60) else if (t >= 60) String.format("%dm%02ds", t / 60, t % 60) else "${t}s"
+        }
         val km = s.tripKm
         val elapsed = if (s.tripStartMs == 0L) null else (System.currentTimeMillis() - s.tripStartMs) / 1000.0
         val avgSpeed = if (s.tripMoveSecs >= 30.0) km / (s.tripMoveSecs / 3600.0) else null
-        val avgEff = avgEffKwh100(s)
-        if (compact) {
-            fun short(secs: Double): String {
-                val t = secs.toLong().coerceAtLeast(0)
-                return if (t >= 3600) String.format("%dh%02dm", t / 3600, (t % 3600) / 60) else if (t >= 60) String.format("%dm%02ds", t / 60, t % 60) else "${t}s"
-            }
-            val cells = mutableListOf(
-                "Avg $unitEff" to effText(avgEff),
-                "Energy kWh" to String.format("%.1f", s.tripKwh),
-                "Travelled" to dist(km),
-                "Time" to (elapsed?.let { short(it) } ?: "--"),
-                "Moving" to short(s.tripMoveSecs),
-                "Avg ${if (mph) "MPH" else "KM/H"}" to (avgSpeed?.let { String.format("%.0f", if (mph) it * 0.621371 else it) } ?: "--"),
-            )
-            if (s.carTripKm != null) cells.add("Car trip" to dist(s.carTripKm))
-            return cells
-        }
+        val effUnit = when (effMode()) { "perkwh" -> "$dU/kWh"; "kwhper" -> "kWh/$dU"; else -> "Wh/$dU" }
         return listOf(
-            "Travelled" to dist(km),
-            "Time" to (elapsed?.let { fmtDur(it) } ?: "--"),
-            "Moving" to fmtDur(s.tripMoveSecs),
-            "Avg speed" to (avgSpeed?.let { if (mph) String.format("%.0f mph", it * 0.621371) else String.format("%.0f km/h", it) } ?: "--"),
-            "Energy" to String.format("%.1f kWh", s.tripKwh),
-            "Avg $unitEff" to effText(avgEff),
-            "Car trip" to dist(s.carTripKm),
+            TripCell(0, "Travelled", dist(km), dU),
+            TripCell(5, "Efficiency", effText(avgEffKwh100(s)), effUnit),
+            TripCell(3, "Avg speed", avgSpeed?.let { String.format("%.0f", if (mph) it * 0.621371 else it) } ?: "--", if (mph) "mph" else "km/h"),
+            TripCell(4, "Energy", String.format("%.1f", s.tripKwh), "kWh"),
+            TripCell(1, "Time", elapsed?.let { dur(it) } ?: "--"),
+            TripCell(2, "Moving", dur(s.tripMoveSecs)),
+            TripCell(6, "Car trip", dist(s.carTripKm), dU),
         )
     }
 
@@ -3683,17 +3671,24 @@ class DashClockView(ctx: Context) : View(ctx) {
     }
 }
 
-/** The trip readouts in a grid of [cols] columns, drawn in the current skin's colours. Double-tap resets the trip. */
+/** One readout of the trip panel: an icon, a caption, the value and its unit. */
+data class TripCell(val icon: Int, val label: String, val value: String, val unit: String = "")
+
+/**
+ * The trip readouts as a card: a title, then a grid ([cols] columns) of readouts, each with a small icon and caption
+ * above a large value and a smaller unit. Double-tap resets the trip.
+ */
 class TripPanelView(ctx: Context) : View(ctx) {
     var day = false
-    var cols = 5
+    var cols = 2
     var title: String? = null
     var onReset: (() -> Unit)? = null
-    private var cells: List<Pair<String, String>> = emptyList()
-    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+    private var cells: List<TripCell> = emptyList()
+    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-    private val div = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 1f }
-    private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
+    private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.LEFT }
+    private val rect = RectF()
+    private val path = android.graphics.Path()
     private val light = Typeface.create("sans-serif-light", Typeface.NORMAL)
     private val medium = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     private val taps = android.view.GestureDetector(ctx, object : android.view.GestureDetector.SimpleOnGestureListener() {
@@ -3701,52 +3696,130 @@ class TripPanelView(ctx: Context) : View(ctx) {
         override fun onDoubleTap(e: android.view.MotionEvent): Boolean { onReset?.invoke(); return true }
     })
 
-    fun setCells(list: List<Pair<String, String>>) { if (list != cells) { cells = list; invalidate() } }
+    fun setCells(list: List<TripCell>) { if (list != cells) { cells = list; invalidate() } }
 
     override fun onTouchEvent(e: android.view.MotionEvent): Boolean = taps.onTouchEvent(e)
 
-    private fun fit(s: String, size: Float, maxW: Float, tf: Typeface, color: Int, x: Float, y: Float, c: Canvas) {
+    /** Text from x, shrunk to fit [maxW]; returns its width. */
+    private fun put(s: String, size: Float, maxW: Float, tf: Typeface, color: Int, x: Float, y: Float, c: Canvas): Float {
         txt.typeface = tf; txt.color = color; txt.textSize = size
         val w = txt.measureText(s)
         if (w > maxW) txt.textSize = size * maxW / w
         c.drawText(s, x, y, txt)
+        return minOf(w, maxW)
+    }
+
+    /** Small line icons drawn in a box of size [s] with its top left at ([x], [y]). */
+    private fun icon(c: Canvas, kind: Int, x: Float, y: Float, s: Float, color: Int) {
+        line.color = color; fill.color = color
+        line.strokeWidth = maxOf(1.5f, s * 0.09f)
+        val cx = x + s / 2; val cy = y + s / 2
+        when (kind) {
+            0 -> { // road
+                c.drawLine(x + 0.26f * s, y + s, x + 0.42f * s, y, line)
+                c.drawLine(x + 0.74f * s, y + s, x + 0.58f * s, y, line)
+                c.drawLine(cx, y + 0.12f * s, cx, y + 0.30f * s, line)
+                c.drawLine(cx, y + 0.46f * s, cx, y + 0.64f * s, line)
+                c.drawLine(cx, y + 0.80f * s, cx, y + 0.96f * s, line)
+            }
+            1 -> { // clock
+                c.drawCircle(cx, cy, 0.44f * s, line)
+                c.drawLine(cx, cy, cx, cy - 0.26f * s, line)
+                c.drawLine(cx, cy, cx + 0.20f * s, cy + 0.10f * s, line)
+            }
+            2 -> { // stopwatch
+                c.drawCircle(cx, cy + 0.08f * s, 0.38f * s, line)
+                c.drawLine(cx - 0.12f * s, y + 0.03f * s, cx + 0.12f * s, y + 0.03f * s, line)
+                c.drawLine(cx, y + 0.03f * s, cx, y + 0.14f * s, line)
+                c.drawLine(cx, cy + 0.08f * s, cx + 0.16f * s, cy - 0.08f * s, line)
+            }
+            3 -> { // speedometer
+                rect.set(x + 0.04f * s, y + 0.10f * s, x + 0.96f * s, y + 1.02f * s)
+                c.drawArc(rect, 160f, 220f, false, line)
+                c.drawLine(cx, y + 0.56f * s, cx + 0.22f * s, y + 0.30f * s, line)
+            }
+            4 -> { // bolt
+                path.reset()
+                path.moveTo(x + 0.58f * s, y); path.lineTo(x + 0.20f * s, y + 0.56f * s); path.lineTo(x + 0.48f * s, y + 0.56f * s)
+                path.lineTo(x + 0.40f * s, y + s); path.lineTo(x + 0.80f * s, y + 0.42f * s); path.lineTo(x + 0.52f * s, y + 0.42f * s); path.close()
+                c.drawPath(path, fill)
+            }
+            5 -> { // leaf
+                path.reset()
+                path.moveTo(x + 0.14f * s, y + 0.86f * s)
+                path.quadTo(x + 0.04f * s, y + 0.22f * s, x + 0.86f * s, y + 0.10f * s)
+                path.quadTo(x + 0.96f * s, y + 0.76f * s, x + 0.14f * s, y + 0.86f * s)
+                c.drawPath(path, line)
+                c.drawLine(x + 0.14f * s, y + 0.86f * s, x + 0.56f * s, y + 0.44f * s, line)
+            }
+            else -> { // car
+                rect.set(x, y + 0.36f * s, x + s, y + 0.76f * s)
+                c.drawRoundRect(rect, 0.12f * s, 0.12f * s, line)
+                path.reset()
+                path.moveTo(x + 0.20f * s, y + 0.36f * s); path.lineTo(x + 0.32f * s, y + 0.12f * s)
+                path.lineTo(x + 0.68f * s, y + 0.12f * s); path.lineTo(x + 0.80f * s, y + 0.36f * s)
+                c.drawPath(path, line)
+                c.drawCircle(x + 0.26f * s, y + 0.80f * s, 0.10f * s, fill)
+                c.drawCircle(x + 0.74f * s, y + 0.80f * s, 0.10f * s, fill)
+            }
+        }
     }
 
     override fun onDraw(c: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
         if (w <= 0f || h <= 0f || cells.isEmpty()) return
+        val d = resources.displayMetrics.density
         val look = Skins.look
-        val accent = look.accent
-        val rows = (cells.size + cols - 1) / cols
-        val cw = w / cols
-        val titleH = if (title != null) minOf(h * 0.2f, 22f * resources.displayMetrics.density) else 0f
-        val ch = (h - titleH) / rows
+        val accent = if (day) look.accentDay else look.accent
         val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
-        val grey = if (day) Color.argb(160, 20, 32, 46) else Color.argb(150, 255, 255, 255)
-        val base = if (day) look.accentDay else accent
-        fill.shader = LinearGradient(0f, 0f, 0f, h,
-            intArrayOf(Color.argb(if (day) 28 else 40, Color.red(base), Color.green(base), Color.blue(base)), Color.argb(0, Color.red(base), Color.green(base), Color.blue(base))),
-            null, android.graphics.Shader.TileMode.CLAMP)
-        c.drawRect(0f, 3f, w, h, fill)
-        line.strokeWidth = if (look.stripFlat) 2f else 3f
-        line.shader = LinearGradient(0f, 0f, w, 0f,
-            intArrayOf(Color.argb(0, Color.red(accent), Color.green(accent), Color.blue(accent)), accent, look.accent2, accent, Color.argb(0, Color.red(accent), Color.green(accent), Color.blue(accent))),
-            floatArrayOf(0f, 0.2f, 0.5f, 0.8f, 1f), android.graphics.Shader.TileMode.CLAMP)
-        c.drawLine(0f, 3f, w, 3f, line)
-        line.shader = null
-        div.color = if (day) Color.argb(40, 20, 32, 46) else Color.argb(45, 255, 255, 255)
-        title?.let { fit(it.uppercase(), titleH * 0.60f, w * 0.96f, medium, grey, w / 2f, titleH * 0.88f, c) }
-        for ((i, p) in cells.withIndex()) {
+        val grey = if (day) Color.argb(160, 20, 32, 46) else Color.argb(160, 255, 255, 255)
+        val rows = (cells.size + cols - 1) / cols
+        // the card
+        val rad = 10f * d
+        fill.color = if (day) Color.argb(34, 20, 32, 46) else Color.argb(100, 8, 14, 34)
+        rect.set(1f, 1f, w - 1f, h - 1f)
+        c.drawRoundRect(rect, rad, rad, fill)
+        line.color = Color.argb(if (day) 120 else 130, Color.red(accent), Color.green(accent), Color.blue(accent))
+        line.strokeWidth = 1.5f * d
+        c.drawRoundRect(rect, rad, rad, line)
+        // title
+        val titleH = if (title != null) minOf(h * 0.20f, 24f * d) else 0f
+        val padX = w * 0.045f
+        title?.let { put(it, titleH * 0.66f, w - 2 * padX, medium, ink, padX, titleH * 0.86f, c) }
+        val cw = w / cols
+        val ch = (h - titleH - 4f) / rows
+        val div = if (day) Color.argb(40, 20, 32, 46) else Color.argb(50, 255, 255, 255)
+        line.color = div; line.strokeWidth = 1f
+        for (k in 1 until cols) c.drawLine(cw * k, titleH + ch * 0.10f, cw * k, h - ch * 0.10f, line)
+        for (r in 1 until rows) c.drawLine(w * 0.04f, titleH + ch * r, w * 0.96f, titleH + ch * r, line)
+        for ((i, cell) in cells.withIndex()) {
             val r = i / cols
             val k = i % cols
-            val cx = cw * (k + 0.5f)
+            val x0 = cw * k + cw * 0.10f
+            val inner = cw * 0.84f
             val top = titleH + ch * r
-            fit(p.first.uppercase(), ch * 0.20f, cw * 0.92f, light, grey, cx, top + ch * 0.38f, c)
-            fit(p.second, ch * 0.38f, cw * 0.92f, medium, ink, cx, top + ch * 0.82f, c)
-            if (k > 0) c.drawLine(cw * k, top + ch * 0.16f, cw * k, top + ch * 0.92f, div)
+            val isz = minOf(ch * 0.30f, 15f * d)
+            icon(c, cell.icon, x0, top + ch * 0.10f, isz, accent)
+            put(cell.label.uppercase(), isz * 0.66f, inner - isz * 1.4f, light, grey, x0 + isz * 1.35f, top + ch * 0.10f + isz * 0.78f, c)
+            // value and unit, left aligned, on one baseline
+            val base = top + ch * 0.90f
+            var vs = ch * 0.40f
+            txt.typeface = medium; txt.textSize = vs
+            val vw = txt.measureText(cell.value)
+            txt.typeface = light; txt.textSize = vs * 0.48f
+            val uw = if (cell.unit.isEmpty()) 0f else txt.measureText(cell.unit)
+            val gap = if (cell.unit.isEmpty()) 0f else vs * 0.14f
+            val total = vw + gap + uw
+            if (total > inner) vs *= inner / total
+            txt.typeface = medium; txt.textSize = vs; txt.color = ink
+            val vw2 = txt.measureText(cell.value)
+            c.drawText(cell.value, x0, base, txt)
+            if (cell.unit.isNotEmpty()) {
+                txt.typeface = light; txt.textSize = vs * 0.48f; txt.color = grey
+                c.drawText(cell.unit, x0 + vw2 + vs * 0.14f, base, txt)
+            }
         }
-        for (r in 1 until rows) c.drawLine(cw * 0.04f, titleH + ch * r, w - cw * 0.04f, titleH + ch * r, div)
     }
 }
 
