@@ -3594,12 +3594,12 @@ class ChargeBarView(ctx: Context) : View(ctx) {
         c.clipPath(body)
         // empty glass
         p.shader = null
-        p.color = if (day) Color.argb(55, 20, 32, 46) else Color.argb(70, 190, 210, 255)
+        p.color = if (day) Color.argb(40, 20, 32, 46) else Color.argb(48, 190, 210, 255)
         rect.set(0f, top, barW, bot)
         c.drawRect(rect, p)
         if (f != null && f > 0f) {
             val fw = barW * f.coerceIn(0f, 1f)
-            val tr = IntArray(stopCol.size) { Color.argb(235, Color.red(stopCol[it]), Color.green(stopCol[it]), Color.blue(stopCol[it])) }
+            val tr = IntArray(stopCol.size) { Color.argb(185, Color.red(stopCol[it]), Color.green(stopCol[it]), Color.blue(stopCol[it])) }
             p.shader = LinearGradient(0f, 0f, barW, 0f, tr, stopPos, clamp)
             rect.set(0f, top, fw, bot)
             c.drawRect(rect, p)
@@ -3607,7 +3607,7 @@ class ChargeBarView(ctx: Context) : View(ctx) {
         }
         // round shading over the whole tube: dark edge, bright highlight a third of the way down, dark underside
         p.shader = LinearGradient(0f, top, 0f, bot,
-            intArrayOf(Color.argb(150, 0, 0, 0), Color.argb(10, 0, 0, 0), Color.argb(150, 255, 255, 255), Color.argb(30, 255, 255, 255),
+            intArrayOf(Color.argb(150, 0, 0, 0), Color.argb(10, 0, 0, 0), Color.argb(110, 255, 255, 255), Color.argb(22, 255, 255, 255),
                 Color.argb(0, 0, 0, 0), Color.argb(95, 0, 0, 0), Color.argb(170, 0, 0, 0)),
             floatArrayOf(0f, 0.10f, 0.24f, 0.36f, 0.55f, 0.85f, 1f), clamp)
         rect.set(0f, top, barW, bot)
@@ -3626,15 +3626,6 @@ class ChargeBarView(ctx: Context) : View(ctx) {
             rect.set(fw - capW * 0.5f, top, fw + capW * 0.5f, bot)
             c.drawArc(rect, -90f, 180f, false, line3)
         }
-        // thin glass rim around the whole rounded shape: bright on top, faint below
-        line3.strokeWidth = 1.5f
-        line3.color = Color.argb(if (day) 110 else 150, 255, 255, 255)
-        rect.set(0f, top, capW * 2f, bot); c.drawArc(rect, 180f, 90f, false, line3)
-        c.drawLine(capW, top + 0.75f, barW - capW, top + 0.75f, line3)
-        rect.set(barW - capW * 2f, top, barW, bot); c.drawArc(rect, 270f, 90f, false, line3)
-        line3.color = Color.argb(60, 255, 255, 255)
-        rect.set(0f, top, capW * 2f, bot); c.drawArc(rect, 90f, 90f, false, line3)
-        rect.set(barW - capW * 2f, top, barW, bot); c.drawArc(rect, 0f, 90f, false, line3)
         // faint marks inside the bar at 30 % and 20 %
         p.color = if (day) Color.argb(55, 20, 32, 46) else Color.argb(75, 255, 255, 255)
         for (m in floatArrayOf(0.20f, 0.30f)) {
