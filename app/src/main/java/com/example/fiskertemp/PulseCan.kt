@@ -58,6 +58,15 @@ data class CanSnapshot(
     val climateKw: Double? = null,     // total power the climate system draws, kW (0x1A9 on IBUS2, bytes 2-3)
     val compState: Int? = null,        // heat-pump compressor: 0 standby, 1 working, 2 fault (0x491 on IBUS2, byte 2)
     val compWatts: Double? = null,     // heat-pump compressor power, W (0x491 on IBUS2, bytes 6-7)
+    // trip, counted by this app since the last reset (speed from 0x318, power from 0xE9)
+    val tripKm: Double = 0.0,          // distance driven
+    val tripKwh: Double = 0.0,         // net energy used (regen taken off); idle use counts only while the car is READY
+    val tripMoveSecs: Double = 0.0,    // seconds spent moving
+    val tripStartMs: Long = 0L,        // when this trip started
+    // the car's own trip figures
+    val carTripKm: Double? = null,         // trip distance, km (0x5EA on IBUS2, bytes 2-3, 0.1 per bit)
+    val carTripWhKm: Int? = null,          // trip average consumption, Wh/km (0x5EA, byte 4 and the top 2 bits of byte 5)
+    val carInstKwh100: Double? = null,     // instantaneous consumption, kWh/100 km (0x505 on IBUS2, bytes 2-3, 0.01, offset -100)
 )
 
 class PulseCan(
@@ -85,9 +94,19 @@ class PulseCan(
     // energy put back while the car is moving (so plugging in to charge does not count)
     @Volatile private var regenWh = 0.0
     private var lastE9Nanos = 0L
+    // trip counters (reader thread adds to them)
+    @Volatile private var tripKm = 0.0
+    @Volatile private var tripWh = 0.0
+    @Volatile private var tripMoveSecs = 0.0
+    @Volatile private var tripStartMs = System.currentTimeMillis()
+    private var lastSpdNanos = 0L
 
-    /** Start counting regenerated energy again from zero. */
-    fun resetDrive() { regenWh = 0.0; snap = snap.copy(regenKwh = 0.0) }
+    /** Start the trip again from zero: regen, distance, energy and time. */
+    fun resetDrive() {
+        regenWh = 0.0; tripKm = 0.0; tripWh = 0.0; tripMoveSecs = 0.0
+        tripStartMs = System.currentTimeMillis()
+        snap = snap.copy(regenKwh = 0.0, tripKm = 0.0, tripKwh = 0.0, tripMoveSecs = 0.0, tripStartMs = tripStartMs)
+    }
 
     private val held = HashMap<String, String>()   // "bus/id" -> last payload (reader thread only)
 
@@ -127,7 +146,7 @@ class PulseCan(
             // IBUS1: buffer 0 (mask 0x700) passes 0x200-0x3FF (0x234 0x2AC 0x2F5 0x318 0x335 0x373 0x382);
             // buffer 1 (mask 0x7FF, exact) passes 0x179, 0x507 and 0x6DD (0x6DD repeated, the fourth slot is spare)
             Triple(0, "0x700,0x7FF", "0x200,0x300,0x179,0x507,0x6DD,0x6DD"),
-            // IBUS2: buffer 0 (mask 0x600) passes 0x000-0x1FF (0x0E9 0x1A9) and 0x400-0x5FF (0x491 0x504 0x580 0x582);
+            // IBUS2: buffer 0 (mask 0x600) passes 0x000-0x1FF (0x0E9 0x1A9) and 0x400-0x5FF (0x491 0x504 0x505 0x580 0x582 0x5EA);
             // buffer 1 (mask 0x7FF, exact) passes 0x210, 0x311, 0x332 and 0x351. Admits about half the frames of the old plan.
             Triple(1, "0x600,0x7FF", "0x000,0x400,0x210,0x311,0x332,0x351"),
         )
@@ -195,7 +214,7 @@ class PulseCan(
                     if (why == null) filtersDone = true
                     onStatus(if (why == null) "CAN filters: $filterReadback" else "CAN filters not changed: $why")
                 }
-                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD", "$b2=0E9,1A9,210,351,504,580,582,332,311,491")
+                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505")
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
@@ -301,7 +320,15 @@ class PulseCan(
         // 0x318 ESP_0x318 (IBUS1, every 20 ms): vehicle speed, 0.1 km/h per bit; ESP_VehSpdVld 2 = fault
         if (bus == 1 && id == 0x318) {
             val bad = (b[2] and 3) == 2
-            return s.copy(speedKmh = if (bad) null else ((b[5] shl 8) or b[6]) * 0.1)
+            val kmh = if (bad) null else ((b[5] shl 8) or b[6]) * 0.1
+            val nowN = System.nanoTime()
+            val dt = if (lastSpdNanos == 0L) 0.0 else (nowN - lastSpdNanos) / 1e9
+            lastSpdNanos = nowN
+            if (kmh != null && dt in 0.0..0.5) {
+                tripKm += kmh * dt / 3600.0
+                if (kmh > 1.0) tripMoveSecs += dt
+            }
+            return s.copy(speedKmh = kmh, tripKm = tripKm, tripMoveSecs = tripMoveSecs, tripStartMs = tripStartMs)
         }
         // 0x2F5 BMS_SOC (IBUS1, every 100 ms)
         if (bus == 1 && id == 0x2F5) {
@@ -325,7 +352,9 @@ class PulseCan(
             if (flipPower) watts = -watts
             val moving = (s.speedKmh ?: 0.0) > 1.0
             if (moving && watts < 0 && dt in 0.0..0.5) regenWh += -watts * dt / 3600.0
-            return s.copy(packAmps = cur * 0.05, packVolts = volts, regenKwh = regenWh / 1000.0)
+            // net energy of the trip: everything while moving, and the draw while stopped but READY (not charging)
+            if (dt in 0.0..0.5 && (moving || (s.ready == true && watts > 0))) tripWh += watts * dt / 3600.0
+            return s.copy(packAmps = cur * 0.05, packVolts = volts, regenKwh = regenWh / 1000.0, tripKwh = tripWh / 1000.0)
         }
         // 0x210 ADAS_0x210 (IBUS2, 50 ms): ego-lane traffic light colour (byte 1 low nibble) and light shape (byte 1 bits 6-4);
         // 1 red, 2 amber, 3 green; 4-7 are red/orange variants; 0 = none, 7/8 = unknown
@@ -387,6 +416,17 @@ class PulseCan(
         // 0x1A9 ECC_0x1A9 (IBUS2, 100 ms): power requested by the climate system's HV parts, 0.01 kW
         if (bus == 2 && id == 0x1A9) {
             return s.copy(climateKw = ((b[2] shl 8) or b[3]) * 0.01)
+        }
+        // 0x5EA VCU_0x5EA (IBUS2): VCU_TripMilg trip distance 0.1 km (bytes 2-3), VCU_TripAvgEgyConsmd average Wh/km (10 bits from byte 4)
+        if (bus == 2 && id == 0x5EA) {
+            val km = (b[2] shl 8) or b[3]
+            val wh = (b[4] shl 2) or (b[5] shr 6)
+            return s.copy(carTripKm = if (km == 0xFFFF) null else km * 0.1, carTripWhKm = if (wh >= 1023) null else wh)
+        }
+        // 0x505 VCU_0x505 (IBUS2): VCU_InsntEgyCnse, instantaneous consumption, 0.01 kWh/100 km with offset -100 (bytes 2-3)
+        if (bus == 2 && id == 0x505) {
+            val raw = (b[2] shl 8) or b[3]
+            return s.copy(carInstKwh100 = if (raw == 0xFFFF) null else raw * 0.01 - 100.0)
         }
         // 0x491 EAS_0x491 (IBUS2, 100 ms): the A/C (heat pump) compressor. Power 0.2 W per bit
         if (bus == 2 && id == 0x491) {
