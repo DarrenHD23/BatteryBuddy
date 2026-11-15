@@ -1292,8 +1292,8 @@ class MainActivity : Activity() {
             addView(dashBrake, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
             tripSpacer = View(context)
             addView(tripSpacer, LinearLayout.LayoutParams(-1, 0, 0f))
-            addView(tripPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(6); bottomMargin = dp(6) })
-            addView(chargeBar, LinearLayout.LayoutParams(-1, dp(22)).apply { bottomMargin = dp(2) })
+            addView(tripPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(4); bottomMargin = dp(3) })
+            addView(chargeBar, LinearLayout.LayoutParams(-1, dp(30)).apply { bottomMargin = dp(2) })
         }
         dashMid = mid
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; clipChildren = false }
@@ -1566,7 +1566,7 @@ class MainActivity : Activity() {
         val wantH = maxOf((wDp - 16) * 1.15f / 3f * 1.1f, 340f)
         val tall = hDp - gb - topM > wantH + 24f
         // the trip readouts sit in the middle column under the traffic light; rows by the height left there
-        val midFixed = when (midLevel) { 0 -> 208f; 1 -> 104f; else -> 92f }
+        val midFixed = when (midLevel) { 0 -> 208f; 1 -> 110f; else -> 98f }
         val midFree = (if (tall) wantH else gaugeH - topM.toFloat()) - midFixed
         val midRows = if (midFree >= 104f) 3 else if (midFree >= 66f) 2 else 0
         // the clock goes in the free band above the left gauge (the gauge circle is centred in its height)
@@ -3598,20 +3598,33 @@ class StatusStripView(ctx: Context) : View(ctx) {
         val sz = h * 0.44f
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
         if (hour >= 20 || hour < 6) {
-            val r = sz * 0.52f
+            // a full moon: soft glow, a pale disc lit from the upper left, grey seas and a few craters
+            val r = sz * 0.40f
+            val my = cy + sz * 0.04f
             ico.style = Paint.Style.FILL
-            ico.shader = android.graphics.RadialGradient(cx, cy, r * 1.7f, Color.argb(if (day) 0 else 70, 255, 236, 160), Color.argb(0, 255, 236, 160), android.graphics.Shader.TileMode.CLAMP)
-            c.drawCircle(cx, cy, r * 1.7f, ico)
-            icoPath.reset(); icoPath.addCircle(cx, cy, r, android.graphics.Path.Direction.CW)
-            icoCut.reset(); icoCut.addCircle(cx + r * 0.50f, cy - r * 0.22f, r * 0.86f, android.graphics.Path.Direction.CW)
-            icoPath.op(icoCut, android.graphics.Path.Op.DIFFERENCE)
-            ico.shader = LinearGradient(cx - r, cy - r, cx + r * 0.3f, cy + r, if (day) Color.parseColor("#E9B949") else Color.parseColor("#FFF6D6"), if (day) Color.parseColor("#C98E1C") else Color.parseColor("#E8C76A"), android.graphics.Shader.TileMode.CLAMP)
-            c.drawPath(icoPath, ico)
+            ico.shader = android.graphics.RadialGradient(cx, my, r * 1.9f, Color.argb(if (day) 0 else 85, 255, 244, 200), Color.argb(0, 255, 244, 200), android.graphics.Shader.TileMode.CLAMP)
+            c.drawCircle(cx, my, r * 1.9f, ico)
+            ico.shader = android.graphics.RadialGradient(cx - r * 0.35f, my - r * 0.35f, r * 1.5f,
+                intArrayOf(if (day) Color.parseColor("#F7E9B5") else Color.parseColor("#FFFEF4"), if (day) Color.parseColor("#E3CC86") else Color.parseColor("#F3EDD2"), if (day) Color.parseColor("#C9AE63") else Color.parseColor("#CFC7A6")),
+                floatArrayOf(0f, 0.55f, 1f), android.graphics.Shader.TileMode.CLAMP)
+            c.drawCircle(cx, my, r, ico)
             ico.shader = null
-            ico.color = if (day) Color.parseColor("#C98E1C") else Color.parseColor("#FFF1BF")
-            c.drawCircle(cx + r * 1.05f, cy - r * 0.75f, r * 0.10f, ico)
-            c.drawCircle(cx + r * 1.45f, cy - r * 0.05f, r * 0.07f, ico)
-            c.drawCircle(cx + r * 0.80f, cy + r * 0.60f, r * 0.06f, ico)
+            // the dark seas
+            ico.color = Color.argb(if (day) 70 else 85, 120, 112, 92)
+            rect.set(cx - r * 0.62f, my - r * 0.52f, cx - r * 0.10f, my - r * 0.02f); c.drawOval(rect, ico)
+            rect.set(cx + r * 0.05f, my - r * 0.62f, cx + r * 0.50f, my - r * 0.20f); c.drawOval(rect, ico)
+            rect.set(cx - r * 0.20f, my + r * 0.10f, cx + r * 0.32f, my + r * 0.52f); c.drawOval(rect, ico)
+            rect.set(cx + r * 0.30f, my + r * 0.05f, cx + r * 0.68f, my + r * 0.34f); c.drawOval(rect, ico)
+            // craters
+            ico.color = Color.argb(if (day) 60 else 75, 130, 122, 100)
+            c.drawCircle(cx - r * 0.50f, my + r * 0.45f, r * 0.12f, ico)
+            c.drawCircle(cx + r * 0.58f, my + r * 0.52f, r * 0.09f, ico)
+            c.drawCircle(cx + r * 0.20f, my - r * 0.78f, r * 0.07f, ico)
+            c.drawCircle(cx - r * 0.78f, my + r * 0.05f, r * 0.07f, ico)
+            // soft shading toward the lower right rim so it reads as a sphere
+            ico.shader = android.graphics.RadialGradient(cx - r * 0.30f, my - r * 0.30f, r * 1.25f, Color.argb(0, 0, 0, 0), Color.argb(if (day) 55 else 70, 40, 36, 24), android.graphics.Shader.TileMode.CLAMP)
+            c.drawCircle(cx, my, r, ico)
+            ico.shader = null
         } else {
             // a darker cloud behind and to the right, a lighter one in front
             cloud(c, cx + sz * 0.22f, cy + sz * 0.10f, sz * 0.80f,
@@ -3753,8 +3766,8 @@ class ChargeBarView(ctx: Context) : View(ctx) {
         val f = frac
         // the bar runs the full width, so it lines up with the trip readouts above it
         val barW = w
-        val bh = h * 0.70f
-        val top = h * 0.06f
+        val bh = h * 0.76f
+        val top = h * 0.05f
         val bot = top + bh
         val capW = minOf(bh * 0.5f, barW * 0.2f)
         val clamp = android.graphics.Shader.TileMode.CLAMP
