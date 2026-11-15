@@ -1216,7 +1216,7 @@ class MainActivity : Activity() {
     private lateinit var dashClock: DashClockView
     private lateinit var dashTop: LinearLayout
     private var tripMidRows = 0
-    private var statusInSlot = false
+    private var statusMode: String? = null
     private lateinit var tripSpacer: View
     private var midOverlapDp = 0
     private lateinit var btnBar: LinearLayout
@@ -1634,7 +1634,7 @@ class MainActivity : Activity() {
         val wantH = maxOf((wDp - 16) * 1.15f / 3f * 1.1f, 340f)
         val tall = hDp - gb - topM > wantH + 24f
         // the trip readouts sit in the middle column under the traffic light; rows by the height left there
-        val midFixed = when (midLevel) { 0 -> 208f; 1 -> 110f; else -> 98f }
+        val midFixed = when (midLevel) { 0 -> 168f; 1 -> 110f; else -> 98f }
         val midFree = (if (tall) wantH else gaugeH - topM.toFloat()) - midFixed
         val midRows = if (midFree >= 104f) 3 else if (midFree >= 66f) 2 else 0
         // the clock goes in the free band above the left gauge (the gauge circle is centred in its height)
@@ -1646,7 +1646,7 @@ class MainActivity : Activity() {
         // the middle column may reach over the gauge boxes: where the arcs open toward the middle there is free room there
         val arcMode = prefs().getString("arcStyle", "mirror")
         val ovCap = gaugeWdp * (if (arcMode == "mirror") 0.15f else 0.05f)
-        val ovDp = (((wDp - 16) * 0.26f - midWdp) / 2f).coerceIn(0f, ovCap).toInt()
+        val ovDp = (((wDp - 16) * 0.275f - midWdp) / 2f).coerceIn(0f, ovCap).toInt()
         val band = rowHdp / 2f - minOf(gaugeWdp, rowHdp) / 2f * 0.92f - 6f
         val clockH = if (band >= 30f) band.toInt().coerceAtMost(110) else 0
         val rhd = prefs().getBoolean("rhd", false)
@@ -1682,20 +1682,23 @@ class MainActivity : Activity() {
         (dashSlot.layoutParams as LinearLayout.LayoutParams).apply { height = dp(if (midLevel == 2) 48 else if (short) 58 else 92); topMargin = dp(if (short) 4 else 4) }
         dashSlot.requestLayout()
         // short windows: READY, the light distance and the brake pill sit beside the sign instead of stacking, so the trip panel gets the height
-        if (short != statusInSlot) {
-            statusInSlot = short
+        // READY goes centred under the battery bar when the window is tall enough, otherwise beside the sign
+        val readyBelow = tall && !short
+        val modeKey = "$short/$readyBelow"
+        if (statusMode != modeKey) {
+            statusMode = modeKey
             dashMid.removeView(dashReady); dashMid.removeView(dashLightDist); dashMid.removeView(dashBrake)
             dashSlot.removeView(dashReady); dashSlot.removeView(dashLightDist); dashSlot.removeView(dashBrake)
-            if (short) {
-                dashSlot.addView(dashReady, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.START).apply { leftMargin = dp(4) })
-                dashSlot.addView(dashLightDist, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.START).apply { leftMargin = dp(4) })
-                dashSlot.addView(dashBrake, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.END).apply { rightMargin = dp(4) })
-            } else {
-                // roomy windows: READY, the sign slot, the light distance and the brake pill stack in the middle as they did originally
-                dashMid.addView(dashReady, 0, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
-                dashMid.addView(dashLightDist, 2, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
-                dashMid.addView(dashBrake, 3, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
-            }
+            dashRoot.removeView(dashReady)
+            if (readyBelow) dashRoot.addView(dashReady, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+            else dashSlot.addView(dashReady, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.START).apply { leftMargin = dp(4) })
+            dashSlot.addView(dashLightDist, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.START).apply { leftMargin = dp(4) })
+            if (short) dashSlot.addView(dashBrake, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.END).apply { rightMargin = dp(4) })
+            else dashMid.addView(dashBrake, 1, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
+        }
+        if (readyBelow) {
+            (dashReady.layoutParams as FrameLayout.LayoutParams).topMargin = dp(topM + wantH.toInt() + 4)
+            dashReady.requestLayout()
         }
         dashBrake.text = if (short) "Brake" else "Brake light on"
         val lowerBottom = rowBottom + t.row + 4          // top of the info row: the stat editor sits here
@@ -1750,7 +1753,7 @@ class MainActivity : Activity() {
             else { height = FrameLayout.LayoutParams.MATCH_PARENT; setMargins(dp(8), dp(topM), dp(8), dp(gaugeBottom)) }
         }
         (dashLight.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 22 else if (short) 26 else 42); height = dp(if (midLevel == 2) 46 else if (short) 56 else 88) }
-        dashReady.textSize = if (short) 11f else 13f
+        dashReady.textSize = if (short) 11f else 15f
         // in a short window the gauges reach the top corners, so the mode badge gets its own strip above them
         dashMode.textSize = if (short) 9f else 11f
         dashMode.minWidth = dp(if (short) 60 else 84)
@@ -3030,7 +3033,7 @@ class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Fl
         text(topLabel, cx, cy - r * (0.60f - topIn), r * 0.080f, g.dim, upright, 0.10f, lim(0.60f - topIn + 0.07f))
         text(topValue, cx, cy - r * (0.48f - topIn * 0.75f), r * 0.12f, g.ink, numTf(), 0f, lim(0.48f - topIn * 0.75f + 0.09f))
         text(title, cx, cy - r * 0.25f, r * 0.11f, g.dim, upright, 0.16f)
-        if (!hold) text(valueText, cx, cy + r * 0.14f, r * valueScale * 0.92f, g.ink, numTf())
+        if (!hold) text(valueText, cx, cy + r * 0.14f, r * valueScale * 0.84f, g.ink, numTf())
         text(unit, cx, cy + r * 0.34f, r * 0.13f, g.accent, uprightMed, 0.06f)
         text(bottomLabel, cx, cy + r * 0.50f, r * 0.080f, g.dim, upright, 0.10f, lim(0.52f))
         text(bottomValue, cx, cy + r * 0.62f, r * 0.12f, bottomColor ?: g.ink, numTf(), 0f, lim(0.65f))
@@ -3404,7 +3407,7 @@ class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Fl
         text(topLabel, cx, cy - r * 0.60f, r * 0.085f, grey, light)
         text(topValue, cx, cy - r * 0.48f, r * 0.12f, ink, lightItalic)
         text(title, cx, cy - r * 0.25f, r * 0.13f, grey, lightItalic)
-        if (!hold) text(valueText, cx, cy + r * 0.13f, r * 0.40f * 0.92f, ink, lightItalic)
+        if (!hold) text(valueText, cx, cy + r * 0.13f, r * 0.40f * 0.84f, ink, lightItalic)
         text(unit, cx, cy + r * 0.34f, r * 0.14f, Color.parseColor("#2AA8FF"), medium)
         text(bottomLabel, cx, cy + r * 0.50f, r * 0.085f, grey, light)
         text(bottomValue, cx, cy + r * 0.62f, r * 0.12f, bottomColor ?: ink, lightItalic)
