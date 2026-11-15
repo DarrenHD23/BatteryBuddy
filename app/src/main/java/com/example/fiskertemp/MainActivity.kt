@@ -1149,6 +1149,7 @@ class MainActivity : Activity() {
     private lateinit var dashTop: LinearLayout
     private var tripMidRows = 0
     private var statusInSlot = false
+    private lateinit var tripSpacer: View
     private var midOverlapDp = 0
     private lateinit var btnBar: LinearLayout
     private var gaugeWeight = 1.15f
@@ -1289,6 +1290,8 @@ class MainActivity : Activity() {
             addView(dashSlot, LinearLayout.LayoutParams(-1, dp(92)).apply { topMargin = dp(4) })
             addView(dashLightDist, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
             addView(dashBrake, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
+            tripSpacer = View(context)
+            addView(tripSpacer, LinearLayout.LayoutParams(-1, 0, 0f))
             addView(tripPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(6); bottomMargin = dp(6) })
             addView(chargeBar, LinearLayout.LayoutParams(-1, dp(22)).apply { bottomMargin = dp(2) })
         }
@@ -1563,7 +1566,7 @@ class MainActivity : Activity() {
         val wantH = maxOf((wDp - 16) * 1.15f / 3f * 1.1f, 340f)
         val tall = hDp - gb - topM > wantH + 24f
         // the trip readouts sit in the middle column under the traffic light; rows by the height left there
-        val midFixed = when (midLevel) { 0 -> 225f; 1 -> 104f; else -> 92f }
+        val midFixed = when (midLevel) { 0 -> 208f; 1 -> 104f; else -> 92f }
         val midFree = (if (tall) wantH else gaugeH - topM.toFloat()) - midFixed
         val midRows = if (midFree >= 104f) 3 else if (midFree >= 66f) 2 else 0
         // the clock goes in the free band above the left gauge (the gauge circle is centred in its height)
@@ -1588,6 +1591,9 @@ class MainActivity : Activity() {
         val stripBottom = base + tripOff
         val rowBottom = if (t.showStrip) stripBottom + t.strip + 4 else base
         tripMidRows = midRows
+        // with plenty of height the panel stays a little shorter and sits just above the battery bar
+        (tripSpacer.layoutParams as LinearLayout.LayoutParams).weight = if (midRows >= 3 && midLevel > 0) 0.28f else 0f
+        tripSpacer.requestLayout()
         gaugeWeight = gaugeWdp; midWeight = midWdp + 2f * ovDp; midOverlapDp = ovDp
         (dashGaugeRow.getChildAt(0).layoutParams as LinearLayout.LayoutParams).weight = gaugeWdp
         (dashGaugeRow.getChildAt(1).layoutParams as LinearLayout.LayoutParams).weight = midWdp + 2f * ovDp
@@ -1608,17 +1614,22 @@ class MainActivity : Activity() {
         (dashSlot.layoutParams as LinearLayout.LayoutParams).apply { height = dp(if (midLevel == 2) 48 else if (short) 58 else 92); topMargin = dp(if (short) 4 else 4) }
         dashSlot.requestLayout()
         // short windows: READY, the light distance and the brake pill sit beside the sign instead of stacking, so the trip panel gets the height
-        if (!statusInSlot) {
-            statusInSlot = true
+        if (short != statusInSlot) {
+            statusInSlot = short
             dashMid.removeView(dashReady); dashMid.removeView(dashLightDist); dashMid.removeView(dashBrake)
             dashSlot.removeView(dashReady); dashSlot.removeView(dashLightDist); dashSlot.removeView(dashBrake)
-            run {
+            if (short) {
                 dashSlot.addView(dashReady, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.START).apply { leftMargin = dp(4) })
                 dashSlot.addView(dashLightDist, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.START).apply { leftMargin = dp(4) })
                 dashSlot.addView(dashBrake, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.END).apply { rightMargin = dp(4) })
+            } else {
+                // roomy windows: READY, the sign slot, the light distance and the brake pill stack in the middle as they did originally
+                dashMid.addView(dashReady, 0, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+                dashMid.addView(dashLightDist, 2, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+                dashMid.addView(dashBrake, 3, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
             }
         }
-        dashBrake.text = "Brake"
+        dashBrake.text = if (short) "Brake" else "Brake light on"
         val lowerBottom = rowBottom + t.row + 4          // top of the info row: the stat editor sits here
         val gaugeBottom = lowerBottom + 4
         val sideL = 8
@@ -1697,7 +1708,7 @@ class MainActivity : Activity() {
         dashHeading.gravity = Gravity.CENTER_VERTICAL
         dashBrake.textSize = if (midLevel == 2) 11f else if (short) 13f else 16f
         (dashBrake.layoutParams as? LinearLayout.LayoutParams)?.apply { topMargin = dp(if (midLevel == 2) 3 else 8) }
-        dashBrake.setPadding(dp(if (short) 10 else 14), dp(if (midLevel == 2) 1 else 4), dp(if (short) 10 else 14), dp(if (midLevel == 2) 1 else 4))
+        dashBrake.setPadding(dp(if (short) 10 else 18), dp(if (midLevel == 2) 1 else 4), dp(if (short) 10 else 18), dp(if (midLevel == 2) 1 else 4))
         (dashSign.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 38 else if (short) 48 else 64); height = dp(if (midLevel == 2) 38 else if (short) 48 else 64) }
         poolBar.requestLayout(); lowerBox.requestLayout()
         dashStrip.requestLayout(); dashRow.requestLayout(); dashGaugeRow.requestLayout(); dashLight.requestLayout(); dashSign.requestLayout()
@@ -2095,7 +2106,7 @@ class MainActivity : Activity() {
         val avgSpeed = if (s.tripMoveSecs >= 30.0) km / (s.tripMoveSecs / 3600.0) else null
         val effUnit = when (effMode()) { "perkwh" -> "$dU/kWh"; "kwhper" -> "kWh/$dU"; else -> "Wh/$dU" }
         return listOf(
-            TripCell(5, "Efficiency", effText(avgEffKwh100(s)), effUnit),
+            TripCell(5, "Efficiency", effText(avgEffKwh100(s)), effUnit, effTint(avgEffKwh100(s))),
             TripCell(0, "Distance Driven", dist(km), dU),
             TripCell(3, "Average Speed", avgSpeed?.let { String.format("%.0f", if (mph) it * 0.621371 else it) } ?: "--", if (mph) "mph" else "km/h"),
             TripCell(4, "Energy Consumed", String.format("%.1f", s.tripKwh), "kWh"),
@@ -2121,6 +2132,24 @@ class MainActivity : Activity() {
             "kwhper" -> String.format("%.3f", if (mph) k * 0.01609344 else k / 100.0)
             else -> String.format("%.0f", if (mph) k * 16.09344 else k * 10.0)
         }
+    }
+
+    /** Colour for the efficiency readout from Wh/km: green up to 100, through yellow and orange to red at 400 and above. */
+    private fun effTint(k: Double?): Int? {
+        if (k == null) return null
+        val wh = k * 10.0
+        val pos = doubleArrayOf(0.0, 100.0, 150.0, 200.0, 400.0)
+        val col = intArrayOf(Color.parseColor("#2ECC71"), Color.parseColor("#4FD66A"), Color.parseColor("#F2D338"), Color.parseColor("#FF9F1C"), Color.parseColor("#FF3B4E"))
+        if (wh <= pos[0]) return col[0]
+        for (i in 1 until pos.size) if (wh <= pos[i]) {
+            val t = ((wh - pos[i - 1]) / (pos[i] - pos[i - 1])).toFloat()
+            val a = col[i - 1]; val b = col[i]
+            return Color.rgb(
+                (Color.red(a) + (Color.red(b) - Color.red(a)) * t).toInt(),
+                (Color.green(a) + (Color.green(b) - Color.green(a)) * t).toInt(),
+                (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * t).toInt())
+        }
+        return col.last()
     }
 
     private fun avgEffKwh100(s: CanSnapshot): Double? = if (s.tripKm >= 0.3) s.tripKwh / s.tripKm * 100.0 else null
@@ -3594,7 +3623,7 @@ class StatusStripView(ctx: Context) : View(ctx) {
 
     private fun drawItem(c: Canvas, p: Pair<String, String>, cx: Float, colW: Float, h: Float, ink: Int, grey: Int) {
         fit(p.first.uppercase(), h * 0.19f, colW * 0.92f, light, grey, cx, h * 0.40f, c)
-        if (p.first == "Solar now" && p.second == "--") drawSkyIcon(c, cx, h)
+        if (p.first == "Solar now" && (p.second == "--" || Regex("0(\\.0+)? W").matches(p.second))) drawSkyIcon(c, cx, h)
         else fit(p.second, h * 0.36f, colW * 0.92f, medium, ink, cx, h * 0.82f, c)
     }
 
@@ -3868,7 +3897,7 @@ class DashClockView(ctx: Context) : View(ctx) {
 }
 
 /** One readout of the trip panel: an icon, a caption, the value and its unit. */
-data class TripCell(val icon: Int, val label: String, val value: String, val unit: String = "")
+data class TripCell(val icon: Int, val label: String, val value: String, val unit: String = "", val tint: Int? = null)
 
 /**
  * The trip readouts as a card: a title, then a grid ([cols] columns) of readouts, each with a small icon and caption
@@ -4029,7 +4058,7 @@ class TripPanelView(ctx: Context) : View(ctx) {
             val lw = txt.measureText(cell.label.uppercase())
             val gw = isz * 1.35f + lw
             val lx = cw * k + cw * 0.10f   // icons line up on the left of every cell
-            icon(c, cell.icon, lx, top + ch * 0.10f, isz, accent)
+            icon(c, cell.icon, lx, top + ch * 0.10f, isz, cell.tint ?: accent)
             put(cell.label.uppercase(), ls, 1e6f, light, grey, lx + isz * 1.35f, top + ch * 0.10f + isz * 0.78f, c)
             // value and unit, centred together
             val base = top + ch * 0.90f
