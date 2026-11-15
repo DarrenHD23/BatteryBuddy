@@ -3600,33 +3600,40 @@ class StatusStripView(ctx: Context) : View(ctx) {
         val sz = h * 0.44f
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
         if (hour >= 20 || hour < 6) {
-            // a full moon: soft glow, a pale disc lit from the upper left, grey seas and a few craters
+            // a full moon: halo, a warm pale disc, the dark seas of the near side (soft edged) and a bright crater with rays
             val r = sz * 0.40f
             val my = cy + sz * 0.04f
             ico.style = Paint.Style.FILL
-            ico.shader = android.graphics.RadialGradient(cx, my, r * 1.9f, Color.argb(if (day) 0 else 85, 255, 244, 200), Color.argb(0, 255, 244, 200), android.graphics.Shader.TileMode.CLAMP)
-            c.drawCircle(cx, my, r * 1.9f, ico)
-            ico.shader = android.graphics.RadialGradient(cx - r * 0.35f, my - r * 0.35f, r * 1.5f,
-                intArrayOf(if (day) Color.parseColor("#F7E9B5") else Color.parseColor("#FFFEF4"), if (day) Color.parseColor("#E3CC86") else Color.parseColor("#F3EDD2"), if (day) Color.parseColor("#C9AE63") else Color.parseColor("#CFC7A6")),
-                floatArrayOf(0f, 0.55f, 1f), android.graphics.Shader.TileMode.CLAMP)
+            ico.shader = android.graphics.RadialGradient(cx, my, r * 2.2f, Color.argb(if (day) 0 else 110, 255, 244, 200), Color.argb(0, 255, 244, 200), android.graphics.Shader.TileMode.CLAMP)
+            c.drawCircle(cx, my, r * 2.2f, ico)
+            ico.shader = android.graphics.RadialGradient(cx - r * 0.30f, my - r * 0.30f, r * 1.6f,
+                intArrayOf(if (day) Color.parseColor("#F7E3A0") else Color.parseColor("#FFF9DC"), if (day) Color.parseColor("#E8CF86") else Color.parseColor("#F4E8B8"), if (day) Color.parseColor("#C9AE63") else Color.parseColor("#D8C98F")),
+                floatArrayOf(0f, 0.6f, 1f), android.graphics.Shader.TileMode.CLAMP)
+            c.drawCircle(cx, my, r, ico)
+            c.save()
+            icoPath.reset(); icoPath.addCircle(cx, my, r, android.graphics.Path.Direction.CW)
+            c.clipPath(icoPath)
+            fun sea(x: Float, y: Float, rad: Float, a: Int) {
+                ico.shader = android.graphics.RadialGradient(cx + x * r, my + y * r, rad * r,
+                    intArrayOf(Color.argb(a, 92, 96, 112), Color.argb(a * 2 / 3, 92, 96, 112), Color.argb(0, 92, 96, 112)),
+                    floatArrayOf(0f, 0.65f, 1f), android.graphics.Shader.TileMode.CLAMP)
+                c.drawCircle(cx + x * r, my + y * r, rad * r, ico)
+            }
+            sea(-0.38f, -0.38f, 0.34f, 190)   // Imbrium
+            sea(0.08f, -0.42f, 0.24f, 185)    // Serenitatis
+            sea(0.30f, -0.05f, 0.28f, 190)    // Tranquillitatis
+            sea(0.66f, -0.30f, 0.15f, 170)    // Crisium
+            sea(-0.62f, 0.05f, 0.30f, 170)    // Procellarum
+            sea(-0.22f, 0.42f, 0.22f, 175)    // Nubium
+            sea(0.10f, 0.15f, 0.16f, 150)     // Vapors / Medii
+            // a bright crater with rays near the south
+            ico.shader = android.graphics.RadialGradient(cx - r * 0.10f, my + r * 0.66f, r * 0.30f, Color.argb(255, 255, 255, 245), Color.argb(0, 255, 255, 245), android.graphics.Shader.TileMode.CLAMP)
+            c.drawCircle(cx - r * 0.10f, my + r * 0.66f, r * 0.30f, ico)
+            // gentle shading toward the rim so it reads as a sphere
+            ico.shader = android.graphics.RadialGradient(cx, my, r, intArrayOf(Color.argb(0, 0, 0, 0), Color.argb(0, 0, 0, 0), Color.argb(if (day) 70 else 90, 60, 52, 30)), floatArrayOf(0f, 0.7f, 1f), android.graphics.Shader.TileMode.CLAMP)
             c.drawCircle(cx, my, r, ico)
             ico.shader = null
-            // the dark seas
-            ico.color = Color.argb(if (day) 70 else 85, 120, 112, 92)
-            rect.set(cx - r * 0.62f, my - r * 0.52f, cx - r * 0.10f, my - r * 0.02f); c.drawOval(rect, ico)
-            rect.set(cx + r * 0.05f, my - r * 0.62f, cx + r * 0.50f, my - r * 0.20f); c.drawOval(rect, ico)
-            rect.set(cx - r * 0.20f, my + r * 0.10f, cx + r * 0.32f, my + r * 0.52f); c.drawOval(rect, ico)
-            rect.set(cx + r * 0.30f, my + r * 0.05f, cx + r * 0.68f, my + r * 0.34f); c.drawOval(rect, ico)
-            // craters
-            ico.color = Color.argb(if (day) 60 else 75, 130, 122, 100)
-            c.drawCircle(cx - r * 0.50f, my + r * 0.45f, r * 0.12f, ico)
-            c.drawCircle(cx + r * 0.58f, my + r * 0.52f, r * 0.09f, ico)
-            c.drawCircle(cx + r * 0.20f, my - r * 0.78f, r * 0.07f, ico)
-            c.drawCircle(cx - r * 0.78f, my + r * 0.05f, r * 0.07f, ico)
-            // soft shading toward the lower right rim so it reads as a sphere
-            ico.shader = android.graphics.RadialGradient(cx - r * 0.30f, my - r * 0.30f, r * 1.25f, Color.argb(0, 0, 0, 0), Color.argb(if (day) 55 else 70, 40, 36, 24), android.graphics.Shader.TileMode.CLAMP)
-            c.drawCircle(cx, my, r, ico)
-            ico.shader = null
+            c.restore()
         } else {
             // a darker cloud behind and to the right, a lighter one in front
             cloud(c, cx + sz * 0.22f, cy + sz * 0.10f, sz * 0.80f,
