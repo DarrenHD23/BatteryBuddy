@@ -324,6 +324,8 @@ private class QueueInputStream : InputStream() {
 @Suppress("DEPRECATION")
 /** True once this run of the app has done its start-up split screen, so a rebuilt screen never repeats it. */
 private var startSplitDone = false
+/** The caution notice has been agreed to in this driving session (lives as long as the app process). */
+private var cautionAgreedThisRun = false
 
 @SuppressLint("MissingPermission")
 class MainActivity : Activity() {
@@ -412,6 +414,64 @@ class MainActivity : Activity() {
     private lateinit var advancedBox: LinearLayout
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    // ------------------------------------------------------------ caution notice
+    private lateinit var cautionView: FrameLayout
+    private var lastReadySeen: Boolean? = null
+
+    /** A full-window notice over everything, with a caution symbol and an Agree button. */
+    private fun buildCaution(): FrameLayout {
+        val amber = Color.parseColor("#FFB300")
+        val f = FrameLayout(this).apply {
+            setBackgroundColor(Color.argb(215, 0, 0, 0)); isClickable = true; isFocusable = true
+            visibility = View.GONE; alpha = 0f
+        }
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(26), dp(24), dp(26), dp(26))
+            background = GradientDrawable().apply { setColor(Color.parseColor("#1B2030")); cornerRadius = dp(20).toFloat(); setStroke(dp(2), amber) }
+            addView(CautionSymbolView(context), LinearLayout.LayoutParams(dp(84), dp(84)))
+            addView(TextView(context).apply { text = "Caution!"; textSize = 28f; setTextColor(amber); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER },
+                LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
+            addView(TextView(context).apply {
+                text = "This is beta software, use at your own risk.\n\nKeep your eyes on the road at all times!"
+                textSize = 18f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+            }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(14) })
+            addView(Button(context).apply {
+                text = "Agree"; isAllCaps = false; textSize = 18f; setTextColor(Color.parseColor("#1B2030")); typeface = Typeface.DEFAULT_BOLD
+                background = GradientDrawable().apply { setColor(amber); cornerRadius = dp(26).toFloat() }
+                setOnClickListener {
+                    EventLog.add("Caution notice: user pressed Agree")
+                    cautionAgreedThisRun = true
+                    isEnabled = false
+                    f.animate().alpha(0f).setDuration(450).withEndAction { f.visibility = View.GONE; isEnabled = true }.start()
+                }
+            }, LinearLayout.LayoutParams(dp(200), dp(52)).apply { topMargin = dp(22) })
+            addView(Button(context).apply {
+                text = "Don't Agree"; isAllCaps = false; textSize = 16f; setTextColor(Color.WHITE)
+                background = GradientDrawable().apply { setColor(Color.TRANSPARENT); cornerRadius = dp(26).toFloat(); setStroke(dp(1), Color.argb(160, 255, 255, 255)) }
+                setOnClickListener {
+                    EventLog.add("Caution notice: user pressed Don't Agree, closing the app")
+                    isEnabled = false
+                    pulse?.stop()
+                    finishAndRemoveTask()
+                }
+            }, LinearLayout.LayoutParams(dp(200), dp(46)).apply { topMargin = dp(10) })
+        }
+        val holder = LinearLayout(this).apply { gravity = Gravity.CENTER; setPadding(dp(16), dp(16), dp(16), dp(16)); addView(card, LinearLayout.LayoutParams(dp(420), -2)) }
+        f.addView(ScrollView(this).apply { isFillViewport = true; addView(holder, ViewGroup.LayoutParams(-1, -2)) }, FrameLayout.LayoutParams(-1, -1))
+        return f
+    }
+
+    private fun showCaution() {
+        if (!::cautionView.isInitialized) return
+        EventLog.add("Caution notice shown")
+        cautionView.bringToFront()
+        cautionView.animate().cancel()
+        cautionView.visibility = View.VISIBLE
+        cautionView.alpha = 0f
+        cautionView.animate().alpha(1f).setDuration(600).start()
+    }
 
     /** The settings options (radio buttons, check boxes) are just white text: no grey background or ripple behind them. */
     private fun clearOptionBackgrounds(v: View) {
@@ -638,9 +698,12 @@ class MainActivity : Activity() {
             addView(exitBtn, LinearLayout.LayoutParams(-2, dp(36)))
         }
         edgeBox.addView(btnBar, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(8), dp(16)) })
+        cautionView = buildCaution()
+        edgeBox.addView(cautionView, FrameLayout.LayoutParams(-1, -1))
         applySkinChrome()
         setContentView(edgeBox)
         clearOptionBackgrounds(rootScroll)
+        if (!cautionAgreedThisRun) showCaution()
         applyEdgePadding()
         applyTheme(getSharedPreferences("prefs", MODE_PRIVATE).getInt("theme", 0).coerceIn(0, THEMES.size - 1))
     }
@@ -1081,6 +1144,9 @@ class MainActivity : Activity() {
     private fun renderCan() {
         val p = pulse ?: return
         val s = canSnap
+        // a new drive begins when the car goes from not ready to ready: the notice must be agreed to again
+        if (s.ready == true && lastReadySeen == false) { cautionAgreedThisRun = false; showCaution() }
+        if (s.ready != null) lastReadySeen = s.ready
         p.flipPower = prefs().getBoolean("flipPower", false)
         val live = System.currentTimeMillis() - p.lastChangeAt < 3000
         canDot.background = dotDrawable(live)
@@ -4206,5 +4272,25 @@ class HoldView(ctx: Context) : View(ctx) {
         p.typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
         p.textSize = rho * 1.25f
         c.drawText("H", x, y + rho * 0.43f, p)
+    }
+}
+
+/** A caution symbol: a rounded amber warning triangle with an exclamation mark. */
+class CautionSymbolView(ctx: Context) : View(ctx) {
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val path = android.graphics.Path()
+    private val rect = RectF()
+    override fun onDraw(c: Canvas) {
+        val w = width.toFloat(); val h = height.toFloat()
+        if (w <= 0f || h <= 0f) return
+        val amber = Color.parseColor("#FFB300")
+        path.reset()
+        path.moveTo(w * 0.5f, h * 0.10f); path.lineTo(w * 0.93f, h * 0.86f); path.lineTo(w * 0.07f, h * 0.86f); path.close()
+        p.style = Paint.Style.FILL_AND_STROKE; p.strokeJoin = Paint.Join.ROUND; p.strokeWidth = w * 0.10f; p.color = amber
+        c.drawPath(path, p)
+        p.style = Paint.Style.FILL; p.color = Color.parseColor("#1B2030")
+        rect.set(w * 0.455f, h * 0.36f, w * 0.545f, h * 0.62f)
+        c.drawRoundRect(rect, w * 0.045f, w * 0.045f, p)
+        c.drawCircle(w * 0.5f, h * 0.73f, w * 0.052f, p)
     }
 }
