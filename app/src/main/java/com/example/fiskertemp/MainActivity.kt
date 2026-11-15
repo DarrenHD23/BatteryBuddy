@@ -413,6 +413,12 @@ class MainActivity : Activity() {
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
+    /** The settings options (radio buttons, check boxes) are just white text: no grey background or ripple behind them. */
+    private fun clearOptionBackgrounds(v: View) {
+        if (v is android.widget.CompoundButton) { v.background = null; v.setTextColor(Color.WHITE) }
+        if (v is ViewGroup) for (i in 0 until v.childCount) clearOptionBackgrounds(v.getChildAt(i))
+    }
+
     private fun roundedBg(alpha: Int, radiusDp: Int = 16): GradientDrawable = GradientDrawable().apply {
         setColor(Color.argb(alpha, 255, 255, 255)); cornerRadius = dp(radiusDp).toFloat()
     }
@@ -634,6 +640,7 @@ class MainActivity : Activity() {
         edgeBox.addView(btnBar, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(8), dp(16)) })
         applySkinChrome()
         setContentView(edgeBox)
+        clearOptionBackgrounds(rootScroll)
         applyEdgePadding()
         applyTheme(getSharedPreferences("prefs", MODE_PRIVATE).getInt("theme", 0).coerceIn(0, THEMES.size - 1))
     }
