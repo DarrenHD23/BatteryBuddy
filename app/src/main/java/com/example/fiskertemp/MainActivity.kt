@@ -1141,6 +1141,8 @@ class MainActivity : Activity() {
     private lateinit var dashClock: DashClockView
     private lateinit var dashTop: LinearLayout
     private var tripMidRows = 0
+    private var statusInSlot = false
+    private var midOverlapDp = 0
     private lateinit var btnBar: LinearLayout
     private var gaugeWeight = 1.15f
     private var midWeight = 0.7f
@@ -1455,9 +1457,9 @@ class MainActivity : Activity() {
         dashGaugeRow.removeAllViews()
         val left = if (speedLeft) dashSpeedGauge else dashPowerGauge
         val right = if (speedLeft) dashPowerGauge else dashSpeedGauge
-        dashGaugeRow.addView(left, LinearLayout.LayoutParams(0, -1, gaugeWeight))
+        dashGaugeRow.addView(left, LinearLayout.LayoutParams(0, -1, gaugeWeight).apply { rightMargin = -dp(midOverlapDp) })
         dashGaugeRow.addView(dashMid, LinearLayout.LayoutParams(0, -1, midWeight))
-        dashGaugeRow.addView(right, LinearLayout.LayoutParams(0, -1, gaugeWeight))
+        dashGaugeRow.addView(right, LinearLayout.LayoutParams(0, -1, gaugeWeight).apply { leftMargin = -dp(midOverlapDp) })
         dashSpeedGauge.invalidate(); dashPowerGauge.invalidate()
     }
 
@@ -1554,19 +1556,23 @@ class MainActivity : Activity() {
         val wantH = maxOf((wDp - 16) * 1.15f / 3f * 1.1f, 340f)
         val tall = hDp - gb - topM > wantH + 24f
         // the trip readouts sit in the middle column under the traffic light; rows by the height left there
-        val midFixed = when (midLevel) { 0 -> 208f; 1 -> 161f; else -> 129f }
+        val midFixed = when (midLevel) { 0 -> 136f; 1 -> 104f; else -> 92f }
         val midFree = (if (tall) wantH else gaugeH - topM.toFloat()) - midFixed
-        val midRows = if (midFree >= 104f) 3 else if (midFree >= 72f) 2 else 0
+        val midRows = if (midFree >= 104f) 3 else if (midFree >= 66f) 2 else 0
         // the clock goes in the free band above the left gauge (the gauge circle is centred in its height)
         val rowHdp = if (tall) wantH else gaugeH - topM.toFloat()
         // the gauge circles are limited by the row height, so any spare width goes to the middle column (bigger trip text)
         val gwDefault = (wDp - 16) * 1.15f / 3.0f
         val gaugeWdp = maxOf(minOf(gwDefault, rowHdp), gwDefault * 0.85f)
         val midWdp = (wDp - 16) - 2f * gaugeWdp
+        // the middle column may reach over the gauge boxes: where the arcs open toward the middle there is free room there
+        val arcMode = prefs().getString("arcStyle", "mirror")
+        val ovCap = gaugeWdp * (if (arcMode == "mirror") 0.15f else 0.05f)
+        val ovDp = (((wDp - 16) * 0.33f - midWdp) / 2f).coerceIn(0f, ovCap).toInt()
         val band = rowHdp / 2f - minOf(gaugeWdp, rowHdp) / 2f * 0.92f - 6f
         val clockH = if (band >= 30f) band.toInt().coerceAtMost(110) else 0
         val rhd = prefs().getBoolean("rhd", false)
-        val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$rhd"
+        val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovDp/$rhd"
         if (key == layoutKey) return
         layoutKey = key
         EventLog.add("layout ${wDp}x${hDp}dp tier=$ti trip=$midRows third=$third half=$half tall=$tall")
@@ -1575,9 +1581,11 @@ class MainActivity : Activity() {
         val stripBottom = base + tripOff
         val rowBottom = if (t.showStrip) stripBottom + t.strip + 4 else base
         tripMidRows = midRows
-        gaugeWeight = gaugeWdp; midWeight = midWdp
+        gaugeWeight = gaugeWdp; midWeight = midWdp + 2f * ovDp; midOverlapDp = ovDp
         (dashGaugeRow.getChildAt(0).layoutParams as LinearLayout.LayoutParams).weight = gaugeWdp
-        (dashGaugeRow.getChildAt(1).layoutParams as LinearLayout.LayoutParams).weight = midWdp
+        (dashGaugeRow.getChildAt(1).layoutParams as LinearLayout.LayoutParams).weight = midWdp + 2f * ovDp
+        (dashGaugeRow.getChildAt(0).layoutParams as LinearLayout.LayoutParams).rightMargin = -dp(ovDp)
+        (dashGaugeRow.getChildAt(2).layoutParams as LinearLayout.LayoutParams).leftMargin = -dp(ovDp)
         (dashGaugeRow.getChildAt(2).layoutParams as LinearLayout.LayoutParams).weight = gaugeWdp
         dashGaugeRow.requestLayout()
         dashClock.visibility = if (clockH > 0) View.VISIBLE else View.GONE
@@ -1592,6 +1600,18 @@ class MainActivity : Activity() {
         tripBtn.visibility = if (midRows > 0) View.GONE else View.VISIBLE
         (dashSlot.layoutParams as LinearLayout.LayoutParams).apply { height = dp(if (midLevel == 2) 48 else if (short) 58 else 92); topMargin = dp(if (short) 4 else 4) }
         dashSlot.requestLayout()
+        // short windows: READY, the light distance and the brake pill sit beside the sign instead of stacking, so the trip panel gets the height
+        if (!statusInSlot) {
+            statusInSlot = true
+            dashMid.removeView(dashReady); dashMid.removeView(dashLightDist); dashMid.removeView(dashBrake)
+            dashSlot.removeView(dashReady); dashSlot.removeView(dashLightDist); dashSlot.removeView(dashBrake)
+            run {
+                dashSlot.addView(dashReady, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.START).apply { leftMargin = dp(4) })
+                dashSlot.addView(dashLightDist, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.START).apply { leftMargin = dp(4) })
+                dashSlot.addView(dashBrake, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.END).apply { rightMargin = dp(4) })
+            }
+        }
+        dashBrake.text = "Brake"
         val lowerBottom = rowBottom + t.row + 4          // top of the info row: the stat editor sits here
         val gaugeBottom = lowerBottom + 4
         val sideL = 8
@@ -1669,8 +1689,8 @@ class MainActivity : Activity() {
         dashHeading.textSize = if (short) 12f else 16f
         dashHeading.gravity = Gravity.CENTER_VERTICAL
         dashBrake.textSize = if (midLevel == 2) 11f else if (short) 13f else 16f
-        (dashBrake.layoutParams as LinearLayout.LayoutParams).apply { topMargin = dp(if (midLevel == 2) 3 else 8) }
-        dashBrake.setPadding(dp(if (midLevel == 2) 10 else 18), dp(if (midLevel == 2) 1 else 4), dp(if (midLevel == 2) 10 else 18), dp(if (midLevel == 2) 1 else 4))
+        (dashBrake.layoutParams as? LinearLayout.LayoutParams)?.apply { topMargin = dp(if (midLevel == 2) 3 else 8) }
+        dashBrake.setPadding(dp(if (short) 10 else 14), dp(if (midLevel == 2) 1 else 4), dp(if (short) 10 else 14), dp(if (midLevel == 2) 1 else 4))
         (dashSign.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 38 else if (short) 48 else 64); height = dp(if (midLevel == 2) 38 else if (short) 48 else 64) }
         poolBar.requestLayout(); lowerBox.requestLayout()
         dashStrip.requestLayout(); dashRow.requestLayout(); dashGaugeRow.requestLayout(); dashLight.requestLayout(); dashSign.requestLayout()
@@ -2176,6 +2196,12 @@ class MainActivity : Activity() {
                 val r = Root.exec("getprop sys.boot.reason; getprop ro.boot.bootreason; echo '--pstore'; ls -l /sys/fs/pstore 2>&1 | head -n 8; echo '--dropbox'; ls -l /data/system/dropbox 2>&1 | tail -n 14; echo '--crash log'; logcat -b crash -d -t 25 2>&1 | cut -c1-200")
                 if (r.timedOut) EventLog.add("boot info: root shell timed out")
                 else EventLog.add("boot info:\n" + r.out.trim().take(3000))
+                // what the system itself wrote about the last restart: the newest dropbox reports, pstore text, saved logs
+                val r2 = Root.exec("getprop persist.sys.boot.reason; getprop sys.boot.reason.last; " +
+                    "echo '--pstore text'; for f in /sys/fs/pstore/console-ramoops* /sys/fs/pstore/dmesg-ramoops* /sys/fs/pstore/pmsg-ramoops*; do [ -f \"${'$'}f\" ] && { echo \"== ${'$'}f\"; tail -n 25 \"${'$'}f\" | cut -c1-200; }; done; " +
+                    "echo '--newest dropbox'; for f in ${'$'}(ls -t /data/system/dropbox 2>/dev/null | head -n 3); do echo \"== ${'$'}f\"; head -c 1300 \"/data/system/dropbox/${'$'}f\" | cut -c1-200; done; " +
+                    "echo '--saved logs'; ls -l /data/misc/logd 2>&1 | head -n 6; ls -l /data/misc/bootstat 2>&1 | head -n 6")
+                if (!r2.timedOut) EventLog.add("restart evidence:\n" + r2.out.trim().take(4500))
             } catch (e: Throwable) { EventLog.add("boot info failed: ${e.message}") }
         }.also { it.isDaemon = true }.start()
     }
@@ -3514,9 +3540,56 @@ class StatusStripView(ctx: Context) : View(ctx) {
         c.drawText(s, x, y, txt)
     }
 
+    private val ico = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val icoPath = android.graphics.Path()
+    private val icoCut = android.graphics.Path()
+
+    /** A soft cloud with its flat base on [base], [sz] wide, centred on [cx]. */
+    private fun cloud(c: Canvas, cx: Float, base: Float, sz: Float, top: Int, bottom: Int) {
+        val ch = sz * 0.52f
+        ico.shader = LinearGradient(0f, base - ch, 0f, base, top, bottom, android.graphics.Shader.TileMode.CLAMP)
+        ico.style = Paint.Style.FILL
+        rect.set(cx - sz * 0.5f, base - ch * 0.46f, cx + sz * 0.5f, base)
+        c.drawRoundRect(rect, ch * 0.23f, ch * 0.23f, ico)
+        c.drawCircle(cx - sz * 0.17f, base - ch * 0.52f, ch * 0.36f, ico)
+        c.drawCircle(cx + sz * 0.12f, base - ch * 0.62f, ch * 0.46f, ico)
+        c.drawCircle(cx + sz * 0.33f, base - ch * 0.36f, ch * 0.26f, ico)
+        ico.shader = null
+    }
+
+    /** Stands in for the solar reading when there is no sun: a crescent moon at night, clouds otherwise. */
+    private fun drawSkyIcon(c: Canvas, cx: Float, h: Float) {
+        val cy = h * 0.66f
+        val sz = h * 0.44f
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        if (hour >= 20 || hour < 6) {
+            val r = sz * 0.52f
+            ico.style = Paint.Style.FILL
+            ico.shader = android.graphics.RadialGradient(cx, cy, r * 1.7f, Color.argb(if (day) 0 else 70, 255, 236, 160), Color.argb(0, 255, 236, 160), android.graphics.Shader.TileMode.CLAMP)
+            c.drawCircle(cx, cy, r * 1.7f, ico)
+            icoPath.reset(); icoPath.addCircle(cx, cy, r, android.graphics.Path.Direction.CW)
+            icoCut.reset(); icoCut.addCircle(cx + r * 0.50f, cy - r * 0.22f, r * 0.86f, android.graphics.Path.Direction.CW)
+            icoPath.op(icoCut, android.graphics.Path.Op.DIFFERENCE)
+            ico.shader = LinearGradient(cx - r, cy - r, cx + r * 0.3f, cy + r, if (day) Color.parseColor("#E9B949") else Color.parseColor("#FFF6D6"), if (day) Color.parseColor("#C98E1C") else Color.parseColor("#E8C76A"), android.graphics.Shader.TileMode.CLAMP)
+            c.drawPath(icoPath, ico)
+            ico.shader = null
+            ico.color = if (day) Color.parseColor("#C98E1C") else Color.parseColor("#FFF1BF")
+            c.drawCircle(cx + r * 1.05f, cy - r * 0.75f, r * 0.10f, ico)
+            c.drawCircle(cx + r * 1.45f, cy - r * 0.05f, r * 0.07f, ico)
+            c.drawCircle(cx + r * 0.80f, cy + r * 0.60f, r * 0.06f, ico)
+        } else {
+            // a darker cloud behind and to the right, a lighter one in front
+            cloud(c, cx + sz * 0.22f, cy + sz * 0.10f, sz * 0.80f,
+                if (day) Color.parseColor("#8FA3B8") else Color.parseColor("#8197AE"), if (day) Color.parseColor("#6F859C") else Color.parseColor("#5F7690"))
+            cloud(c, cx - sz * 0.10f, cy + sz * 0.34f, sz * 0.92f,
+                if (day) Color.parseColor("#FFFFFF") else Color.parseColor("#F4F8FC"), if (day) Color.parseColor("#C9D6E4") else Color.parseColor("#B9C9DB"))
+        }
+    }
+
     private fun drawItem(c: Canvas, p: Pair<String, String>, cx: Float, colW: Float, h: Float, ink: Int, grey: Int) {
         fit(p.first.uppercase(), h * 0.19f, colW * 0.92f, light, grey, cx, h * 0.40f, c)
-        fit(p.second, h * 0.36f, colW * 0.92f, medium, ink, cx, h * 0.82f, c)
+        if (p.first == "Solar now" && p.second == "--") drawSkyIcon(c, cx, h)
+        else fit(p.second, h * 0.36f, colW * 0.92f, medium, ink, cx, h * 0.82f, c)
     }
 
     override fun onDraw(c: Canvas) {
