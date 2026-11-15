@@ -1002,7 +1002,7 @@ class MainActivity : Activity() {
                 layout(0, 0, gw, gw)
             }
         val power = gauge(false, 0.2f, 0.50f) {
-            topLabel = "AVG WH/KM"; topValue = "185"; title = "POWER"; valueText = "38.4"; unit = "kW"; bottomLabel = "HV BATTERY"; bottomValue = "78 %"
+            topLabel = "CLIMATE"; topValue = "0.4 kW"; title = "POWER"; valueText = "38.4"; unit = "kW"; bottomLabel = "HV BATTERY"; bottomValue = "78 %"
             scale = powerScale()
         }
         val speed = gauge(true, 0f, 0.30f) {
@@ -1236,7 +1236,7 @@ class MainActivity : Activity() {
             return mix(stops[i], stops[i + 1], k - i)
         }
         dashPowerGauge = ArcGaugeView(this, false, 0.2f) { t -> Skins.grad(t) }
-            .apply { topLabel = "AVG WH/KM"; title = "POWER"; unit = "kW"; bottomLabel = "HV BATTERY" }
+            .apply { topLabel = "CLIMATE"; title = "POWER"; unit = "kW"; bottomLabel = "HV BATTERY" }
         dashSpeedGauge = ArcGaugeView(this, true, 0f) { t -> Skins.grad(t) }
             .apply { topLabel = "BATTERY TEMP"; title = "SPEED"; unit = "km/h"; bottomLabel = "BATTERY HEATING/COOLING" }
         val light = Typeface.create("sans-serif-light", Typeface.NORMAL)
@@ -2000,8 +2000,7 @@ class MainActivity : Activity() {
             if (it >= 0) (0.2 + 0.8 * Math.sqrt((it / 250.0).coerceIn(0.0, 1.0))).toFloat()
             else (0.2 - 0.2 * Math.sqrt((-it / 80.0).coerceIn(0.0, 1.0))).toFloat()
         })
-        dashPowerGauge.topLabel = "AVG " + effUnitLabel()
-        dashPowerGauge.topValue = effText(avgEffKwh100(s))
+        dashPowerGauge.topValue = s.climateKw?.let { String.format("%.1f kW", it) } ?: "--"
         dashPowerGauge.bottomValue = s.socUsable?.let { "$it %" } ?: "--"
         chargeBar.frac = s.socUsable?.let { it / 100f }
         if (dashClock.visibility == View.VISIBLE) dashClock.tick()
@@ -2934,7 +2933,7 @@ class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Fl
         text(topLabel, cx, cy - r * (0.60f - topIn), r * 0.080f, g.dim, upright, 0.10f, lim(0.60f - topIn + 0.07f))
         text(topValue, cx, cy - r * (0.48f - topIn * 0.75f), r * 0.12f, g.ink, numTf(), 0f, lim(0.48f - topIn * 0.75f + 0.09f))
         text(title, cx, cy - r * 0.25f, r * 0.11f, g.dim, upright, 0.16f)
-        if (!hold) text(valueText, cx, cy + r * 0.14f, r * valueScale, g.ink, numTf())
+        if (!hold) text(valueText, cx, cy + r * 0.14f, r * valueScale * 0.92f, g.ink, numTf())
         text(unit, cx, cy + r * 0.34f, r * 0.13f, g.accent, uprightMed, 0.06f)
         text(bottomLabel, cx, cy + r * 0.50f, r * 0.080f, g.dim, upright, 0.10f, lim(0.52f))
         text(bottomValue, cx, cy + r * 0.62f, r * 0.12f, bottomColor ?: g.ink, numTf(), 0f, lim(0.65f))
@@ -3308,7 +3307,7 @@ class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Fl
         text(topLabel, cx, cy - r * 0.60f, r * 0.085f, grey, light)
         text(topValue, cx, cy - r * 0.48f, r * 0.12f, ink, lightItalic)
         text(title, cx, cy - r * 0.25f, r * 0.13f, grey, lightItalic)
-        if (!hold) text(valueText, cx, cy + r * 0.13f, r * 0.40f, ink, lightItalic)
+        if (!hold) text(valueText, cx, cy + r * 0.13f, r * 0.40f * 0.92f, ink, lightItalic)
         text(unit, cx, cy + r * 0.34f, r * 0.14f, Color.parseColor("#2AA8FF"), medium)
         text(bottomLabel, cx, cy + r * 0.50f, r * 0.085f, grey, light)
         text(bottomValue, cx, cy + r * 0.62f, r * 0.12f, bottomColor ?: ink, lightItalic)
