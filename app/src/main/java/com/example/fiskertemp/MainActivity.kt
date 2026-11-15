@@ -424,7 +424,7 @@ class MainActivity : Activity() {
 
     private fun card(): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        background = roundedBg(40)
+        background = GradientDrawable().apply { setColor(Color.TRANSPARENT); cornerRadius = dp(16).toFloat(); setStroke(dp(1), Color.argb(50, 255, 255, 255)) }
         setPadding(dp(16), dp(16), dp(16), dp(16))
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             .apply { bottomMargin = dp(14) }
@@ -1206,7 +1206,7 @@ class MainActivity : Activity() {
     private fun speedMph() = prefs().getBoolean("mph", false)
 
     private fun buildDashboard(): FrameLayout {
-        Skins.current = prefs().getInt("skin", 0)
+        Skins.current = prefs().getInt("skin", 7)
         val f = FrameLayout(this)
         f.visibility = View.GONE
         f.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Skins.look.bgTop, Skins.look.bgBottom))
@@ -1556,7 +1556,7 @@ class MainActivity : Activity() {
         val wantH = maxOf((wDp - 16) * 1.15f / 3f * 1.1f, 340f)
         val tall = hDp - gb - topM > wantH + 24f
         // the trip readouts sit in the middle column under the traffic light; rows by the height left there
-        val midFixed = when (midLevel) { 0 -> 136f; 1 -> 104f; else -> 92f }
+        val midFixed = when (midLevel) { 0 -> 160f; 1 -> 104f; else -> 92f }
         val midFree = (if (tall) wantH else gaugeH - topM.toFloat()) - midFixed
         val midRows = if (midFree >= 104f) 3 else if (midFree >= 66f) 2 else 0
         // the clock goes in the free band above the left gauge (the gauge circle is centred in its height)
@@ -1568,7 +1568,7 @@ class MainActivity : Activity() {
         // the middle column may reach over the gauge boxes: where the arcs open toward the middle there is free room there
         val arcMode = prefs().getString("arcStyle", "mirror")
         val ovCap = gaugeWdp * (if (arcMode == "mirror") 0.15f else 0.05f)
-        val ovDp = (((wDp - 16) * 0.33f - midWdp) / 2f).coerceIn(0f, ovCap).toInt()
+        val ovDp = (((wDp - 16) * 0.295f - midWdp) / 2f).coerceIn(0f, ovCap).toInt()
         val band = rowHdp / 2f - minOf(gaugeWdp, rowHdp) / 2f * 0.92f - 6f
         val clockH = if (band >= 30f) band.toInt().coerceAtMost(110) else 0
         val rhd = prefs().getBoolean("rhd", false)
@@ -2694,10 +2694,10 @@ object Skins {
     private fun c(s: String) = Color.parseColor(s)
 
     val list = listOf(
-        Look(0, "Modern 1", "Segmented arcs with italic numbers (the original look)", 0,
-            c("#2AA8FF"), c("#2A78C8"), c("#8E5CFF"), c("#04070D"), c("#0B1626"),
-            intArrayOf(c("#22D3EE"), c("#1E90FF"), c("#8E5CFF"), c("#FF4FA3"), c("#FF3B4E")),
-            "sans-serif-light", true, false, Color.argb(150, 20, 20, 40), Color.argb(120, 255, 255, 255)),
+        Look(7, "Modern 8", "A numbered scale with a marker riding on it and a lit band, in steel blues", 7,
+            c("#5BB8FF"), c("#1F6FB8"), c("#3D7BFF"), c("#050A14"), c("#0C1830"),
+            intArrayOf(c("#86E4FF"), c("#3DB0FF"), c("#2A7BFF"), c("#2457E6")),
+            "sans-serif-condensed", false, false, Color.argb(160, 10, 20, 40), Color.argb(120, 91, 184, 255)),
         Look(1, "Modern 2", "A fine dial with tick marks, upright numbers and a glowing pointer", 1,
             c("#8FD8FF"), c("#0B6FD6"), c("#4C7DFF"), c("#03060B"), c("#0A1424"),
             intArrayOf(c("#22D3EE"), c("#1E90FF"), c("#8E5CFF"), c("#FF4FA3"), c("#FF3B4E")),
@@ -2722,13 +2722,13 @@ object Skins {
             c("#FF3B3B"), c("#C41E1E"), c("#D9DEE5"), c("#050505"), c("#101113"),
             intArrayOf(c("#EDEFF2"), c("#FF8A5B"), c("#FF3B3B")),
             "sans-serif-medium", false, true, Color.argb(170, 16, 16, 18), Color.argb(120, 255, 59, 59)),
-        Look(7, "Modern 8", "A numbered scale with a marker riding on it and a lit band, in steel blues", 7,
-            c("#5BB8FF"), c("#1F6FB8"), c("#3D7BFF"), c("#050A14"), c("#0C1830"),
-            intArrayOf(c("#86E4FF"), c("#3DB0FF"), c("#2A7BFF"), c("#2457E6")),
-            "sans-serif-condensed", false, false, Color.argb(160, 10, 20, 40), Color.argb(120, 91, 184, 255)),
+        Look(0, "Modern 1", "Segmented arcs with italic numbers (the original look)", 0,
+            c("#2AA8FF"), c("#2A78C8"), c("#8E5CFF"), c("#04070D"), c("#0B1626"),
+            intArrayOf(c("#22D3EE"), c("#1E90FF"), c("#8E5CFF"), c("#FF4FA3"), c("#FF3B4E")),
+            "sans-serif-light", true, false, Color.argb(150, 20, 20, 40), Color.argb(120, 255, 255, 255)),
     )
 
-    @Volatile var current = 0
+    @Volatile var current = 7
     fun lookOf(id: Int): Look = list.firstOrNull { it.id == id } ?: list[0]
     val look: Look get() = lookOf(current)
     fun name(id: Int) = lookOf(id).name
