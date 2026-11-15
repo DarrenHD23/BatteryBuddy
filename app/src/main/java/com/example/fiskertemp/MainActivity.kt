@@ -964,7 +964,9 @@ class MainActivity : Activity() {
                 if ((0.299 * Color.red(c) + 0.587 * Color.green(c) + 0.114 * Color.blue(c)) / 255.0 < 0.5) v.setTextColor(Color.parseColor("#F0F3F8"))
             }
             // plain theme buttons can be flat with dark text on this device: give them a visible grey face
-            if (v is Button && v.background !is GradientDrawable) {
+            // radio buttons and check boxes are Buttons too: they stay plain white text on the dialog's own background
+            if (v is android.widget.CompoundButton) { v.background = null; v.setTextColor(Color.WHITE) }
+            else if (v is Button && v.background !is GradientDrawable) {
                 v.background = GradientDrawable().apply { setColor(Color.parseColor("#3A4150")); cornerRadius = dp(10).toFloat() }
                 v.setTextColor(Color.WHITE)
             }
