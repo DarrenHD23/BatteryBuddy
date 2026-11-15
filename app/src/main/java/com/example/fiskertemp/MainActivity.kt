@@ -763,6 +763,42 @@ class MainActivity : Activity() {
             updateDashTheme(true)
         }
         box.add(rtg, 6)
+        // --- Background colour
+        box.add(TextView(this).apply { text = "Background colour"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
+        THEMES.forEachIndexed { i, t ->
+            val b = Button(this).apply {
+                text = t.name + if (i == themeIndex) "  \u2713" else ""
+                isAllCaps = false; setTextColor(Color.WHITE)
+                background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(t.top, t.bottom))
+                    .apply { cornerRadius = dp(12).toFloat() }
+                setOnClickListener { prefs().edit().putInt("bgPic", 0).apply(); applyTheme(i); dialog.dismiss() }
+            }
+            box.add(b, 10)
+        }
+
+        // --- Background picture
+        box.add(TextView(this).apply { text = "Background picture"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
+        val picRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val curPic = prefs().getInt("bgPic", 0)
+        fun tile(n: Int): View {
+            val sel = n == curPic
+            val v: View = if (n == 0) TextView(this).apply {
+                text = "None"; tag = "keep"; gravity = Gravity.CENTER; textSize = 13f; setTextColor(Color.DKGRAY)
+                background = GradientDrawable().apply { setColor(Color.parseColor("#EEEEEE")); cornerRadius = dp(8).toFloat() }
+            } else ImageView(this).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                bgThumb(n)?.let { setImageBitmap(it) } ?: setBackgroundColor(Color.LTGRAY)
+            }
+            v.setOnClickListener { prefs().edit().putInt("bgPic", n).apply(); applyTheme(themeIndex); dialog.dismiss() }
+            return FrameLayout(this).apply {
+                setPadding(dp(3), dp(3), dp(3), dp(3))
+                background = GradientDrawable().apply { setColor(Color.TRANSPARENT); cornerRadius = dp(10).toFloat(); setStroke(dp(if (sel) 3 else 0), Color.parseColor("#2AA8FF")) }
+                addView(v, FrameLayout.LayoutParams(dp(68), dp(120)))
+            }
+        }
+        picRow.addView(tile(0))
+        for (n in 1..bgCount) if (bgResId(n) != 0) picRow.addView(tile(n))
+        box.add(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(picRow) }, 8)
         box.add(TextView(this).apply { text = "Speed limit sign style"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
         val curSign = prefs().getString("signStyle", "us")
         val sus = RadioButton(this).apply { text = "USA / Canada (rectangle)"; id = View.generateViewId(); isChecked = curSign != "eu" }
@@ -916,42 +952,6 @@ class MainActivity : Activity() {
         sg.setOnCheckedChangeListener { _, checkedId -> applySource(checkedId == sp.id) }
         box.add(sg, 6)
 
-        // --- Background colour
-        box.add(TextView(this).apply { text = "Background colour"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
-        THEMES.forEachIndexed { i, t ->
-            val b = Button(this).apply {
-                text = t.name + if (i == themeIndex) "  \u2713" else ""
-                isAllCaps = false; setTextColor(Color.WHITE)
-                background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(t.top, t.bottom))
-                    .apply { cornerRadius = dp(12).toFloat() }
-                setOnClickListener { prefs().edit().putInt("bgPic", 0).apply(); applyTheme(i); dialog.dismiss() }
-            }
-            box.add(b, 10)
-        }
-
-        // --- Background picture
-        box.add(TextView(this).apply { text = "Background picture"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
-        val picRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val curPic = prefs().getInt("bgPic", 0)
-        fun tile(n: Int): View {
-            val sel = n == curPic
-            val v: View = if (n == 0) TextView(this).apply {
-                text = "None"; tag = "keep"; gravity = Gravity.CENTER; textSize = 13f; setTextColor(Color.DKGRAY)
-                background = GradientDrawable().apply { setColor(Color.parseColor("#EEEEEE")); cornerRadius = dp(8).toFloat() }
-            } else ImageView(this).apply {
-                scaleType = ImageView.ScaleType.CENTER_CROP
-                bgThumb(n)?.let { setImageBitmap(it) } ?: setBackgroundColor(Color.LTGRAY)
-            }
-            v.setOnClickListener { prefs().edit().putInt("bgPic", n).apply(); applyTheme(themeIndex); dialog.dismiss() }
-            return FrameLayout(this).apply {
-                setPadding(dp(3), dp(3), dp(3), dp(3))
-                background = GradientDrawable().apply { setColor(Color.TRANSPARENT); cornerRadius = dp(10).toFloat(); setStroke(dp(if (sel) 3 else 0), Color.parseColor("#2AA8FF")) }
-                addView(v, FrameLayout.LayoutParams(dp(68), dp(120)))
-            }
-        }
-        picRow.addView(tile(0))
-        for (n in 1..bgCount) if (bgResId(n) != 0) picRow.addView(tile(n))
-        box.add(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(picRow) }, 8)
         box.add(TextView(this).apply {
             text = "This project uses software from Haibin Wen and SUNNYPILOT LLC and is licensed under a custom license requiring permission for use."
             textSize = 11f; setTextColor(Color.parseColor("#8E99A8"))
