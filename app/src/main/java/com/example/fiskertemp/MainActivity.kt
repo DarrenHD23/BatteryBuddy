@@ -2701,7 +2701,7 @@ object Skins {
     private fun c(s: String) = Color.parseColor(s)
 
     val list = listOf(
-        Look(7, "Modern 8", "A numbered scale with a marker riding on it and a lit band, in steel blues", 7,
+        Look(7, "Modern 1", "A numbered scale with a marker riding on it and a lit band, in steel blues", 7,
             c("#5BB8FF"), c("#1F6FB8"), c("#3D7BFF"), c("#050A14"), c("#0C1830"),
             intArrayOf(c("#86E4FF"), c("#3DB0FF"), c("#2A7BFF"), c("#2457E6")),
             "sans-serif-condensed", false, false, Color.argb(160, 10, 20, 40), Color.argb(120, 91, 184, 255)),
@@ -2729,7 +2729,7 @@ object Skins {
             c("#FF3B3B"), c("#C41E1E"), c("#D9DEE5"), c("#050505"), c("#101113"),
             intArrayOf(c("#EDEFF2"), c("#FF8A5B"), c("#FF3B3B")),
             "sans-serif-medium", false, true, Color.argb(170, 16, 16, 18), Color.argb(120, 255, 59, 59)),
-        Look(0, "Modern 1", "Segmented arcs with italic numbers (the original look)", 0,
+        Look(0, "Modern 8", "Segmented arcs with italic numbers (the original look)", 0,
             c("#2AA8FF"), c("#2A78C8"), c("#8E5CFF"), c("#04070D"), c("#0B1626"),
             intArrayOf(c("#22D3EE"), c("#1E90FF"), c("#8E5CFF"), c("#FF4FA3"), c("#FF3B4E")),
             "sans-serif-light", true, false, Color.argb(150, 20, 20, 40), Color.argb(120, 255, 255, 255)),
