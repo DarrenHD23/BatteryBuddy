@@ -3644,7 +3644,7 @@ class StatusStripView(ctx: Context) : View(ctx) {
     }
 
     private fun drawItem(c: Canvas, p: Pair<String, String>, cx: Float, colW: Float, h: Float, ink: Int, grey: Int) {
-        fit(p.first.uppercase(), h * 0.19f, colW * 0.92f, light, grey, cx, h * 0.40f, c)
+        fit((if (p.first == "HV Cap") "HV Cap Rem" else p.first).uppercase(), h * 0.19f, colW * 0.92f, light, grey, cx, h * 0.40f, c)
         if (p.first == "Solar now" && (p.second == "--" || Regex("0(\\.0+)? W").matches(p.second))) drawSkyIcon(c, cx, h)
         else fit(p.second, h * 0.36f, colW * 0.92f, medium, ink, cx, h * 0.82f, c)
     }
