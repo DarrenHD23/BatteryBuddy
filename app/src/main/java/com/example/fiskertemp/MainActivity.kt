@@ -1556,7 +1556,7 @@ class MainActivity : Activity() {
         val wantH = maxOf((wDp - 16) * 1.15f / 3f * 1.1f, 340f)
         val tall = hDp - gb - topM > wantH + 24f
         // the trip readouts sit in the middle column under the traffic light; rows by the height left there
-        val midFixed = when (midLevel) { 0 -> 160f; 1 -> 104f; else -> 92f }
+        val midFixed = when (midLevel) { 0 -> 190f; 1 -> 104f; else -> 92f }
         val midFree = (if (tall) wantH else gaugeH - topM.toFloat()) - midFixed
         val midRows = if (midFree >= 104f) 3 else if (midFree >= 66f) 2 else 0
         // the clock goes in the free band above the left gauge (the gauge circle is centred in its height)
@@ -1568,7 +1568,7 @@ class MainActivity : Activity() {
         // the middle column may reach over the gauge boxes: where the arcs open toward the middle there is free room there
         val arcMode = prefs().getString("arcStyle", "mirror")
         val ovCap = gaugeWdp * (if (arcMode == "mirror") 0.15f else 0.05f)
-        val ovDp = (((wDp - 16) * 0.295f - midWdp) / 2f).coerceIn(0f, ovCap).toInt()
+        val ovDp = (((wDp - 16) * 0.26f - midWdp) / 2f).coerceIn(0f, ovCap).toInt()
         val band = rowHdp / 2f - minOf(gaugeWdp, rowHdp) / 2f * 0.92f - 6f
         val clockH = if (band >= 30f) band.toInt().coerceAtMost(110) else 0
         val rhd = prefs().getBoolean("rhd", false)
