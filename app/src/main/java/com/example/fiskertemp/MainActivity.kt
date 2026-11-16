@@ -53,6 +53,7 @@ import android.graphics.Paint
 import android.util.TypedValue
 import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.RadialGradient
 import android.graphics.Shader
 import android.content.ComponentName
 import android.graphics.Bitmap
@@ -1891,6 +1892,7 @@ class MainActivity : Activity() {
         val showMedia = tall && (hDp - gb - topM - wantH) >= mediaH + 70f
         mediaReserveDp = if (showMedia) lowerBottom + 6 + mediaH else 0
         (mediaCard.layoutParams as FrameLayout.LayoutParams).apply { height = dp(mediaH); gravity = Gravity.BOTTOM; setMargins(dp(8), 0, dp(8), dp(lowerBottom + 6)) }
+        mediaCard.rhd = prefs().getBoolean("rhd", false); mediaPopup.rhd = mediaCard.rhd; mediaCard.invalidate(); mediaPopup.invalidate()
         mediaCard.visibility = if (showMedia) View.VISIBLE else View.GONE
         mediaBtn.visibility = if (showMedia) View.GONE else View.VISIBLE
         if (showMedia) mediaPopup.visibility = View.GONE
@@ -5016,6 +5018,7 @@ class MediaCardView(ctx: Context) : View(ctx) {
     var onPrev: (() -> Unit)? = null
     var onToggle: (() -> Unit)? = null
     var onNext: (() -> Unit)? = null
+    var rhd = false                                   // right-hand drive: controls on the right
     private var title: String? = null
     private var artist: String? = null
     private var art: Bitmap? = null
@@ -5067,18 +5070,20 @@ class MediaCardView(ctx: Context) : View(ctx) {
         p.style = Paint.Style.STROKE; p.strokeWidth = dp(1.2f); p.color = Color.argb(70, 255, 255, 255)
         c.drawRoundRect(RectF(1f, 1f, w - 1f, h - 1f), rad, rad, p)
 
-        // controls on the right: previous, play / pause, next
-        val sm = h * 0.46f; val big = h * 0.66f; val gap = dp(10f)
+        // controls on the driver's side: previous, play / pause, next, three identical round glass buttons
+        val bsz = h * 0.58f; val gap = dp(16f)
         val cy = h / 2
-        val right = w - dp(18f)
-        rNext.set(right - sm, cy - sm / 2, right, cy + sm / 2)
-        rPlay.set(rNext.left - gap - big, cy - big / 2, rNext.left - gap, cy + big / 2)
-        rPrev.set(rPlay.left - gap - sm, cy - sm / 2, rPlay.left - gap, cy + sm / 2)
-        buttonBg(c, rPrev, false); buttonBg(c, rNext, false); buttonBg(c, rPlay, true)
-        icon(c, rPrev, 0); icon(c, rNext, 1); icon(c, rPlay, if (playing) 3 else 2)
+        val total = bsz * 3 + gap * 2
+        val left = if (rhd) w - dp(20f) - total else dp(20f)
+        rPrev.set(left, cy - bsz / 2, left + bsz, cy + bsz / 2)
+        rPlay.set(rPrev.right + gap, cy - bsz / 2, rPrev.right + gap + bsz, cy + bsz / 2)
+        rNext.set(rPlay.right + gap, cy - bsz / 2, rPlay.right + gap + bsz, cy + bsz / 2)
+        glass(c, rPrev); glass(c, rPlay); glass(c, rNext)
+        icon(c, rPrev, 0); icon(c, rPlay, if (playing) 3 else 2); icon(c, rNext, 1)
 
-        // title and artist on the left
-        val tx = dp(20f); val maxW = rPrev.left - tx - dp(14f)
+        // title and artist on the other side
+        val tx = if (rhd) dp(20f) else rNext.right + dp(24f)
+        val maxW = if (rhd) rPrev.left - tx - dp(24f) else w - tx - dp(20f)
         if (hasSession && !title.isNullOrEmpty()) {
             fitText(title!!, tx, h * 0.38f, 20f, Color.WHITE, true, maxW)
             if (!artist.isNullOrEmpty()) fitText(artist!!, tx, h * 0.64f, 14f, Color.argb(210, 255, 255, 255), false, maxW)
@@ -5088,35 +5093,48 @@ class MediaCardView(ctx: Context) : View(ctx) {
         }
     }
 
-    private fun buttonBg(c: Canvas, r: RectF, main: Boolean) {
-        p.style = Paint.Style.FILL; p.color = if (main) Color.argb(235, 255, 255, 255) else Color.argb(70, 255, 255, 255)
-        c.drawRoundRect(r, r.width() * 0.3f, r.width() * 0.3f, p)
+    /** A transparent round glass button: soft drop shadow, a lit curved face, a bright top gloss and a rim lit from above. */
+    private fun glass(c: Canvas, r: RectF) {
+        val cx = r.centerX(); val cy = r.centerY(); val rad = r.width() / 2
+        // drop shadow
+        p.style = Paint.Style.FILL; p.shader = null; p.color = Color.argb(70, 0, 0, 0)
+        c.drawCircle(cx, cy + dp(3f), rad, p)
+        // face: lit from the upper left, see-through
+        p.shader = RadialGradient(cx - rad * 0.35f, cy - rad * 0.4f, rad * 1.5f,
+            intArrayOf(Color.argb(120, 255, 255, 255), Color.argb(46, 255, 255, 255), Color.argb(70, 0, 0, 0)), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
+        c.drawCircle(cx, cy, rad, p); p.shader = null
+        // gloss on the top half
+        p.shader = LinearGradient(0f, cy - rad, 0f, cy, Color.argb(110, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP)
+        c.drawOval(RectF(cx - rad * 0.72f, cy - rad * 0.94f, cx + rad * 0.72f, cy - rad * 0.08f), p); p.shader = null
+        // rim: bright on top, dark underneath
+        p.style = Paint.Style.STROKE; p.strokeWidth = dp(1.6f)
+        p.shader = LinearGradient(0f, cy - rad, 0f, cy + rad, Color.argb(200, 255, 255, 255), Color.argb(50, 255, 255, 255), Shader.TileMode.CLAMP)
+        c.drawCircle(cx, cy, rad - dp(0.8f), p); p.shader = null
     }
 
-    /** kind: 0 previous, 1 next, 2 play, 3 pause */
+    /** kind: 0 previous, 1 next, 2 play, 3 pause. All four fit the same box, so the three buttons look the same size. */
     private fun icon(c: Canvas, r: RectF, kind: Int) {
-        val cx = r.centerX(); val cy = r.centerY(); val u = r.width() * 0.2f
-        val col = if (kind >= 2) Color.parseColor("#111827") else Color.WHITE
-        p.style = Paint.Style.FILL; p.color = col
+        val cx = r.centerX(); val cy = r.centerY(); val u = r.width() * 0.17f
+        p.style = Paint.Style.FILL; p.color = Color.WHITE; p.shader = null
+        p.setShadowLayer(dp(3f), 0f, dp(2f), Color.argb(150, 0, 0, 0))
         when (kind) {
             0, 1 -> {
                 val s = if (kind == 0) -1f else 1f
-                path.reset()                                           // triangle pointing in the skip direction
-                path.moveTo(cx + s * u * 0.9f, cy); path.lineTo(cx - s * u * 0.5f, cy - u * 1.1f); path.lineTo(cx - s * u * 0.5f, cy + u * 1.1f); path.close()
+                path.reset()
+                path.moveTo(cx + s * u * 1.0f, cy); path.lineTo(cx - s * u * 0.6f, cy - u * 1.25f); path.lineTo(cx - s * u * 0.6f, cy + u * 1.25f); path.close()
                 c.drawPath(path, p)
-                c.drawRoundRect(RectF(cx + s * u * 1.0f - u * 0.18f, cy - u * 1.1f, cx + s * u * 1.0f + u * 0.18f, cy + u * 1.1f), u * 0.1f, u * 0.1f, p)   // bar
+                c.drawRoundRect(RectF(cx + s * u * 1.1f - u * 0.2f, cy - u * 1.25f, cx + s * u * 1.1f + u * 0.2f, cy + u * 1.25f), u * 0.12f, u * 0.12f, p)
             }
             2 -> {
-                val v = r.width() * 0.22f
-                path.reset(); path.moveTo(cx - v * 0.7f, cy - v * 1.25f); path.lineTo(cx + v * 1.25f, cy); path.lineTo(cx - v * 0.7f, cy + v * 1.25f); path.close()
+                path.reset(); path.moveTo(cx - u * 0.8f, cy - u * 1.4f); path.lineTo(cx + u * 1.3f, cy); path.lineTo(cx - u * 0.8f, cy + u * 1.4f); path.close()
                 c.drawPath(path, p)
             }
             else -> {
-                val v = r.width() * 0.2f
-                c.drawRoundRect(RectF(cx - v * 1.2f, cy - v * 1.2f, cx - v * 0.35f, cy + v * 1.2f), v * 0.2f, v * 0.2f, p)
-                c.drawRoundRect(RectF(cx + v * 0.35f, cy - v * 1.2f, cx + v * 1.2f, cy + v * 1.2f), v * 0.2f, v * 0.2f, p)
+                c.drawRoundRect(RectF(cx - u * 1.0f, cy - u * 1.3f, cx - u * 0.25f, cy + u * 1.3f), u * 0.18f, u * 0.18f, p)
+                c.drawRoundRect(RectF(cx + u * 0.25f, cy - u * 1.3f, cx + u * 1.0f, cy + u * 1.3f), u * 0.18f, u * 0.18f, p)
             }
         }
+        p.clearShadowLayer()
     }
 
     override fun onTouchEvent(e: android.view.MotionEvent): Boolean {
