@@ -432,6 +432,8 @@ class MainActivity : Activity() {
     private lateinit var mediaCard: MediaCardView
     private var mediaWatcher: MediaWatcher? = null
     private var climateTopDp = 0                         // full screen: where the Climate panel starts (dp from the top), 0 = not in the full-screen order
+    private var tempPending: Double? = null
+    private var tempPendingAt = 0L
     private var wasFullOrder = false                    // the last layout was the full-screen order (to open Climate when entering it)
     private var climateHDp = 0                           // ... and how tall it is
     private lateinit var climateBtn: TextView
@@ -733,15 +735,33 @@ class MainActivity : Activity() {
                 EventLog.add("Climate power test (" + (if (turnOn) "on" else "off") + "): $msg")
                 toast(msg)
             }
-            onTempTap = { toast("This control is off: tick the test box in Settings and restart (temperature buttons are for a later step)") }
+            onTempTap = { toast("This control is off: tick the test box in Settings and restart") }
+            onTemp = { driver, dir ->
+                val sn = climateView.snap
+                val now = System.currentTimeMillis()
+                val cur = sn.climDrvT ?: sn.climPassT
+                val base = if (now - tempPendingAt < 2500 && tempPending != null) tempPending!! else (if (driver) sn.climDrvT else sn.climPassT ?: cur) ?: 22.0
+                val target = (Math.round(base * 2) / 2.0 + dir * 0.5).coerceIn(18.0, 32.0)
+                tempPending = target; tempPendingAt = now
+                val msg = pulse?.sendTemp(driver, target, sn.climSync) ?: "CAN reader is not running"
+                EventLog.add("Climate temperature test: ${if (driver) "driver" else "passenger"} $target (was $base): $msg")
+                toast(msg)
+            }
+            onMode = { mode ->
+                val msg = pulse?.sendAirMode(mode) ?: "CAN reader is not running"
+                EventLog.add("Climate air direction test: $mode: $msg")
+                toast(msg)
+            }
             onWheel = {
                 val msg = pulse?.sendWheelHeat() ?: "CAN reader is not running"
                 EventLog.add("Heated wheel test: $msg")
                 toast(msg)
             }
             onFan = { level ->
+                val was = climateView.snap.climFan
                 val msg = pulse?.sendFan(level) ?: "CAN reader is not running"
-                EventLog.add("Climate fan test: requested $level: $msg")
+                EventLog.add("Climate fan test: requested $level (car was at $was): $msg")
+                ui.postDelayed({ EventLog.add("Climate fan test: asked $level, was $was, car reports ${climateView.snap.climFan} 1.5 s later") }, 1500)
                 toast(msg)
             }
         }
@@ -1562,7 +1582,10 @@ class MainActivity : Activity() {
             onNext = { mediaWatcher?.next() }
         }
         f.addView(mediaCard, FrameLayout.LayoutParams(-1, dp(132), Gravity.BOTTOM).apply { setMargins(dp(8), 0, dp(8), dp(200)) })
-        f.addOnLayoutChangeListener { v, _, top, _, bottom, _, _, _, _ -> adaptDashLayout((v.width / resources.displayMetrics.density).toInt(), ((bottom - top) / resources.displayMetrics.density).toInt()) }
+        f.addOnLayoutChangeListener { v, _, top, _, bottom, _, _, _, _ ->
+            adaptDashLayout((v.width / resources.displayMetrics.density).toInt(), ((bottom - top) / resources.displayMetrics.density).toInt())
+            if (::mediaPopup.isInitialized && mediaPopup.visibility == View.VISIBLE) v.post { placeMediaPopup() }   // the screen size changed while the card is up
+        }
         // top right: the compass heading beside the drive-mode badge
         dashTop = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
@@ -1737,24 +1760,35 @@ class MainActivity : Activity() {
 
     private val hideMediaPopup = Runnable { if (::mediaPopup.isInitialized) mediaPopup.visibility = View.GONE }
 
-    /** The Media pop-up card: as high as the free space allows, just under the battery bar (or trip panel); else just above the button bar. */
+    /**
+     * The Media pop-up card: it sits in the free space between the battery bar (or trip panel) and the stat rows,
+     * never over the stat rows. With no usable space it goes just above the bottom buttons as before.
+     */
     private fun placeMediaPopup() {
+        if (!::mediaPopup.isInitialized) return
         val lp = mediaPopup.layoutParams as FrameLayout.LayoutParams
-        val base = dp(66)
-        var bottom = base
+        var bottom = dp(66); var hgt = dp(132)
         try {
             val ref: View? = if (chargeBar.visibility != View.GONE) chargeBar else if (tripPanel.visibility == View.VISIBLE) tripPanel else null
             val root = mediaPopup.parent as View
+            val rowV: View? = if (dashRow.visibility == View.VISIBLE && dashRow.height > 0) dashRow else if (dashStrip.visibility == View.VISIBLE && dashStrip.height > 0) dashStrip else null
             if (ref != null && ref.height > 0 && root.height > 0) {
                 val a = IntArray(2); val b = IntArray(2)
                 ref.getLocationInWindow(a); root.getLocationInWindow(b)
-                val refBottom = a[1] - b[1] + ref.height
-                val want = root.height - (refBottom + dp(8) + dp(132))      // bottom margin that puts the card's top just under the bar
-                if (want > base) bottom = want
+                val top = a[1] - b[1] + ref.height + dp(6)                         // just under the battery bar
+                var limit = root.height - dp(66)                                  // the bottom buttons
+                if (rowV != null) { val c = IntArray(2); rowV.getLocationInWindow(c); limit = c[1] - b[1] - dp(6) }   // the top of the stat rows
+                val room = limit - top
+                if (room >= dp(96)) {
+                    hgt = minOf(dp(132), room)
+                    bottom = root.height - (top + hgt)
+                }
             }
         } catch (e: Exception) { }
-        lp.setMargins(dp(8), 0, dp(8), bottom)
-        mediaPopup.layoutParams = lp
+        if (lp.height != hgt || lp.bottomMargin != bottom) {
+            lp.height = hgt; lp.setMargins(dp(8), 0, dp(8), bottom)
+            mediaPopup.layoutParams = lp
+        }
     }
 
     /** Show the Climate screen (from its button, or automatically when the window becomes full screen). */
@@ -4640,6 +4674,10 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     private val fanSegs = ArrayList<RectF>()
     private val tempBtns = ArrayList<RectF>()          // driver -, driver +, passenger -, passenger +
     var onTempTap: (() -> Unit)? = null
+    var onTemp: ((Boolean, Int) -> Unit)? = null     // driver?, +1 / -1 (half a degree each)
+    var onMode: ((Int) -> Unit)? = null              // air direction 1..5
+    private val modeRects = ArrayList<RectF>()
+    private val tempBtnInfo = ArrayList<Pair<Boolean, Int>>()
     var floating = false                              // full-screen mode: a rounded panel instead of the whole window
         set(v) { field = v; invalidate() }
     var bgColor = Color.parseColor("#0B0F1A")          // solid, from the dashboard's current background
@@ -4843,11 +4881,11 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val headH = dp(if (compact) 34f else if (medium) 50f else 66f)
         if (compact) {
             text("Climate", m, dp(18f), 18f, Color.WHITE, true, Paint.Align.LEFT)
-            text(if (!s.climSeen) "Waiting for the A/C unit (no 0x373 frames yet)" else "Read-only: shows what the car reports" + (if (fanControl) " \u00B7 fan test control on" else ""),
+            text(if (!s.climSeen) "Waiting for the A/C unit (no 0x373 frames yet)" else "Read-only: shows what the car reports" + (if (fanControl) " \u00B7 controls on" else ""),
                 m + dp(86f), dp(19f), 11f, if (s.climSeen) Color.argb(150, 255, 255, 255) else warm, false, Paint.Align.LEFT)
         } else {
             text("Climate", m, dp(28f), 24f, Color.WHITE, true, Paint.Align.LEFT)
-            text(if (!s.climSeen) "Waiting for the A/C unit (no 0x373 frames yet)" else "Read-only: shows what the car reports" + (if (fanControl) " \u00B7 fan test control on" else ""),
+            text(if (!s.climSeen) "Waiting for the A/C unit (no 0x373 frames yet)" else "Read-only: shows what the car reports" + (if (fanControl) " \u00B7 controls on" else ""),
                 m, dp(50f), 12f, if (s.climSeen) Color.argb(150, 255, 255, 255) else warm, false, Paint.Align.LEFT)
         }
         // close buttons at both bottom corners, easy to reach from either front seat
@@ -4865,15 +4903,15 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val cols = 8
         var fanH = dp(if (compact) 62f else if (medium) 74f else 88f)
         var tileH = dp(if (compact) 58f else if (medium) 66f else 82f)
-        var rearH = if (compact) 0f else dp(if (medium) 56f else 70f)
+        val rearH = 0f                                // no rear-row controls on this car
         val footH = xs + dp(6f)
         var y = headH
         val tempMin = dp(if (compact) 130f else if (medium) 190f else 240f)
-        val nGaps = if (compact) 3 else 4
+        val nGaps = 3
         val fixed = footH + gap * nGaps + dp(4f) + dp(20f)             // dp(20f): padding inside the functions card
         // spare height after the minimums: tiles, fan and rear row grow a little before the temperature section takes the rest
         val spare = maxOf(0f, h - y - fixed - fanH - tileH - rearH - tempMin)
-        tileH += minOf(spare * 0.50f, dp(70f)); fanH += minOf(spare * 0.22f, dp(40f)); if (rearH > 0f) rearH += minOf(spare * 0.10f, dp(16f))
+        tileH += minOf(spare * 0.55f, dp(80f)); fanH += minOf(spare * 0.22f, dp(40f))
         val funcH = tileH + dp(20f)
         val tempH = maxOf(dp(if (compact) 100f else if (medium) 150f else 200f), h - y - fixed - fanH - tileH - rearH)
         // ---- one combined temperature section
@@ -4881,7 +4919,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val mid = w / 2
         val modeH = dp(if (compact) 42f else 60f)
         p.style = Paint.Style.FILL; p.color = Color.argb(40, 255, 255, 255); c.drawRect(mid - dp(0.5f), y + dp(14f), mid + dp(0.5f), y + tempH - dp(10f), p)
-        tempBtns.clear()
+        tempBtns.clear(); tempBtnInfo.clear(); modeRects.clear()
         fun side(cx: Float, name: String, t: Double?, mode: Int, count: Int) {
             text(name, cx, y + dp(if (compact) 18f else 26f), if (compact) 11f else 13f, Color.argb(170, 255, 255, 255), true)
             val col = if (t == null) off else if (t >= 22.5) warm else if (t <= 20) cool else Color.WHITE
@@ -4902,6 +4940,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
                 text(sym, r.centerX(), r.centerY(), (bs / d * 0.6f).coerceIn(18f, 36f), Color.WHITE, true)
             }
             tempBtns.add(minus); tempBtns.add(plus)
+            tempBtnInfo.add(Pair(count > 0, -1)); tempBtnInfo.add(Pair(count > 0, 1))   // 'count' is 5 for the driver's side
             val iw = (w / 2 - m - dp(16f)) / 5
             val x0 = cx - iw * count / 2f
             val iy = y + tempH - dp(8f) - modeH / 2
@@ -4913,6 +4952,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
                 c.drawRoundRect(rr, dp(14f), dp(14f), p)
                 if (lit) { stroke(on, 2f); c.drawRoundRect(rr, dp(14f), dp(14f), p) }
                 modeIcon(ic, iy, modeH * 0.30f, i + 1, if (lit) Color.WHITE else off)
+                modeRects.add(rr)
             }
         }
         side((m + mid) / 2, "DRIVER", s.climDrvT, s.climDrvMode, 5)
@@ -4934,20 +4974,6 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         card(RectF(m, y, w - m, y + fanH), "")
         var barL = m + dp(14f); val barR = w - m - dp(14f)
         fanMinus.setEmpty(); fanPlus.setEmpty(); fanSegs.clear()
-        if (fanControl) {
-            // as large as the card allows, rounded squares side by side on the left
-            val bs = fanH - dp(14f)
-            val by = y + dp(7f)
-            fanMinus.set(m + dp(8f), by, m + dp(8f) + bs, by + bs)
-            fanPlus.set(fanMinus.right + dp(8f), by, fanMinus.right + dp(8f) + bs, by + bs)
-            val rad = bs * 0.22f
-            for ((r, sym) in listOf(fanMinus to "\u2212", fanPlus to "+")) {
-                p.style = Paint.Style.FILL; p.color = Color.argb(70, 45, 212, 191); c.drawRoundRect(r, rad, rad, p)
-                stroke(on, 2f); c.drawRoundRect(r, rad, rad, p)
-                text(sym, r.centerX(), r.centerY(), if (compact) 26f else 34f, Color.WHITE, true)
-            }
-            barL = fanPlus.right + dp(16f)
-        }
         // the word and icon sit in the middle of the stepped bars
         run {
             val cxBar = (barL + barR) / 2
@@ -4964,8 +4990,6 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             val l = barL + i * (segW + segGap); val sh = (dp(8f) + (maxBar - dp(8f)) * i / 6f)
             p.style = Paint.Style.FILL; p.color = if (i < s.climFan) on else Color.argb(50, 255, 255, 255)
             c.drawRoundRect(RectF(l, y + fanH - dp(8f) - sh, l + segW, y + fanH - dp(8f)), dp(4f), dp(4f), p)
-            // the whole column is the touch target
-            if (fanControl) fanSegs.add(RectF(l - segGap / 2, y + dp(22f), l + segW + segGap / 2, y + fanH))
         }
         y += fanH + gap
 
@@ -4988,21 +5012,6 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             wheelRect.set(x, ty, x + tw1, ty + tileH)
         }
         y += funcH + gap
-
-        // ---- rear row (left out in a third-height window)
-        if (!compact) {
-            card(RectF(m, y, w - m, y + rearH), "REAR ROW")
-            val names = listOf("Face", "Face + Feet", "Feet", "Off")
-            val rw = (w - 2 * m - dp(20f)) / 4
-            for (i in 0 until 4) {
-                val lit = s.climSeen && s.climRearMode == i
-                val r = RectF(m + dp(10f) + rw * i + dp(4f), y + dp(26f), m + dp(10f) + rw * (i + 1) - dp(4f), y + rearH - dp(10f))
-                p.style = Paint.Style.FILL; p.color = if (lit) Color.argb(64, 45, 212, 191) else Color.argb(24, 255, 255, 255); c.drawRoundRect(r, dp(15f), dp(15f), p)
-                if (lit) { stroke(on, 2f); c.drawRoundRect(r, dp(15f), dp(15f), p) }
-                text(names[i], r.centerX(), r.centerY(), 13f, if (lit) Color.WHITE else Color.argb(150, 255, 255, 255), lit)
-            }
-            y += rearH + gap
-        }
 
         // ---- footer, between the two close buttons
         val state = when (s.climState) { 0 -> "starting"; 1 -> "low-voltage"; 2 -> "high-voltage on"; 3 -> "charging"; 4 -> "remote"; 5 -> "HV discharge"; 6 -> "delay"; else -> "--" }
@@ -5031,21 +5040,18 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             if (fanControl) onPower?.invoke(snap.climSeen && snap.climFan == 0) else onTempTap?.invoke()
             return true
         }
-        if (tempBtns.any { it.contains(e.x, e.y) }) { onTempTap?.invoke(); return true }
-        if (fanControl && fanSegs.isNotEmpty() && System.currentTimeMillis() - lastFanTap > 400) {
-            val i = fanSegs.indexOfFirst { it.contains(e.x, e.y) }
-            if (i >= 0) { lastFanTap = System.currentTimeMillis(); onFan?.invoke(i + 1); return true }
+        val ti = tempBtns.indexOfFirst { it.contains(e.x, e.y) }
+        if (ti >= 0) {
+            if (fanControl && ti < tempBtnInfo.size && System.currentTimeMillis() - lastFanTap > 250) {
+                lastFanTap = System.currentTimeMillis(); onTemp?.invoke(tempBtnInfo[ti].first, tempBtnInfo[ti].second)
+            } else if (!fanControl) onTempTap?.invoke()
+            return true
+        }
+        if (fanControl && System.currentTimeMillis() - lastFanTap > 400) {
+            val mi = modeRects.indexOfFirst { it.contains(e.x, e.y) }
+            if (mi >= 0) { lastFanTap = System.currentTimeMillis(); onMode?.invoke(mi + 1); return true }
         }
         if (fanControl && !wheelRect.isEmpty() && wheelRect.contains(e.x, e.y) && System.currentTimeMillis() - lastFanTap > 600) { lastFanTap = System.currentTimeMillis(); onWheel?.invoke(); return true }
-        if (fanControl && !fanMinus.isEmpty() && System.currentTimeMillis() - lastFanTap > 400) {
-            val cur = snap.climFan
-            val target = when {
-                fanMinus.contains(e.x, e.y) -> (cur - 1).coerceAtLeast(1)
-                fanPlus.contains(e.x, e.y) -> (cur + 1).coerceAtMost(7)
-                else -> -1
-            }
-            if (target > 0) { lastFanTap = System.currentTimeMillis(); onFan?.invoke(target) }
-        }
         return true
     }
 }
@@ -5082,6 +5088,7 @@ class MediaWatcher(private val ctx: Context, private val ui: Handler, private va
             msm.addOnActiveSessionsChangedListener(listener, comp, ui)
             started = true
             refresh()
+            ui.removeCallbacks(ticker); ui.postDelayed(ticker, 3000)
             log("media: following the active media session")
         } catch (e: SecurityException) {
             if (!grantTried) {
@@ -5094,6 +5101,7 @@ class MediaWatcher(private val ctx: Context, private val ui: Handler, private va
     }
 
     fun stop() {
+        ui.removeCallbacks(ticker)
         try { msm.removeOnActiveSessionsChangedListener(listener) } catch (e: Exception) {}
         try { ctl?.unregisterCallback(cb) } catch (e: Exception) {}
         started = false
@@ -5103,18 +5111,43 @@ class MediaWatcher(private val ctx: Context, private val ui: Handler, private va
         try { pick(msm.getActiveSessions(comp)) } catch (e: Exception) { }
     }
 
+    /** Which session to show: whatever is playing, then one with a real title (a Bluetooth one first), and never a "Not connected" placeholder first. */
+    private fun score(c: MediaController): Int {
+        var sc = 0
+        when (c.playbackState?.state) {
+            PlaybackState.STATE_PLAYING -> sc += 100
+            PlaybackState.STATE_PAUSED, PlaybackState.STATE_BUFFERING -> sc += 20
+        }
+        val t = c.metadata?.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE) ?: c.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)
+        val real = !t.isNullOrBlank() && !t.equals("Not connected", true)
+        if (real) sc += 30
+        if (c.packageName.contains("bluetooth", true)) sc += 15
+        if (c.packageName.contains("carlink", true) && !real) sc -= 60
+        return sc
+    }
+
+    private var lastSig = ""
+
     private fun pick(list: List<MediaController>) {
-        val c = list.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING } ?: list.firstOrNull()
+        val sig = list.joinToString(" | ") { c -> "${c.packageName} state=${c.playbackState?.state} title=${c.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)}" }
+        if (sig != lastSig) { lastSig = sig; log("media sessions: " + sig.ifEmpty { "none" }) }
+        var c: MediaController? = null
+        var best = Int.MIN_VALUE
+        for (x in list) { val sc = score(x); if (sc > best) { best = sc; c = x } }
         if (c?.sessionToken != ctl?.sessionToken) {
             try { ctl?.unregisterCallback(cb) } catch (e: Exception) {}
             ctl = c
             c?.registerCallback(cb, ui)
+            if (c != null) log("media: showing ${c.packageName}")
         }
         hasSession = c != null
         playing = c?.playbackState?.state == PlaybackState.STATE_PLAYING
         readMeta(c?.metadata)
         push()
     }
+
+    // look again every few seconds: a Bluetooth session can start playing without any signal reaching the one being followed
+    private val ticker = object : Runnable { override fun run() { if (started) { refresh(); ui.postDelayed(this, 3000) } } }
 
     private fun readMeta(md: MediaMetadata?) {
         title = md?.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE) ?: md?.getString(MediaMetadata.METADATA_KEY_TITLE)
