@@ -4603,7 +4603,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         canvas.drawRoundRect(r, cr, cr, p)
         stroke(if (lit) col else Color.argb(50, 255, 255, 255), if (lit) 2f else 1f); canvas.drawRoundRect(r, cr, cr, p)
         icon(r.centerX(), r.top + h * 0.39f, h * 0.21f, if (lit) Color.WHITE else off)
-        fitText(label, r.centerX(), r.bottom - h * 0.19f, (h / d * 0.17f).coerceIn(10f, 14f), if (lit) Color.WHITE else Color.argb(150, 255, 255, 255), lit, tw - dp(8f))
+        fitText(label, r.centerX(), r.bottom - h * 0.19f, (h / d * 0.17f).coerceIn(10f, 16f), if (lit) Color.WHITE else Color.argb(150, 255, 255, 255), lit, tw - dp(8f))
     }
 
     override fun onDraw(c: Canvas) {
@@ -4649,7 +4649,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val fixed = footH + gap * nGaps + dp(4f) + dp(20f)             // dp(20f): padding inside the functions card
         // spare height after the minimums: tiles, fan and rear row grow a little before the temperature section takes the rest
         val spare = maxOf(0f, h - y - fixed - fanH - tileH - rearH - tempMin)
-        tileH += minOf(spare * 0.30f, dp(46f)); fanH += minOf(spare * 0.15f, dp(24f)); if (rearH > 0f) rearH += minOf(spare * 0.08f, dp(12f))
+        tileH += minOf(spare * 0.50f, dp(70f)); fanH += minOf(spare * 0.22f, dp(40f)); if (rearH > 0f) rearH += minOf(spare * 0.10f, dp(16f))
         val funcH = tileH + dp(20f)
         val tempH = maxOf(dp(if (compact) 100f else if (medium) 150f else 200f), h - y - fixed - fanH - tileH - rearH)
         // ---- one combined temperature section
@@ -4664,18 +4664,18 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             val tTop = y + dp(if (compact) 34f else 46f); val tBot = y + tempH - modeH - dp(12f)
             val fs = ((tBot - tTop) / d * 0.62f).coerceIn(26f, 58f)
             text(temp(t), cx, (tTop + tBot) / 2, fs, col, true)
-            // - and + to the left of the readout (not wired to the car yet)
+            // - and + side by side to the left of the readout, as large as the space allows (not wired to the car yet)
             p.textSize = dp(fs); p.typeface = Typeface.DEFAULT_BOLD
             val half = p.measureText(temp(t)) / 2f
-            val bs = minOf(dp(54f), ((tBot - tTop) - dp(6f)) / 2f).coerceAtLeast(dp(26f))
-            val bx = cx - half - dp(12f) - bs
+            val availW = (cx - half - dp(12f)) - (if (cx < mid) m + dp(6f) else mid + dp(10f))
+            val bs = minOf(tBot - tTop, (availW - dp(6f)) / 2f).coerceAtLeast(dp(26f))
             val cy = (tTop + tBot) / 2
-            val plus = RectF(bx, cy - dp(3f) - bs, bx + bs, cy - dp(3f))
-            val minus = RectF(bx, cy + dp(3f), bx + bs, cy + dp(3f) + bs)
-            for ((r, sym) in listOf(plus to "+", minus to "\u2212")) {
+            val minus = RectF(cx - half - dp(12f) - 2 * bs - dp(6f), cy - bs / 2, cx - half - dp(12f) - bs - dp(6f), cy + bs / 2)
+            val plus = RectF(cx - half - dp(12f) - bs, cy - bs / 2, cx - half - dp(12f), cy + bs / 2)
+            for ((r, sym) in listOf(minus to "\u2212", plus to "+")) {
                 p.style = Paint.Style.FILL; p.color = Color.argb(48, 255, 255, 255); c.drawRoundRect(r, bs * 0.22f, bs * 0.22f, p)
                 stroke(Color.argb(120, 255, 255, 255), 1.5f); c.drawRoundRect(r, bs * 0.22f, bs * 0.22f, p)
-                text(sym, r.centerX(), r.centerY(), if (compact) 20f else 28f, Color.WHITE, true)
+                text(sym, r.centerX(), r.centerY(), (bs / d * 0.6f).coerceIn(18f, 36f), Color.WHITE, true)
             }
             tempBtns.add(minus); tempBtns.add(plus)
             val iw = (w / 2 - m - dp(16f)) / 5
@@ -4694,7 +4694,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         side((m + mid) / 2, "DRIVER", s.climDrvT, s.climDrvMode, 5)
         // climate power, top left of the driver section: red when the A/C unit reports the fan off (system off)
         run {
-            val ps = dp(if (compact) 32f else 40f)
+            val ps = dp(if (compact) 28f else 40f)
             powerRect.set(m + dp(8f), y + dp(6f), m + dp(8f) + ps, y + dp(6f) + ps)
             val isOff = s.climSeen && s.climFan == 0
             val pc = if (isOff) Color.parseColor("#FF5A5A") else on
