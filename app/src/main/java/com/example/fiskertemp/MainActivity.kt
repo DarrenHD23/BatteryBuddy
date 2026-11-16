@@ -52,6 +52,7 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.util.TypedValue
 import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.SweepGradient
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
@@ -417,6 +418,8 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------------ caution notice
     private lateinit var cautionView: FrameLayout
+    private lateinit var climateView: ClimateScreenView
+    private lateinit var climateBtn: TextView
     private var lastReadySeen: Boolean? = null
 
     /** A full-window notice over everything, with a caution symbol and an Agree button. */
@@ -706,6 +709,8 @@ class MainActivity : Activity() {
             addView(exitBtn, LinearLayout.LayoutParams(-2, dp(36)))
         }
         edgeBox.addView(btnBar, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(8), dp(16)) })
+        climateView = ClimateScreenView(this).apply { visibility = View.GONE; onClose = { visibility = View.GONE } }
+        edgeBox.addView(climateView, FrameLayout.LayoutParams(-1, -1))
         cautionView = buildCaution()
         edgeBox.addView(cautionView, FrameLayout.LayoutParams(-1, -1))
         applySkinChrome()
@@ -1183,6 +1188,7 @@ class MainActivity : Activity() {
         resultView.textSize = 16f
         resultView.text = heatLine(s)
         renderStats(canStats(s).toMap())
+        if (::climateView.isInitialized && climateView.visibility == View.VISIBLE) { climateView.fahrenheit = useFahrenheit; climateView.snap = s }
     }
 
     private fun heatLine(s: CanSnapshot): String {
@@ -1443,8 +1449,18 @@ class MainActivity : Activity() {
             visibility = View.GONE
             setOnClickListener { showTripDialog() }
         }
+        climateBtn = TextView(this).apply {
+            text = "Climate"; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+            setPadding(dp(9), 0, dp(9), 0)
+            background = chipBg(12)
+            setOnClickListener {
+                climateView.snap = canSnap; climateView.fahrenheit = useFahrenheit
+                climateView.bringToFront(); climateView.visibility = View.VISIBLE
+            }
+        }
         lowerBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            addView(climateBtn, LinearLayout.LayoutParams(-2, dp(42)).apply { rightMargin = dp(6) })
             addView(resBtn, LinearLayout.LayoutParams(-2, dp(42)))
             addView(tripBtn, LinearLayout.LayoutParams(-2, dp(42)).apply { rightMargin = dp(6) })
             addView(lowerTabs, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) })
@@ -1776,9 +1792,10 @@ class MainActivity : Activity() {
             if (rhd) setMargins(0, 0, dp(8), dp(10)) else setMargins(edgeOff, 0, 0, dp(10))
         }
         // children in mirrored order for right-hand drive
-        val lowerKids = listOf(resBtn, tripBtn, lowerTabs)
+        val lowerKids = listOf(climateBtn, resBtn, tripBtn, lowerTabs)
         lowerBox.removeAllViews()
         for (v in if (rhd) lowerKids.reversed() else lowerKids) lowerBox.addView(v)
+        (climateBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
         (resBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
         (tripBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
         (btnBar.layoutParams as FrameLayout.LayoutParams).apply {
@@ -1865,6 +1882,7 @@ class MainActivity : Activity() {
         if (::settingsBtn.isInitialized) settingsBtn.background = chipBg(22)
         if (::exitBtn.isInitialized) exitBtn.background = chipBg(22)
         if (::resBtn.isInitialized) resBtn.background = chipBg(12)
+        if (::climateBtn.isInitialized) climateBtn.background = chipBg(12)
         if (::tripBtn.isInitialized) tripBtn.background = chipBg(12)
         if (::lowerTabs.isInitialized) { lowerTabs.background = chipBg(18); paintLowerTabs() }
         if (::poolBar.isInitialized) poolBar.background = GradientDrawable().apply {
@@ -4342,5 +4360,148 @@ class CautionSymbolView(ctx: Context) : View(ctx) {
         rect.set(w * 0.455f, h * 0.36f, w * 0.545f, h * 0.62f)
         c.drawRoundRect(rect, w * 0.045f, w * 0.045f, p)
         c.drawCircle(w * 0.5f, h * 0.73f, w * 0.052f, p)
+    }
+}
+
+/**
+ * The Climate screen: a full-window, read-only picture of what the car's A/C unit reports (CAN 0x373).
+ * Nothing here sends anything to the car; the controls are state indicators only.
+ */
+class ClimateScreenView(ctx: Context) : View(ctx) {
+    var snap: CanSnapshot = CanSnapshot()
+        set(v) { field = v; invalidate() }
+    var fahrenheit = false
+        set(v) { field = v; invalidate() }
+    var onClose: (() -> Unit)? = null
+
+    private val d = ctx.resources.displayMetrics.density
+    private fun dp(v: Float) = v * d
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val on = Color.parseColor("#2DD4BF")
+    private val warm = Color.parseColor("#FF8A3D")
+    private val cool = Color.parseColor("#4DA3FF")
+    private val dim = Color.argb(60, 255, 255, 255)
+    private val closeRect = RectF()
+
+    private fun temp(c: Double?): String = when {
+        c == null -> "--"
+        fahrenheit -> String.format("%.0f°", c * 9 / 5 + 32)
+        else -> String.format("%.1f°", c)
+    }
+
+    private fun text(s: String, x: Float, y: Float, sizeDp: Float, color: Int, bold: Boolean = false, align: Paint.Align = Paint.Align.CENTER) {
+        p.style = Paint.Style.FILL; p.color = color; p.textSize = dp(sizeDp); p.textAlign = align
+        p.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+        canvas.drawText(s, x, y + p.textSize * 0.35f, p)
+    }
+    private lateinit var canvas: Canvas
+
+    private fun pill(label: String, cx: Float, cy: Float, w: Float, h: Float, lit: Boolean, color: Int = on) {
+        val r = RectF(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
+        p.style = Paint.Style.FILL; p.color = if (lit) Color.argb(70, Color.red(color), Color.green(color), Color.blue(color)) else Color.argb(28, 255, 255, 255)
+        canvas.drawRoundRect(r, h / 2, h / 2, p)
+        p.style = Paint.Style.STROKE; p.strokeWidth = dp(if (lit) 2f else 1f)
+        p.color = if (lit) color else Color.argb(60, 255, 255, 255)
+        canvas.drawRoundRect(r, h / 2, h / 2, p)
+        text(label, cx, cy, 13f, if (lit) Color.WHITE else Color.argb(130, 255, 255, 255), lit)
+    }
+
+    private fun card(r: RectF, title: String) {
+        p.style = Paint.Style.FILL; p.color = Color.argb(46, 255, 255, 255)
+        canvas.drawRoundRect(r, dp(18f), dp(18f), p)
+        text(title, r.left + dp(14f), r.top + dp(16f), 12f, Color.argb(170, 255, 255, 255), true, Paint.Align.LEFT)
+    }
+
+    private fun zone(name: String, t: Double?, mode: Int, left: Float, right: Float, top: Float, bottom: Float, modes: List<String>) {
+        val r = RectF(left, top, right, bottom)
+        card(r, name)
+        val cx = (left + right) / 2
+        val c = if (t == null) Color.argb(120, 255, 255, 255) else if (t >= 22.5) warm else if (t <= 20) cool else Color.WHITE
+        text(temp(t), cx, top + (bottom - top) * 0.40f, 46f, c, true)
+        val rows = modes.size
+        val rowH = dp(26f); val gap = dp(5f)
+        var y = bottom - dp(12f) - rowH / 2
+        for (i in rows - 1 downTo 0) { pill(modes[i], cx, y, right - left - dp(24f), rowH, mode == i + 1); y -= rowH + gap }
+    }
+
+    override fun onDraw(c: Canvas) {
+        canvas = c
+        val w = width.toFloat(); val h = height.toFloat()
+        val s = snap
+        p.shader = LinearGradient(0f, 0f, 0f, h, Color.parseColor("#0E1626"), Color.parseColor("#05080F"), Shader.TileMode.CLAMP)
+        p.style = Paint.Style.FILL; c.drawRect(0f, 0f, w, h, p); p.shader = null
+        val m = dp(14f)
+        // header
+        text("Climate", m, dp(30f), 24f, Color.WHITE, true, Paint.Align.LEFT)
+        text(if (!s.climSeen) "Waiting for the A/C unit (no 0x373 frames yet)" else "Read-only: shows what the car reports",
+            m, dp(54f), 12f, if (s.climSeen) Color.argb(150, 255, 255, 255) else warm, false, Paint.Align.LEFT)
+        closeRect.set(w - m - dp(44f), dp(10f), w - m, dp(54f))
+        p.style = Paint.Style.FILL; p.color = Color.argb(46, 255, 255, 255); c.drawRoundRect(closeRect, dp(22f), dp(22f), p)
+        p.style = Paint.Style.STROKE; p.strokeWidth = dp(2.5f); p.color = Color.WHITE; p.strokeCap = Paint.Cap.ROUND
+        val cx0 = closeRect.centerX(); val cy0 = closeRect.centerY(); val k = dp(8f)
+        c.drawLine(cx0 - k, cy0 - k, cx0 + k, cy0 + k, p); c.drawLine(cx0 - k, cy0 + k, cx0 + k, cy0 - k, p)
+
+        var y = dp(70f)
+        val zoneH = (h - dp(70f)) * 0.40f
+        val faceNames = listOf("Face", "Face + Feet", "Feet", "Feet + Defrost", "Windshield")
+        val mid = w / 2
+        zone("DRIVER", s.climDrvT, s.climDrvMode, m, mid - dp(5f), y, y + zoneH, faceNames)
+        zone("PASSENGER", s.climPassT, s.climPassMode, mid + dp(5f), w - m, y, y + zoneH, faceNames.take(4))
+        y += zoneH + dp(10f)
+
+        // fan
+        val fanH = dp(74f)
+        card(RectF(m, y, w - m, y + fanH), "FAN")
+        text(if (s.climFan == 0) "Off" else "${s.climFan}", w - m - dp(14f), y + dp(18f), 20f, Color.WHITE, true, Paint.Align.RIGHT)
+        val segGap = dp(6f); val segW = (w - 2 * m - dp(28f) - 6 * segGap) / 7
+        for (i in 0 until 7) {
+            val l = m + dp(14f) + i * (segW + segGap)
+            val sh = dp(10f) + i * dp(3.2f)
+            val r = RectF(l, y + fanH - dp(12f) - sh, l + segW, y + fanH - dp(12f))
+            p.style = Paint.Style.FILL; p.color = if (i < s.climFan) on else dim
+            c.drawRoundRect(r, dp(4f), dp(4f), p)
+        }
+        y += fanH + dp(10f)
+
+        // switches
+        val swH = dp(104f)
+        card(RectF(m, y, w - m, y + swH), "FUNCTIONS")
+        val cols = 4; val cw = (w - 2 * m - dp(20f)) / cols; val ph = dp(32f)
+        fun cell(i: Int, label: String, lit: Boolean, col: Int = on) {
+            val rr = i / cols; val cc = i % cols
+            pill(label, m + dp(10f) + cw * (cc + 0.5f), y + dp(40f) + rr * (ph + dp(8f)), cw - dp(8f), ph, lit, col)
+        }
+        cell(0, "A/C", s.climAc); cell(1, "AUTO", s.climAuto); cell(2, "SYNC", s.climSync)
+        cell(3, if (s.climHeat) "HEAT" else "HEAT", s.climHeat, warm)
+        cell(4, if (s.climOuterAir) "Fresh air" else "Recirc", true, if (s.climOuterAir) on else cool)
+        cell(5, "Air clean", s.climAirClean); cell(6, "Max defrost", s.climMaxDefrost, warm)
+        cell(7, "Remote A/C", s.climRemote == 1, cool)
+        y += swH + dp(10f)
+
+        // rear row
+        val rrH = dp(74f)
+        card(RectF(m, y, w - m, y + rrH), "REAR ROW")
+        val names = listOf("Face", "Face + Feet", "Feet", "Off")
+        val rw = (w - 2 * m - dp(20f)) / 4
+        for (i in 0 until 4) pill(names[i], m + dp(10f) + rw * (i + 0.5f), y + dp(46f), rw - dp(8f), dp(30f), s.climSeen && s.climRearMode == i)
+        y += rrH + dp(10f)
+
+        // footer
+        val state = when (s.climState) {
+            0 -> "starting"; 1 -> "low-voltage"; 2 -> "high-voltage on"; 3 -> "charging"; 4 -> "remote"; 5 -> "HV discharge"; 6 -> "delay"; else -> "--"
+        }
+        val advice = when (s.climAdvice) { 1 -> "natural air"; 2 -> "cold air"; 3 -> "hot air"; else -> "" }
+        val parts = ArrayList<String>()
+        parts.add("Outside " + temp(s.outsideC)); parts.add("Cabin " + temp(s.cabinC))
+        if (s.climSeen) parts.add("A/C unit: $state")
+        if (advice.isNotEmpty()) parts.add(advice)
+        text(parts.joinToString("   ·   "), w / 2, y + dp(10f), 13f, Color.argb(190, 255, 255, 255))
+        if (s.climFault) text("Thermal system fault", w / 2, y + dp(32f), 13f, Color.parseColor("#FF5A5A"), true)
+        else if (s.climLimited) text("Thermal functions limited", w / 2, y + dp(32f), 13f, warm, true)
+    }
+
+    override fun onTouchEvent(e: android.view.MotionEvent): Boolean {
+        if (e.action == android.view.MotionEvent.ACTION_UP && e.x > closeRect.left - dp(12f) && e.y < closeRect.bottom + dp(12f)) onClose?.invoke()
+        return true
     }
 }
