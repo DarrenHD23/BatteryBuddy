@@ -54,6 +54,14 @@ import android.util.TypedValue
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
+import android.content.ComponentName
+import android.graphics.Bitmap
+import android.media.AudioManager
+import android.media.MediaMetadata
+import android.media.session.MediaController
+import android.media.session.MediaSessionManager
+import android.media.session.PlaybackState
+import android.view.KeyEvent
 import android.graphics.SweepGradient
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
@@ -420,7 +428,12 @@ class MainActivity : Activity() {
     // ------------------------------------------------------------ caution notice
     private lateinit var cautionView: FrameLayout
     private lateinit var climateView: ClimateScreenView
+    private lateinit var mediaCard: MediaCardView
+    private var mediaWatcher: MediaWatcher? = null
+    private var mediaReserveDp = 0                       // full screen: height from the bottom edge to the top of the media card, 0 = card hidden
     private lateinit var climateBtn: TextView
+    private lateinit var mediaBtn: TextView
+    private lateinit var mediaPopup: MediaCardView
     private var lastReadySeen: Boolean? = null
 
     /** A full-window notice over everything, with a caution symbol and an Agree button. */
@@ -1495,8 +1508,24 @@ class MainActivity : Activity() {
                 climateView.bringToFront(); climateView.visibility = View.VISIBLE
             }
         }
+        mediaBtn = TextView(this).apply {
+            text = "Media"; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+            setPadding(dp(9), 0, dp(9), 0)
+            background = chipBg(12)
+            setOnClickListener {
+                if (mediaPopup.visibility == View.VISIBLE) { ui.removeCallbacks(hideMediaPopup); mediaPopup.visibility = View.GONE }
+                else {
+                    ensureMediaWatcher(); mediaWatcher?.start()
+                    mediaPopup.bringToFront(); mediaPopup.visibility = View.VISIBLE
+                    // the button bars stay on top of the card
+                    lowerBox.bringToFront(); btnBar.bringToFront()
+                    ui.removeCallbacks(hideMediaPopup); ui.postDelayed(hideMediaPopup, 15000)
+                }
+            }
+        }
         lowerBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            addView(mediaBtn, LinearLayout.LayoutParams(-2, dp(42)).apply { rightMargin = dp(6) })
             addView(climateBtn, LinearLayout.LayoutParams(-2, dp(42)).apply { rightMargin = dp(6) })
             addView(resBtn, LinearLayout.LayoutParams(-2, dp(42)))
             addView(tripBtn, LinearLayout.LayoutParams(-2, dp(42)).apply { rightMargin = dp(6) })
@@ -1512,6 +1541,20 @@ class MainActivity : Activity() {
             }
         }
         f.addView(flyBtn, FrameLayout.LayoutParams(dp(38), dp(38), Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(10), 0, 0, dp(190)) })
+        mediaPopup = MediaCardView(this).apply {
+            visibility = View.GONE
+            onPrev = { mediaWatcher?.prev(); ui.removeCallbacks(hideMediaPopup); ui.postDelayed(hideMediaPopup, 15000) }
+            onToggle = { mediaWatcher?.toggle(); ui.removeCallbacks(hideMediaPopup); ui.postDelayed(hideMediaPopup, 15000) }
+            onNext = { mediaWatcher?.next(); ui.removeCallbacks(hideMediaPopup); ui.postDelayed(hideMediaPopup, 15000) }
+        }
+        f.addView(mediaPopup, FrameLayout.LayoutParams(-1, dp(132), Gravity.BOTTOM).apply { setMargins(dp(8), 0, dp(8), dp(66)) })
+        mediaCard = MediaCardView(this).apply {
+            visibility = View.GONE
+            onPrev = { mediaWatcher?.prev() }
+            onToggle = { mediaWatcher?.toggle() }
+            onNext = { mediaWatcher?.next() }
+        }
+        f.addView(mediaCard, FrameLayout.LayoutParams(-1, dp(132), Gravity.BOTTOM).apply { setMargins(dp(8), 0, dp(8), dp(200)) })
         f.addOnLayoutChangeListener { v, _, top, _, bottom, _, _, _, _ -> adaptDashLayout((v.width / resources.displayMetrics.density).toInt(), ((bottom - top) / resources.displayMetrics.density).toInt()) }
         // top right: the compass heading beside the drive-mode badge
         dashTop = LinearLayout(this).apply {
@@ -1675,6 +1718,18 @@ class MainActivity : Activity() {
     /** Fit the dashboard to the window it is in. The window can be the whole screen or a part of a split screen, so the
      *  readouts under the gauges are stepped down (smaller, then fewer) until the gauges have enough room. */
     /** Full-screen mode: the Climate screen floats just under the battery bar and covers about the middle two thirds. Split windows: the whole window. */
+    private fun ensureMediaWatcher() {
+        if (mediaWatcher != null) return
+        mediaWatcher = MediaWatcher(this, ui, { Thread { rootRun("cmd notification allow_listener " + ComponentName(this, MainActivity::class.java).flattenToString()) }.start() }, { m -> EventLog.add(m) }).also { w ->
+            w.onChange = {
+                mediaCard.update(w.title, w.artist, w.art, w.playing, w.hasSession)
+                mediaPopup.update(w.title, w.artist, w.art, w.playing, w.hasSession)
+            }
+        }
+    }
+
+    private val hideMediaPopup = Runnable { if (::mediaPopup.isInitialized) mediaPopup.visibility = View.GONE }
+
     private fun placeClimate() {
         val lp = climateView.layoutParams as FrameLayout.LayoutParams
         val full = try {
@@ -1686,7 +1741,9 @@ class MainActivity : Activity() {
             ref.getLocationInWindow(a); edgeBox.getLocationInWindow(b)
             var top = a[1] - b[1] + ref.height + dp(8)
             if (ref.height <= 0 || top > edgeBox.height / 2) top = (edgeBox.height * 0.22f).toInt()
-            val hgt = minOf((edgeBox.height * 0.66f).toInt(), edgeBox.height - top - dp(70))     // the lower buttons stay visible
+            // down to the media card when there is one (it sits above the stats rows), else about two thirds of the window
+            val hgt = if (mediaReserveDp > 0) (edgeBox.height - edgeBox.paddingBottom - dp(mediaReserveDp + 8) - top).coerceAtLeast(dp(300))
+                      else minOf((edgeBox.height * 0.66f).toInt(), edgeBox.height - top - dp(70))
             lp.topMargin = top; lp.height = hgt; lp.leftMargin = dp(8); lp.rightMargin = dp(8); lp.bottomMargin = 0
             climateView.floating = true
         } else {
@@ -1829,6 +1886,18 @@ class MainActivity : Activity() {
         val gaugeBottom = lowerBottom + 4
         val sideL = 8
         val sideR = 8
+        // full screen only: a media card sits just above the stats rows, in the free band under the gauges
+        val mediaH = 132
+        val showMedia = tall && (hDp - gb - topM - wantH) >= mediaH + 70f
+        mediaReserveDp = if (showMedia) lowerBottom + 6 + mediaH else 0
+        (mediaCard.layoutParams as FrameLayout.LayoutParams).apply { height = dp(mediaH); gravity = Gravity.BOTTOM; setMargins(dp(8), 0, dp(8), dp(lowerBottom + 6)) }
+        mediaCard.visibility = if (showMedia) View.VISIBLE else View.GONE
+        mediaBtn.visibility = if (showMedia) View.GONE else View.VISIBLE
+        if (showMedia) mediaPopup.visibility = View.GONE
+        if (showMedia) {
+            ensureMediaWatcher()
+            mediaWatcher?.start()
+        }
         dashStrip.visibility = if (t.showStrip) View.VISIBLE else View.GONE
         if (!t.showStrip && poolBar.visibility == View.VISIBLE) togglePool()
         // bottom bar: Screen button and the app buttons, always on one line (Hide / Exit are on the same line, right)
@@ -1855,9 +1924,10 @@ class MainActivity : Activity() {
             if (rhd) setMargins(0, 0, dp(8), dp(10)) else setMargins(edgeOff, 0, 0, dp(10))
         }
         // children in mirrored order for right-hand drive
-        val lowerKids = listOf(climateBtn, resBtn, tripBtn, lowerTabs)
+        val lowerKids = listOf(climateBtn, mediaBtn, resBtn, tripBtn, lowerTabs)
         lowerBox.removeAllViews()
         for (v in if (rhd) lowerKids.reversed() else lowerKids) lowerBox.addView(v)
+        (mediaBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
         (climateBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
         (resBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
         (tripBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
@@ -1946,6 +2016,7 @@ class MainActivity : Activity() {
         if (::exitBtn.isInitialized) exitBtn.background = chipBg(22)
         if (::resBtn.isInitialized) resBtn.background = chipBg(12)
         if (::climateBtn.isInitialized) climateBtn.background = chipBg(12)
+        if (::mediaBtn.isInitialized) mediaBtn.background = chipBg(12)
         if (::tripBtn.isInitialized) tripBtn.background = chipBg(12)
         if (::lowerTabs.isInitialized) { lowerTabs.background = chipBg(18); paintLowerTabs() }
         if (::poolBar.isInitialized) poolBar.background = GradientDrawable().apply {
@@ -2668,7 +2739,7 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onDestroy() { EventLog.add("app stopped"); pulse?.stop(); ui.removeCallbacksAndMessages(null); close(); super.onDestroy() }
+    override fun onDestroy() { EventLog.add("app stopped"); mediaWatcher?.stop(); pulse?.stop(); ui.removeCallbacksAndMessages(null); close(); super.onDestroy() }
 
     /** Send an AT or OBD command; read until the ELM '>' prompt (3 s timeout). */
     @Synchronized
@@ -4850,6 +4921,209 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
                 else -> -1
             }
             if (target > 0) { lastFanTap = System.currentTimeMillis(); onFan?.invoke(target) }
+        }
+        return true
+    }
+}
+
+
+/** Follows the active media session (the phone over Bluetooth, Spotify, ...): title, artist, album art, play state, and transport controls. */
+class MediaWatcher(private val ctx: Context, private val ui: Handler, private val grant: () -> Unit, private val log: (String) -> Unit) {
+    var title: String? = null
+    var artist: String? = null
+    var art: Bitmap? = null
+    var playing = false
+    var hasSession = false
+    var onChange: (() -> Unit)? = null
+
+    private val msm = ctx.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+    private val comp = ComponentName(ctx, MainActivity::class.java)
+    private var ctl: MediaController? = null
+    private var started = false
+    private var grantTried = false
+    private var gaveUp = false
+
+    private val cb = object : MediaController.Callback() {
+        override fun onMetadataChanged(metadata: MediaMetadata?) { readMeta(metadata); push() }
+        override fun onPlaybackStateChanged(state: PlaybackState?) { playing = state?.state == PlaybackState.STATE_PLAYING; push() }
+        override fun onSessionDestroyed() { ui.post { refresh() } }
+    }
+    private val listener = MediaSessionManager.OnActiveSessionsChangedListener { list -> ui.post { pick(list ?: emptyList()) } }
+
+    private fun push() { ui.post { onChange?.invoke() } }
+
+    fun start() {
+        if (started || gaveUp) return
+        try {
+            msm.addOnActiveSessionsChangedListener(listener, comp, ui)
+            started = true
+            refresh()
+            log("media: following the active media session")
+        } catch (e: SecurityException) {
+            if (!grantTried) {
+                grantTried = true
+                log("media: asking for notification access (root) so the active session can be read")
+                grant()
+                ui.postDelayed({ start() }, 1500)
+            } else { gaveUp = true; log("media: no access to media sessions; the buttons still send media keys") }
+        } catch (e: Exception) { log("media: " + e.message) }
+    }
+
+    fun stop() {
+        try { msm.removeOnActiveSessionsChangedListener(listener) } catch (e: Exception) {}
+        try { ctl?.unregisterCallback(cb) } catch (e: Exception) {}
+        started = false
+    }
+
+    private fun refresh() {
+        try { pick(msm.getActiveSessions(comp)) } catch (e: Exception) { }
+    }
+
+    private fun pick(list: List<MediaController>) {
+        val c = list.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING } ?: list.firstOrNull()
+        if (c?.sessionToken != ctl?.sessionToken) {
+            try { ctl?.unregisterCallback(cb) } catch (e: Exception) {}
+            ctl = c
+            c?.registerCallback(cb, ui)
+        }
+        hasSession = c != null
+        playing = c?.playbackState?.state == PlaybackState.STATE_PLAYING
+        readMeta(c?.metadata)
+        push()
+    }
+
+    private fun readMeta(md: MediaMetadata?) {
+        title = md?.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE) ?: md?.getString(MediaMetadata.METADATA_KEY_TITLE)
+        artist = md?.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: md?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST) ?: md?.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE)
+        art = md?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) ?: md?.getBitmap(MediaMetadata.METADATA_KEY_ART) ?: md?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+    }
+
+    private fun key(code: Int) {
+        val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code))
+        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code))
+    }
+    fun prev() { val t = ctl?.transportControls; if (t != null) t.skipToPrevious() else key(KeyEvent.KEYCODE_MEDIA_PREVIOUS) }
+    fun next() { val t = ctl?.transportControls; if (t != null) t.skipToNext() else key(KeyEvent.KEYCODE_MEDIA_NEXT) }
+    fun toggle() {
+        val t = ctl?.transportControls
+        if (t != null) { if (playing) t.pause() else t.play() } else key(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+    }
+}
+
+/** The media card: album art behind, title and artist, and drawn previous / play-pause / next buttons. */
+class MediaCardView(ctx: Context) : View(ctx) {
+    var onPrev: (() -> Unit)? = null
+    var onToggle: (() -> Unit)? = null
+    var onNext: (() -> Unit)? = null
+    private var title: String? = null
+    private var artist: String? = null
+    private var art: Bitmap? = null
+    private var playing = false
+    private var hasSession = false
+    private val d = ctx.resources.displayMetrics.density
+    private fun dp(v: Float) = v * d
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val path = Path()
+    private val rPrev = RectF(); private val rPlay = RectF(); private val rNext = RectF()
+
+    fun update(t: String?, a: String?, b: Bitmap?, pl: Boolean, has: Boolean) {
+        title = t; artist = a; art = b; playing = pl; hasSession = has; invalidate()
+    }
+
+    private fun fitText(s: String, x: Float, y: Float, sizeDp: Float, color: Int, bold: Boolean, maxW: Float) {
+        p.style = Paint.Style.FILL; p.color = color; p.textAlign = Paint.Align.LEFT
+        p.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+        p.textSize = dp(sizeDp)
+        var out = s
+        if (p.measureText(out) > maxW) {
+            while (out.length > 1 && p.measureText("$out\u2026") > maxW) out = out.dropLast(1)
+            out = "$out\u2026"
+        }
+        canvas0.drawText(out, x, y + p.textSize * 0.35f, p)
+    }
+    private lateinit var canvas0: Canvas
+
+    override fun onDraw(c: Canvas) {
+        canvas0 = c
+        val w = width.toFloat(); val h = height.toFloat()
+        val rad = dp(20f)
+        val card = RectF(0f, 0f, w, h)
+        c.save()
+        path.reset(); path.addRoundRect(card, rad, rad, Path.Direction.CW); c.clipPath(path)
+        p.style = Paint.Style.FILL; p.color = Color.parseColor("#141C2C"); c.drawRect(card, p)
+        val bmp = art
+        if (bmp != null && bmp.width > 0 && bmp.height > 0) {
+            // album art as the background, centre-cropped to the card
+            val sc = maxOf(w / bmp.width, h / bmp.height)
+            val dw = bmp.width * sc; val dh = bmp.height * sc
+            c.drawBitmap(bmp, null, RectF((w - dw) / 2, (h - dh) / 2, (w + dw) / 2, (h + dh) / 2), p)
+            p.color = Color.argb(150, 0, 0, 0); c.drawRect(card, p)
+        } else {
+            p.shader = LinearGradient(0f, 0f, w, h, Color.parseColor("#26334D"), Color.parseColor("#111827"), Shader.TileMode.CLAMP)
+            c.drawRect(card, p); p.shader = null
+        }
+        c.restore()
+        p.style = Paint.Style.STROKE; p.strokeWidth = dp(1.2f); p.color = Color.argb(70, 255, 255, 255)
+        c.drawRoundRect(RectF(1f, 1f, w - 1f, h - 1f), rad, rad, p)
+
+        // controls on the right: previous, play / pause, next
+        val sm = h * 0.46f; val big = h * 0.66f; val gap = dp(10f)
+        val cy = h / 2
+        val right = w - dp(18f)
+        rNext.set(right - sm, cy - sm / 2, right, cy + sm / 2)
+        rPlay.set(rNext.left - gap - big, cy - big / 2, rNext.left - gap, cy + big / 2)
+        rPrev.set(rPlay.left - gap - sm, cy - sm / 2, rPlay.left - gap, cy + sm / 2)
+        buttonBg(c, rPrev, false); buttonBg(c, rNext, false); buttonBg(c, rPlay, true)
+        icon(c, rPrev, 0); icon(c, rNext, 1); icon(c, rPlay, if (playing) 3 else 2)
+
+        // title and artist on the left
+        val tx = dp(20f); val maxW = rPrev.left - tx - dp(14f)
+        if (hasSession && !title.isNullOrEmpty()) {
+            fitText(title!!, tx, h * 0.38f, 20f, Color.WHITE, true, maxW)
+            if (!artist.isNullOrEmpty()) fitText(artist!!, tx, h * 0.64f, 14f, Color.argb(210, 255, 255, 255), false, maxW)
+        } else {
+            fitText("Nothing playing", tx, h * 0.38f, 18f, Color.argb(220, 255, 255, 255), true, maxW)
+            fitText("Music from the phone over Bluetooth shows here", tx, h * 0.64f, 12f, Color.argb(150, 255, 255, 255), false, maxW)
+        }
+    }
+
+    private fun buttonBg(c: Canvas, r: RectF, main: Boolean) {
+        p.style = Paint.Style.FILL; p.color = if (main) Color.argb(235, 255, 255, 255) else Color.argb(70, 255, 255, 255)
+        c.drawRoundRect(r, r.width() * 0.3f, r.width() * 0.3f, p)
+    }
+
+    /** kind: 0 previous, 1 next, 2 play, 3 pause */
+    private fun icon(c: Canvas, r: RectF, kind: Int) {
+        val cx = r.centerX(); val cy = r.centerY(); val u = r.width() * 0.2f
+        val col = if (kind >= 2) Color.parseColor("#111827") else Color.WHITE
+        p.style = Paint.Style.FILL; p.color = col
+        when (kind) {
+            0, 1 -> {
+                val s = if (kind == 0) -1f else 1f
+                path.reset()                                           // triangle pointing in the skip direction
+                path.moveTo(cx + s * u * 0.9f, cy); path.lineTo(cx - s * u * 0.5f, cy - u * 1.1f); path.lineTo(cx - s * u * 0.5f, cy + u * 1.1f); path.close()
+                c.drawPath(path, p)
+                c.drawRoundRect(RectF(cx + s * u * 1.0f - u * 0.18f, cy - u * 1.1f, cx + s * u * 1.0f + u * 0.18f, cy + u * 1.1f), u * 0.1f, u * 0.1f, p)   // bar
+            }
+            2 -> {
+                val v = r.width() * 0.22f
+                path.reset(); path.moveTo(cx - v * 0.7f, cy - v * 1.25f); path.lineTo(cx + v * 1.25f, cy); path.lineTo(cx - v * 0.7f, cy + v * 1.25f); path.close()
+                c.drawPath(path, p)
+            }
+            else -> {
+                val v = r.width() * 0.2f
+                c.drawRoundRect(RectF(cx - v * 1.2f, cy - v * 1.2f, cx - v * 0.35f, cy + v * 1.2f), v * 0.2f, v * 0.2f, p)
+                c.drawRoundRect(RectF(cx + v * 0.35f, cy - v * 1.2f, cx + v * 1.2f, cy + v * 1.2f), v * 0.2f, v * 0.2f, p)
+            }
+        }
+    }
+
+    override fun onTouchEvent(e: android.view.MotionEvent): Boolean {
+        if (e.action == android.view.MotionEvent.ACTION_UP) {
+            val s = dp(8f)
+            fun hit(r: RectF) = e.x >= r.left - s && e.x <= r.right + s && e.y >= r.top - s && e.y <= r.bottom + s
+            when { hit(rPlay) -> onToggle?.invoke(); hit(rPrev) -> onPrev?.invoke(); hit(rNext) -> onNext?.invoke() }
         }
         return true
     }
