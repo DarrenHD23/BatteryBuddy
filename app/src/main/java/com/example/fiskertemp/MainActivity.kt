@@ -432,6 +432,7 @@ class MainActivity : Activity() {
     private lateinit var mediaCard: MediaCardView
     private var mediaWatcher: MediaWatcher? = null
     private var climateTopDp = 0                         // full screen: where the Climate panel starts (dp from the top), 0 = not in the full-screen order
+    private var wasFullOrder = false                    // the last layout was the full-screen order (to open Climate when entering it)
     private var climateHDp = 0                           // ... and how tall it is
     private lateinit var climateBtn: TextView
     private lateinit var mediaBtn: TextView
@@ -1511,19 +1512,7 @@ class MainActivity : Activity() {
             text = "Climate"; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
             setPadding(dp(9), 0, dp(9), 0)
             background = chipBg(12)
-            setOnClickListener {
-                climateView.snap = canSnap; climateView.fahrenheit = useFahrenheit
-                // a solid colour from the dashboard's current background (the screen's inks are light, so a bright background is darkened)
-                run {
-                    val base = if (dashDay) Color.parseColor("#E6ECF4") else (Skins.look.bgBottom or (0xFF shl 24))
-                    val lum = (0.299f * Color.red(base) + 0.587f * Color.green(base) + 0.114f * Color.blue(base)) / 255f
-                    val k = if (lum > 0.35f) 0.28f else 1f
-                    climateView.bgColor = Color.rgb((Color.red(base) * k).toInt(), (Color.green(base) * k).toInt(), (Color.blue(base) * k).toInt())
-                }
-                climateView.fanControl = prefs().getBoolean("climateTx", false)
-                placeClimate()
-                climateView.bringToFront(); climateView.visibility = View.VISIBLE
-            }
+            setOnClickListener { openClimate() }
         }
         mediaBtn = TextView(this).apply {
             text = "Media"; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
@@ -1747,6 +1736,21 @@ class MainActivity : Activity() {
 
     private val hideMediaPopup = Runnable { if (::mediaPopup.isInitialized) mediaPopup.visibility = View.GONE }
 
+    /** Show the Climate screen (from its button, or automatically when the window becomes full screen). */
+    private fun openClimate() {
+                climateView.snap = canSnap; climateView.fahrenheit = useFahrenheit
+                // a solid colour from the dashboard's current background (the screen's inks are light, so a bright background is darkened)
+                run {
+                    val base = if (dashDay) Color.parseColor("#E6ECF4") else (Skins.look.bgBottom or (0xFF shl 24))
+                    val lum = (0.299f * Color.red(base) + 0.587f * Color.green(base) + 0.114f * Color.blue(base)) / 255f
+                    val k = if (lum > 0.35f) 0.28f else 1f
+                    climateView.bgColor = Color.rgb((Color.red(base) * k).toInt(), (Color.green(base) * k).toInt(), (Color.blue(base) * k).toInt())
+                }
+                climateView.fanControl = prefs().getBoolean("climateTx", false)
+                placeClimate()
+                climateView.bringToFront(); climateView.visibility = View.VISIBLE
+    }
+
     private fun placeClimate() {
         val lp = climateView.layoutParams as FrameLayout.LayoutParams
         val full = try {
@@ -1924,6 +1928,8 @@ class MainActivity : Activity() {
         climateTopDp = if (showMedia) mediaEndY + 8 else 0
         climateHDp = if (showMedia) climH else 0
         if (climateView.visibility == View.VISIBLE) edgeBox.post { placeClimate() }
+        else if (showMedia && !wasFullOrder && dashShown) edgeBox.post { if (dashShown) openClimate() }   // entering full screen: the Climate section comes up by itself
+        if (dashShown) wasFullOrder = showMedia
         (mediaCard.layoutParams as FrameLayout.LayoutParams).apply { height = dp(mediaH); gravity = Gravity.BOTTOM; setMargins(dp(8), 0, dp(8), dp(maxOf(hDp - mediaEndY, 0))) }
         mediaCard.rhd = prefs().getBoolean("rhd", false); mediaPopup.rhd = mediaCard.rhd; mediaCard.invalidate(); mediaPopup.invalidate()
         mediaCard.visibility = if (showMedia) View.VISIBLE else View.GONE
