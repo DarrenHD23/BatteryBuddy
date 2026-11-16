@@ -397,6 +397,40 @@ class PulseCan(
         return "Air direction $mode sent on IBUS$bus"
     }
 
+    /**
+     * Test: press one of the A/C buttons: 0 = A/C, 1 = max defrost, 2 = recirculation / fresh air. The frame is the car screen's own
+     * last 0x530 with every request cleared, the fan and temperature requests 'inactive', and only that one button request set.
+     * These are press requests (each one toggles), so a single frame is sent.
+     */
+    fun sendButton(kind: Int): String {
+        if (!txActive) return "Control is off: tick it in Settings and restart the app"
+        val ifs = txIfaces ?: return "CAN reader not running"
+        val out = txOut ?: return "CAN reader not running"
+        var bus = 0
+        for (b in 1..2) if (last530[b] != null && (bus == 0 || last530At[b] > last530At[bus])) bus = b
+        if (bus == 0) return "No 0x530 seen from the car's screen yet: press any climate button once on the car's own climate page, then try again"
+        val d = last530[bus]!!.copyOf()
+        if (d.size != 8) return "0x530 frame had an unexpected length"
+        d[0] = 0; d[1] = 0                         // set temperatures: no change
+        d[2] = d[2] and 0xC7                       // AUTO, SYNC, A/C requests off
+        d[3] = d[3] and 0x80                       // fan request inactive; recirculation, air clean, defrost requests off
+        d[6] = d[6] and 0x7F                       // windshield blow button off
+        when (kind) {
+            0 -> d[2] = d[2] or 0x20               // ICC_ACSwtReq
+            1 -> d[3] = d[3] or 0x40               // ICC_MaxFrntDefrstSet
+            2 -> d[3] = d[3] or 0x10               // ICC_ECCIntExtCircReq
+            else -> return "Unknown button"
+        }
+        val iface = if (bus == 1) ifs.first else ifs.second
+        val line = "tx $iface 530 " + d.joinToString("") { String.format("%02X", it and 0xFF) } + "\n"
+        Thread {
+            synchronized(txLock) {
+                try { out.write(line.toByteArray()); out.flush() } catch (e: Exception) { onStatus("Climate TX failed: ${e.message}") }
+            }
+        }.start()
+        return "${listOf("A/C", "Defrost", "Recirculation")[kind]} request sent on IBUS$bus"
+    }
+
     private fun sendOn528(): String {
         if (!txActive) return "Control is off: tick it in Settings and restart the app"
         val ifs = txIfaces ?: return "CAN reader not running"
