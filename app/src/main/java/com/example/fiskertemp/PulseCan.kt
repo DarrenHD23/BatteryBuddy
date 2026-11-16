@@ -67,6 +67,26 @@ data class CanSnapshot(
     val carTripKm: Double? = null,         // trip distance, km (0x5EA on IBUS2, bytes 2-3, 0.1 per bit)
     val carTripWhKm: Int? = null,          // trip average consumption, Wh/km (0x5EA, byte 4 and the top 2 bits of byte 5)
     val carInstKwh100: Double? = null,     // instantaneous consumption, kWh/100 km (0x505 on IBUS2, bytes 2-3, 0.01, offset -100)
+    // climate status as the car's A/C unit reports it (0x373), read-only
+    val climSeen: Boolean = false,         // at least one 0x373 frame decoded
+    val climAc: Boolean = false,
+    val climAuto: Boolean = false,
+    val climSync: Boolean = false,
+    val climHeat: Boolean = false,
+    val climAirClean: Boolean = false,
+    val climOuterAir: Boolean = false,     // false = recirculating inside air
+    val climMaxDefrost: Boolean = false,
+    val climFan: Int = 0,                  // 0-7
+    val climDrvT: Double? = null,          // driver set temperature, C (null = inactive)
+    val climPassT: Double? = null,
+    val climDrvMode: Int = 0,              // 1 face, 2 face+foot, 3 foot, 4 foot+window, 5 window
+    val climPassMode: Int = 0,             // 1 face, 2 face+foot, 3 foot, 4 foot+window
+    val climRearMode: Int = 0,             // 0 rear face, 1 face+foot, 2 foot, 3 cut off
+    val climState: Int = 0,                // ECC_CrtSts
+    val climAdvice: Int = 0,               // ECC_InfoSysWrmColdDisp: 0 none, 1 natural, 2 cold, 3 hot
+    val climFault: Boolean = false,
+    val climLimited: Boolean = false,
+    val climRemote: Int = 0,               // 0 standby, 1 remote A/C working, 2 fault
 )
 
 class PulseCan(
@@ -257,7 +277,7 @@ class PulseCan(
                     if (why == null) filtersDone = true
                     onStatus(if (why == null) "CAN filters: $filterReadback" else "CAN filters not changed: $why")
                 }
-                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD,1A9,5EA,505", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505")
+                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD,1A9,5EA,505,530,534", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534")
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
@@ -317,7 +337,7 @@ class PulseCan(
 
         frames++
         // note once where the less common IDs turn up (they may be on either bus)
-        if ((id == 0x1A9 || id == 0x5EA || id == 0x505 || id == 0x491) && seenFirst.add("$bus/$id"))
+        if ((id == 0x1A9 || id == 0x5EA || id == 0x505 || id == 0x491 || id == 0x373 || id == 0x530 || id == 0x534) && seenFirst.add("$bus/$id"))
             onStatus("First frame of 0x" + Integer.toHexString(id).uppercase() + " seen on IBUS$bus")
         val key = "$bus/$id"
         // keep the load down: a frame of the same ID is used at most every 90 ms (40 ms for brake and drive mode)
@@ -433,9 +453,31 @@ class PulseCan(
         if (bus == 2 && id == 0x582) {
             return s.copy(cabinC = if (b[0] == 255) null else b[0] * 0.5 - 48.0)
         }
-        // 0x373 ECC_0x373 (IBUS1, 100 ms): ECC_OutdT outside temperature, valid when ECC_OutdTVld (byte 6, low 2 bits) = 1
-        if (bus == 1 && id == 0x373) {
-            return s.copy(outsideC = if ((b[6] and 3) == 1) b[5] * 0.5 - 48.0 else null)
+        // 0x373 ECC_0x373 (100 ms, either bus): the A/C unit's status. Outside temperature plus the whole climate state (read-only)
+        if (id == 0x373 && b.size >= 8) {
+            fun bit(v: Int, n: Int) = ((v shr n) and 1) == 1
+            return s.copy(
+                outsideC = if ((b[6] and 3) == 1) b[5] * 0.5 - 48.0 else null,
+                climSeen = true,
+                climState = b[0] and 15,
+                climAc = bit(b[0], 7),
+                climAirClean = bit(b[1], 0),
+                climFan = (b[1] shr 1) and 15,
+                climRearMode = (b[1] shr 5) and 7,
+                climDrvT = if (b[2] == 0) null else b[2] * 0.5,
+                climPassT = if (b[3] == 0) null else b[3] * 0.5,
+                climHeat = bit(b[4], 0),
+                climAuto = bit(b[4], 1),
+                climSync = bit(b[4], 2),
+                climAdvice = (b[4] shr 3) and 3,
+                climOuterAir = bit(b[4], 5),
+                climMaxDefrost = bit(b[6], 2),
+                climFault = bit(b[6], 3),
+                climLimited = bit(b[6], 4),
+                climDrvMode = (b[6] shr 5) and 7,
+                climPassMode = b[7] and 7,
+                climRemote = (b[7] shr 3) and 3,
+            )
         }
         // 0x6DD BMS_PVIU_ActualPower (IBUS1, 1 s): solar roof power in W, 10 bits starting at byte 0
         if (bus == 1 && id == 0x6DD) {
