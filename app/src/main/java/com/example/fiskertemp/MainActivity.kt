@@ -934,6 +934,17 @@ class MainActivity : Activity() {
         }
         box.add(arcG, 4)
         box.add(CheckBox(this).apply {
+            text = "Hide the battery bar under the trip information (small windows give the space to the trip information)"; isChecked = prefs().getBoolean("hideBatteryBar", false)
+            setOnCheckedChangeListener { _, on ->
+                prefs().edit().putBoolean("hideBatteryBar", on).apply()
+                layoutKey = ""
+                if (::dashRoot.isInitialized && dashRoot.width > 0) {
+                    val dn = resources.displayMetrics.density
+                    adaptDashLayout((dashRoot.width / dn).toInt(), (dashRoot.height / dn).toInt())
+                }
+            }
+        }, 4)
+        box.add(CheckBox(this).apply {
             text = "Speed gauge on the left (power on the right)"; isChecked = prefs().getBoolean("speedLeft", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("speedLeft", on).apply(); applyGaugeSides() }
         }, 4)
@@ -1650,7 +1661,9 @@ class MainActivity : Activity() {
         val wantH = maxOf((wDp - 16) * 1.15f / 3f * 1.1f, 340f)
         val tall = hDp - gb - topM > wantH + 24f
         // the trip readouts sit in the middle column under the traffic light; rows by the height left there
-        val midFixed = when (midLevel) { 0 -> 168f; 1 -> 142f; else -> 98f }
+        val hideBar = prefs().getBoolean("hideBatteryBar", false)
+        // with the battery bar hidden, short windows give its height to the trip panel; roomy ones keep the panel as it is
+        val midFixed = when (midLevel) { 0 -> 168f; 1 -> 142f; else -> 98f } - (if (hideBar && midLevel > 0) 34f else 0f)
         val midFree = (if (tall) wantH else gaugeH - topM.toFloat()) - midFixed
         val midRows = if (midFree >= 104f) 3 else if (midFree >= 66f) 2 else 0
         // the clock goes in the free band above the left gauge (the gauge circle is centred in its height)
@@ -1674,7 +1687,7 @@ class MainActivity : Activity() {
         val band = rowHdp / 2f - minOf(gaugeWdp, rowHdp) / 2f * 0.92f - 6f
         val clockH = if (band >= 30f) band.toInt().coerceAtMost(110) else 0
         val rhd = prefs().getBoolean("rhd", false)
-        val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$rhd"
+        val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$rhd/$hideBar"
         if (key == layoutKey) return
         layoutKey = key
         EventLog.add("layout ${wDp}x${hDp}dp tier=$ti trip=$midRows third=$third half=$half tall=$tall")
@@ -1683,6 +1696,7 @@ class MainActivity : Activity() {
         val stripBottom = base + tripOff
         val rowBottom = if (t.showStrip) stripBottom + t.strip + 4 else base
         tripMidRows = midRows
+        chargeBar.visibility = if (!hideBar) View.VISIBLE else if (midLevel == 0) View.INVISIBLE else View.GONE
         // with plenty of height the panel stays a little shorter and sits just above the battery bar
         (tripSpacer.layoutParams as LinearLayout.LayoutParams).weight = if (midRows >= 3 && midLevel > 0) 0.28f else 0f
         tripSpacer.requestLayout()
