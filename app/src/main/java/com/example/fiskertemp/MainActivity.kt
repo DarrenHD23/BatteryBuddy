@@ -681,6 +681,13 @@ class MainActivity : Activity() {
             visibility = View.GONE
             setOnClickListener { showSkinPicker() }
         }
+        settingsBtn = Button(this).apply {
+            minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0; text = "Settings"; isAllCaps = false; setTextColor(Color.WHITE); textSize = 12f
+            background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(22).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
+            setPadding(dp(12), 0, dp(12), 0)
+            visibility = View.GONE
+            setOnClickListener { showSettings() }   // closing the settings window leaves the dashboard as it was
+        }
         exitBtn = Button(this).apply {
             minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0; text = "Exit"; isAllCaps = false; setTextColor(Color.WHITE); textSize = 12f
             background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(22).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
@@ -694,6 +701,7 @@ class MainActivity : Activity() {
         btnBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             addView(skinBtn, LinearLayout.LayoutParams(-2, dp(36)).apply { rightMargin = dp(8) })
+            addView(settingsBtn, LinearLayout.LayoutParams(-2, dp(36)).apply { rightMargin = dp(8) })
             addView(dashBtn, LinearLayout.LayoutParams(-2, dp(36)).apply { rightMargin = dp(8) })
             addView(exitBtn, LinearLayout.LayoutParams(-2, dp(36)))
         }
@@ -1186,6 +1194,7 @@ class MainActivity : Activity() {
     private lateinit var dashRoot: FrameLayout
     private lateinit var dashBtn: Button
     private lateinit var skinBtn: Button
+    private lateinit var settingsBtn: Button
     private lateinit var dashSpeedGauge: ArcGaugeView
     private lateinit var dashPowerGauge: ArcGaugeView
     private lateinit var dashLight: TrafficLightView
@@ -1754,7 +1763,7 @@ class MainActivity : Activity() {
             gravity = Gravity.BOTTOM or (if (rhd) Gravity.START else Gravity.END)
             if (rhd) setMargins(edgeOff, 0, 0, dp(16)) else setMargins(0, 0, dp(8), dp(16))
         }
-        val barKids = listOf(skinBtn, dashBtn, exitBtn)
+        val barKids = listOf(skinBtn, settingsBtn, dashBtn, exitBtn)
         btnBar.removeAllViews()
         for ((i, v) in (if (rhd) barKids.reversed() else barKids).withIndex()) {
             btnBar.addView(v, LinearLayout.LayoutParams(-2, dp(36)).apply { if (i < barKids.size - 1) rightMargin = dp(8) })
@@ -1831,6 +1840,7 @@ class MainActivity : Activity() {
         val lk = Skins.look
         if (::dashBtn.isInitialized) dashBtn.background = chipBg(22)
         if (::skinBtn.isInitialized) skinBtn.background = chipBg(22)
+        if (::settingsBtn.isInitialized) settingsBtn.background = chipBg(22)
         if (::exitBtn.isInitialized) exitBtn.background = chipBg(22)
         if (::resBtn.isInitialized) resBtn.background = chipBg(12)
         if (::tripBtn.isInitialized) tripBtn.background = chipBg(12)
@@ -2044,6 +2054,7 @@ class MainActivity : Activity() {
         rootScroll.visibility = if (on) View.GONE else View.VISIBLE
         dashBtn.text = if (on) "Hide" else "Show Dashboard"
         skinBtn.visibility = if (on) View.VISIBLE else View.GONE
+        settingsBtn.visibility = if (on) View.VISIBLE else View.GONE
         if (on) {
             actionBar?.hide()
             @Suppress("DEPRECATION")
