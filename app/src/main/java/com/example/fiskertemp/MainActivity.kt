@@ -747,6 +747,11 @@ class MainActivity : Activity() {
                 EventLog.add("Climate temperature test: ${if (driver) "driver" else "passenger"} $target (was $base): $msg")
                 toast(msg)
             }
+            onButton = { kind ->
+                val msg = pulse?.sendButton(kind) ?: "CAN reader is not running"
+                EventLog.add("Climate button test (${listOf("A/C", "defrost", "recirculation")[kind]}): $msg")
+                toast(msg)
+            }
             onMode = { mode ->
                 val msg = pulse?.sendAirMode(mode) ?: "CAN reader is not running"
                 EventLog.add("Climate air direction test: $mode: $msg")
@@ -1775,11 +1780,11 @@ class MainActivity : Activity() {
             if (ref != null && ref.height > 0 && root.height > 0) {
                 val a = IntArray(2); val b = IntArray(2)
                 ref.getLocationInWindow(a); root.getLocationInWindow(b)
-                val top = a[1] - b[1] + ref.height + dp(6)                         // just under the battery bar
+                val top = a[1] - b[1] + ref.height + dp(5)                         // 5 dp under the battery bar
                 var limit = root.height - dp(66)                                  // the bottom buttons
-                if (rowV != null) { val c = IntArray(2); rowV.getLocationInWindow(c); limit = c[1] - b[1] - dp(6) }   // the top of the stat rows
+                if (rowV != null) { val c = IntArray(2); rowV.getLocationInWindow(c); limit = c[1] - b[1] - dp(12) }   // clear of the stat rows and their labels
                 val room = limit - top
-                if (room >= dp(96)) {
+                if (room >= dp(80)) {
                     hgt = minOf(dp(132), room)
                     bottom = root.height - (top + hgt)
                 }
@@ -4676,6 +4681,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     var onTempTap: (() -> Unit)? = null
     var onTemp: ((Boolean, Int) -> Unit)? = null     // driver?, +1 / -1 (half a degree each)
     var onMode: ((Int) -> Unit)? = null              // air direction 1..5
+    var onButton: ((Int) -> Unit)? = null            // 0 A/C, 1 defrost, 2 recirculation
+    private val btnRects = ArrayList<RectF>()          // the function tiles that are buttons: A/C (0), defrost (2), recirculation (4)
     private val modeRects = ArrayList<RectF>()
     private val tempBtnInfo = ArrayList<Pair<Boolean, Int>>()
     var floating = false                              // full-screen mode: a rounded panel instead of the whole window
@@ -4900,7 +4907,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             text("Close", cr.centerX(), cr.centerY(), if (compact) 13f else 15f, Color.WHITE, true)
         }
 
-        val cols = 8
+        val cols = 7
         var fanH = dp(if (compact) 62f else if (medium) 74f else 88f)
         var tileH = dp(if (compact) 58f else if (medium) 66f else 82f)
         val rearH = 0f                                // no rear-row controls on this car
@@ -4918,7 +4925,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         card(RectF(m, y, w - m, y + tempH), "")
         val mid = w / 2
         val modeH = dp(if (compact) 42f else 60f)
-        p.style = Paint.Style.FILL; p.color = Color.argb(40, 255, 255, 255); c.drawRect(mid - dp(0.5f), y + dp(14f), mid + dp(0.5f), y + tempH - dp(10f), p)
+        p.style = Paint.Style.FILL; p.color = Color.argb(40, 255, 255, 255); c.drawRect(mid - dp(0.5f), y + dp(14f), mid + dp(0.5f), y + tempH - modeH - dp(22f), p)
         tempBtns.clear(); tempBtnInfo.clear(); modeRects.clear()
         fun side(cx: Float, name: String, t: Double?, mode: Int, count: Int) {
             text(name, cx, y + dp(if (compact) 18f else 26f), if (compact) 11f else 13f, Color.argb(170, 255, 255, 255), true)
@@ -4942,7 +4949,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             tempBtns.add(minus); tempBtns.add(plus)
             tempBtnInfo.add(Pair(count > 0, -1)); tempBtnInfo.add(Pair(count > 0, 1))   // 'count' is 5 for the driver's side
             val iw = (w / 2 - m - dp(16f)) / 5
-            val x0 = cx - iw * count / 2f
+            val x0 = mid - iw * count / 2f                 // centred across the whole section
             val iy = y + tempH - dp(8f) - modeH / 2
             for (i in 0 until count) {
                 val ic = x0 + iw * (i + 0.5f)
@@ -5000,16 +5007,17 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         tile(1, cols, tl, ty, tw, tileH, "Heated wheel", s.climWheelOn(), warm, compact) { x, yy, r, col -> wheel(x, yy, r, col) }
         tile(2, cols, tl, ty, tw, tileH, "Defrost", s.climMaxDefrost, warm, compact) { x, yy, r, col -> defrost(x, yy, r, col) }
         tile(3, cols, tl, ty, tw, tileH, "Rear defrost", s.rearDefrost == true, warm, compact) { x, yy, r, col -> rearDefrost(x, yy, r, col) }
-        tile(4, cols, tl, ty, tw, tileH, if (s.climOuterAir) "Fresh air" else "Recirc", s.climSeen, if (s.climOuterAir) on else cool, compact) { x, yy, r, col -> recirc(x, yy, r, col, s.climOuterAir) }
+        tile(4, cols, tl, ty, tw, tileH, "Recirc", s.climSeen && !s.climOuterAir, cool, compact) { x, yy, r, col -> recirc(x, yy, r, col, s.climOuterAir) }
         tile(5, cols, tl, ty, tw, tileH, "Sync", s.climSync, on, compact) { x, yy, r, col -> sync(x, yy, r, col) }
         tile(6, cols, tl, ty, tw, tileH, "Auto", s.climAuto, on, compact) { x, yy, r, col -> autoIcon(x, yy, r, col) }
-        tile(7, cols, tl, ty, tw, tileH, "Outside Air", s.climAirClean, on, compact) { x, yy, r, col -> airClean(x, yy, r, col) }
         // the heated-wheel tile is a button while the control test is on
         wheelRect.setEmpty()
+        btnRects.clear()
         if (fanControl) {
             val gp = dp(if (compact) 5f else 8f); val tw1 = (tw - gp * (cols - 1)) / cols
             val i = 1; val x = tl + i * (tw1 + gp)
             wheelRect.set(x, ty, x + tw1, ty + tileH)
+            for (ti in listOf(0, 2, 4)) { val xx = tl + ti * (tw1 + gp); btnRects.add(RectF(xx, ty, xx + tw1, ty + tileH)) }
         }
         y += funcH + gap
 
@@ -5050,6 +5058,10 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         if (fanControl && System.currentTimeMillis() - lastFanTap > 400) {
             val mi = modeRects.indexOfFirst { it.contains(e.x, e.y) }
             if (mi >= 0) { lastFanTap = System.currentTimeMillis(); onMode?.invoke(mi + 1); return true }
+        }
+        if (fanControl && btnRects.size == 3 && System.currentTimeMillis() - lastFanTap > 600) {
+            val bi = btnRects.indexOfFirst { it.contains(e.x, e.y) }
+            if (bi >= 0) { lastFanTap = System.currentTimeMillis(); onButton?.invoke(bi); return true }
         }
         if (fanControl && !wheelRect.isEmpty() && wheelRect.contains(e.x, e.y) && System.currentTimeMillis() - lastFanTap > 600) { lastFanTap = System.currentTimeMillis(); onWheel?.invoke(); return true }
         return true
