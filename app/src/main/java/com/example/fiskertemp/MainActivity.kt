@@ -4406,6 +4406,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     private val wheelRect = RectF()
     private val fanMinus = RectF()
     private val fanPlus = RectF()
+    private val fanSegs = ArrayList<RectF>()
     private var lastFanTap = 0L
 
     private val d = ctx.resources.displayMetrics.density
@@ -4599,13 +4600,13 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         }
         // close buttons at both bottom corners, easy to reach from either front seat
         val xs = dp(if (compact) 44f else 52f)
-        closeRect.set(m, h - m - xs, m + xs, h - m)
-        closeRect2.set(w - m - xs, h - m - xs, w - m, h - m)
+        val cw = dp(if (compact) 92f else 110f)
+        closeRect.set(m, h - m - xs, m + cw, h - m)
+        closeRect2.set(w - m - cw, h - m - xs, w - m, h - m)
         for (cr in listOf(closeRect, closeRect2)) {
             p.style = Paint.Style.FILL; p.color = Color.argb(70, 255, 255, 255); c.drawRoundRect(cr, xs / 2, xs / 2, p)
-            stroke(Color.WHITE, 2.8f)
-            val k = xs * 0.17f; c.drawLine(cr.centerX() - k, cr.centerY() - k, cr.centerX() + k, cr.centerY() + k, p)
-            c.drawLine(cr.centerX() - k, cr.centerY() + k, cr.centerX() + k, cr.centerY() - k, p)
+            stroke(Color.argb(120, 255, 255, 255), 1.5f); c.drawRoundRect(cr, xs / 2, xs / 2, p)
+            text("Close", cr.centerX(), cr.centerY(), if (compact) 15f else 17f, Color.WHITE, true)
         }
 
         val fanH = dp(if (compact) 56f else if (medium) 70f else 84f)
@@ -4652,19 +4653,19 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         card(RectF(m, y, w - m, y + fanH), "FAN")
         fan(m + dp(62f), y + dp(16f), dp(8f), Color.argb(170, 255, 255, 255))
         text(if (s.climFan == 0) "Off" else "${s.climFan}", w - m - dp(14f), y + dp(if (compact) 16f else 20f), if (compact) 18f else 22f, Color.WHITE, true, Paint.Align.RIGHT)
-        var barL = m + dp(14f); var barR = w - m - dp(14f)
-        fanMinus.setEmpty(); fanPlus.setEmpty()
+        var barL = m + dp(14f); val barR = w - m - dp(14f)
+        fanMinus.setEmpty(); fanPlus.setEmpty(); fanSegs.clear()
         if (fanControl) {
             val bs = dp(if (compact) 36f else 44f)
             val by = y + fanH - dp(6f) - bs
             fanMinus.set(m + dp(10f), by, m + dp(10f) + bs, by + bs)
-            fanPlus.set(w - m - dp(10f) - bs, by, w - m - dp(10f), by + bs)
+            fanPlus.set(fanMinus.right + dp(8f), by, fanMinus.right + dp(8f) + bs, by + bs)
             for ((r, sym) in listOf(fanMinus to "\u2212", fanPlus to "+")) {
                 p.style = Paint.Style.FILL; p.color = Color.argb(70, 45, 212, 191); c.drawRoundRect(r, bs / 2, bs / 2, p)
                 stroke(on, 2f); c.drawRoundRect(r, bs / 2, bs / 2, p)
                 text(sym, r.centerX(), r.centerY(), 22f, Color.WHITE, true)
             }
-            barL = fanMinus.right + dp(12f); barR = fanPlus.left - dp(12f)
+            barL = fanPlus.right + dp(16f)
         }
         val segGap = dp(5f); val segW = (barR - barL - 6 * segGap) / 7
         val maxBar = fanH - dp(if (compact) 26f else 32f)
@@ -4672,6 +4673,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             val l = barL + i * (segW + segGap); val sh = (dp(8f) + (maxBar - dp(8f)) * i / 6f)
             p.style = Paint.Style.FILL; p.color = if (i < s.climFan) on else Color.argb(50, 255, 255, 255)
             c.drawRoundRect(RectF(l, y + fanH - dp(8f) - sh, l + segW, y + fanH - dp(8f)), dp(4f), dp(4f), p)
+            // the whole column is the touch target
+            if (fanControl) fanSegs.add(RectF(l - segGap / 2, y + dp(22f), l + segW + segGap / 2, y + fanH))
         }
         y += fanH + gap
 
@@ -4731,6 +4734,10 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         if (e.action != android.view.MotionEvent.ACTION_UP) return true
         val slop = dp(10f)
         if (e.y > closeRect.top - slop && (e.x < closeRect.right + slop || e.x > closeRect2.left - slop)) { onClose?.invoke(); return true }
+        if (fanControl && fanSegs.isNotEmpty() && System.currentTimeMillis() - lastFanTap > 400) {
+            val i = fanSegs.indexOfFirst { it.contains(e.x, e.y) }
+            if (i >= 0) { lastFanTap = System.currentTimeMillis(); onFan?.invoke(i + 1); return true }
+        }
         if (fanControl && !wheelRect.isEmpty() && wheelRect.contains(e.x, e.y) && System.currentTimeMillis() - lastFanTap > 600) { lastFanTap = System.currentTimeMillis(); onWheel?.invoke(); return true }
         if (fanControl && !fanMinus.isEmpty() && System.currentTimeMillis() - lastFanTap > 400) {
             val cur = snap.climFan
