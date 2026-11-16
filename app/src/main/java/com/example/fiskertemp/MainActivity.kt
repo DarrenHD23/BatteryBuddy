@@ -918,6 +918,11 @@ class MainActivity : Activity() {
         arcG.setOnCheckedChangeListener { _, checkedId ->
             prefs().edit().putString("arcStyle", when (checkedId) { arcLeft.id -> "left"; arcRight.id -> "right"; else -> "mirror" }).apply()
             applyGaugeSides()
+            layoutKey = ""
+            if (::dashRoot.isInitialized && dashRoot.width > 0) {
+                val dn = resources.displayMetrics.density
+                adaptDashLayout((dashRoot.width / dn).toInt(), (dashRoot.height / dn).toInt())
+            }
         }
         box.add(arcG, 4)
         box.add(CheckBox(this).apply {
@@ -1218,7 +1223,8 @@ class MainActivity : Activity() {
     private var tripMidRows = 0
     private var statusMode: String? = null
     private lateinit var tripSpacer: View
-    private var midOverlapDp = 0
+    private var ovLeftDp = 0
+    private var ovRightDp = 0
     private lateinit var btnBar: LinearLayout
     private var gaugeWeight = 1.15f
     private var midWeight = 0.7f
@@ -1535,9 +1541,9 @@ class MainActivity : Activity() {
         dashGaugeRow.removeAllViews()
         val left = if (speedLeft) dashSpeedGauge else dashPowerGauge
         val right = if (speedLeft) dashPowerGauge else dashSpeedGauge
-        dashGaugeRow.addView(left, LinearLayout.LayoutParams(0, -1, gaugeWeight).apply { rightMargin = -dp(midOverlapDp) })
+        dashGaugeRow.addView(left, LinearLayout.LayoutParams(0, -1, gaugeWeight).apply { rightMargin = -dp(ovLeftDp) })
         dashGaugeRow.addView(dashMid, LinearLayout.LayoutParams(0, -1, midWeight))
-        dashGaugeRow.addView(right, LinearLayout.LayoutParams(0, -1, gaugeWeight).apply { leftMargin = -dp(midOverlapDp) })
+        dashGaugeRow.addView(right, LinearLayout.LayoutParams(0, -1, gaugeWeight).apply { leftMargin = -dp(ovRightDp) })
         dashSpeedGauge.invalidate(); dashPowerGauge.invalidate()
     }
 
@@ -1645,12 +1651,20 @@ class MainActivity : Activity() {
         val midWdp = (wDp - 16) - 2f * gaugeWdp
         // the middle column may reach over the gauge boxes: where the arcs open toward the middle there is free room there
         val arcMode = prefs().getString("arcStyle", "mirror")
-        val ovCap = gaugeWdp * (if (arcMode == "mirror") 0.15f else 0.05f)
-        val ovDp = (((wDp - 16) * 0.275f - midWdp) / 2f).coerceIn(0f, ovCap).toInt()
+        val ovCap = gaugeWdp * 0.15f
+        val ovTotal = (wDp - 16) * 0.275f - midWdp
+        // a gauge whose ring faces the middle (both arcs curved the same way) gets a clear gap instead of an overlap
+        val faceL = arcMode == "right"
+        val faceR = arcMode == "left"
+        val gap = -16f
+        val ovL: Int; val ovR: Int
+        if (faceL && !faceR) { ovR = (ovTotal - gap).coerceIn(0f, ovCap).toInt(); ovL = gap.toInt() }
+        else if (faceR && !faceL) { ovL = (ovTotal - gap).coerceIn(0f, ovCap).toInt(); ovR = gap.toInt() }
+        else { ovL = (ovTotal / 2f).coerceIn(0f, ovCap).toInt(); ovR = ovL }
         val band = rowHdp / 2f - minOf(gaugeWdp, rowHdp) / 2f * 0.92f - 6f
         val clockH = if (band >= 30f) band.toInt().coerceAtMost(110) else 0
         val rhd = prefs().getBoolean("rhd", false)
-        val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovDp/$rhd"
+        val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$rhd"
         if (key == layoutKey) return
         layoutKey = key
         EventLog.add("layout ${wDp}x${hDp}dp tier=$ti trip=$midRows third=$third half=$half tall=$tall")
@@ -1662,11 +1676,11 @@ class MainActivity : Activity() {
         // with plenty of height the panel stays a little shorter and sits just above the battery bar
         (tripSpacer.layoutParams as LinearLayout.LayoutParams).weight = if (midRows >= 3 && midLevel > 0) 0.28f else 0f
         tripSpacer.requestLayout()
-        gaugeWeight = gaugeWdp; midWeight = midWdp + 2f * ovDp; midOverlapDp = ovDp
+        gaugeWeight = gaugeWdp; midWeight = midWdp + ovL + ovR; ovLeftDp = ovL; ovRightDp = ovR
         (dashGaugeRow.getChildAt(0).layoutParams as LinearLayout.LayoutParams).weight = gaugeWdp
-        (dashGaugeRow.getChildAt(1).layoutParams as LinearLayout.LayoutParams).weight = midWdp + 2f * ovDp
-        (dashGaugeRow.getChildAt(0).layoutParams as LinearLayout.LayoutParams).rightMargin = -dp(ovDp)
-        (dashGaugeRow.getChildAt(2).layoutParams as LinearLayout.LayoutParams).leftMargin = -dp(ovDp)
+        (dashGaugeRow.getChildAt(1).layoutParams as LinearLayout.LayoutParams).weight = midWdp + ovL + ovR
+        (dashGaugeRow.getChildAt(0).layoutParams as LinearLayout.LayoutParams).rightMargin = -dp(ovL)
+        (dashGaugeRow.getChildAt(2).layoutParams as LinearLayout.LayoutParams).leftMargin = -dp(ovR)
         (dashGaugeRow.getChildAt(2).layoutParams as LinearLayout.LayoutParams).weight = gaugeWdp
         dashGaugeRow.requestLayout()
         dashClock.visibility = if (clockH > 0) View.VISIBLE else View.GONE
