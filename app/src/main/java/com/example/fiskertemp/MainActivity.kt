@@ -51,6 +51,7 @@ import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.util.TypedValue
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.SweepGradient
@@ -4364,7 +4365,7 @@ class CautionSymbolView(ctx: Context) : View(ctx) {
 }
 
 /**
- * The Climate screen: a full-window, read-only picture of what the car's A/C unit reports (CAN 0x373).
+ * The Climate screen: a full-window, read-only picture of what the car's A/C unit reports (CAN 0x373, steering wheel 0x386).
  * Nothing here sends anything to the car; the controls are state indicators only.
  */
 class ClimateScreenView(ctx: Context) : View(ctx) {
@@ -4380,13 +4381,15 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     private val on = Color.parseColor("#2DD4BF")
     private val warm = Color.parseColor("#FF8A3D")
     private val cool = Color.parseColor("#4DA3FF")
-    private val dim = Color.argb(60, 255, 255, 255)
+    private val off = Color.argb(120, 255, 255, 255)
     private val closeRect = RectF()
+    private lateinit var canvas: Canvas
+    private val path = Path()
 
     private fun temp(c: Double?): String = when {
         c == null -> "--"
-        fahrenheit -> String.format("%.0f°", c * 9 / 5 + 32)
-        else -> String.format("%.1f°", c)
+        fahrenheit -> String.format("%.0f\u00B0", c * 9 / 5 + 32)
+        else -> String.format("%.1f\u00B0", c)
     }
 
     private fun text(s: String, x: Float, y: Float, sizeDp: Float, color: Int, bold: Boolean = false, align: Paint.Align = Paint.Align.CENTER) {
@@ -4394,34 +4397,117 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         p.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
         canvas.drawText(s, x, y + p.textSize * 0.35f, p)
     }
-    private lateinit var canvas: Canvas
-
-    private fun pill(label: String, cx: Float, cy: Float, w: Float, h: Float, lit: Boolean, color: Int = on) {
-        val r = RectF(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
-        p.style = Paint.Style.FILL; p.color = if (lit) Color.argb(70, Color.red(color), Color.green(color), Color.blue(color)) else Color.argb(28, 255, 255, 255)
-        canvas.drawRoundRect(r, h / 2, h / 2, p)
-        p.style = Paint.Style.STROKE; p.strokeWidth = dp(if (lit) 2f else 1f)
-        p.color = if (lit) color else Color.argb(60, 255, 255, 255)
-        canvas.drawRoundRect(r, h / 2, h / 2, p)
-        text(label, cx, cy, 13f, if (lit) Color.WHITE else Color.argb(130, 255, 255, 255), lit)
-    }
-
+    private fun stroke(color: Int, w: Float) { p.style = Paint.Style.STROKE; p.color = color; p.strokeWidth = dp(w); p.strokeCap = Paint.Cap.ROUND; p.strokeJoin = Paint.Join.ROUND }
+    private fun line(x1: Float, y1: Float, x2: Float, y2: Float) = canvas.drawLine(x1, y1, x2, y2, p)
     private fun card(r: RectF, title: String) {
-        p.style = Paint.Style.FILL; p.color = Color.argb(46, 255, 255, 255)
+        p.style = Paint.Style.FILL; p.color = Color.argb(40, 255, 255, 255)
         canvas.drawRoundRect(r, dp(18f), dp(18f), p)
         text(title, r.left + dp(14f), r.top + dp(16f), 12f, Color.argb(170, 255, 255, 255), true, Paint.Align.LEFT)
     }
 
-    private fun zone(name: String, t: Double?, mode: Int, left: Float, right: Float, top: Float, bottom: Float, modes: List<String>) {
-        val r = RectF(left, top, right, bottom)
-        card(r, name)
-        val cx = (left + right) / 2
-        val c = if (t == null) Color.argb(120, 255, 255, 255) else if (t >= 22.5) warm else if (t <= 20) cool else Color.WHITE
-        text(temp(t), cx, top + (bottom - top) * 0.40f, 46f, c, true)
-        val rows = modes.size
-        val rowH = dp(26f); val gap = dp(5f)
-        var y = bottom - dp(12f) - rowH / 2
-        for (i in rows - 1 downTo 0) { pill(modes[i], cx, y, right - left - dp(24f), rowH, mode == i + 1); y -= rowH + gap }
+    // ---------------------------------------------------------------- icons (all drawn, r = radius)
+    private fun wave(x: Float, y: Float, h: Float, up: Boolean = true) {
+        path.reset(); val s = if (up) -1f else 1f
+        path.moveTo(x, y)
+        path.cubicTo(x - h * 0.45f, y + s * h * 0.30f, x + h * 0.45f, y + s * h * 0.70f, x, y + s * h)
+        canvas.drawPath(path, p)
+    }
+    private fun snowflake(cx: Float, cy: Float, r: Float, col: Int) {
+        stroke(col, 2f)
+        for (k in 0 until 3) {
+            val a = Math.toRadians(k * 60.0 + 90).toFloat()
+            val dx = Math.cos(a.toDouble()).toFloat() * r; val dy = Math.sin(a.toDouble()).toFloat() * r
+            line(cx - dx, cy - dy, cx + dx, cy + dy)
+            for (sgn in listOf(-1f, 1f)) {
+                val bx = cx + dx * 0.62f * sgn; val by = cy + dy * 0.62f * sgn
+                val pa = a + Math.toRadians(90.0).toFloat()
+                val px = Math.cos(pa.toDouble()).toFloat() * r * 0.22f; val py = Math.sin(pa.toDouble()).toFloat() * r * 0.22f
+                line(bx - px, by - py, bx + px, by + py)
+            }
+        }
+    }
+    private fun fan(cx: Float, cy: Float, r: Float, col: Int) {
+        stroke(col, 2f); canvas.drawCircle(cx, cy, r * 0.16f, p)
+        for (k in 0 until 3) {
+            canvas.save(); canvas.rotate(k * 120f, cx, cy)
+            path.reset(); path.moveTo(cx, cy - r * 0.16f)
+            path.cubicTo(cx - r * 0.7f, cy - r * 0.5f, cx - r * 0.3f, cy - r * 1.0f, cx + r * 0.2f, cy - r * 0.95f)
+            path.cubicTo(cx + r * 0.35f, cy - r * 0.6f, cx + r * 0.2f, cy - r * 0.35f, cx, cy - r * 0.16f)
+            canvas.drawPath(path, p); canvas.restore()
+        }
+    }
+    private fun carSide(cx: Float, cy: Float, r: Float) {
+        path.reset()
+        path.moveTo(cx - r, cy + r * 0.35f); path.lineTo(cx - r, cy)
+        path.lineTo(cx - r * 0.55f, cy - r * 0.08f); path.lineTo(cx - r * 0.3f, cy - r * 0.5f)
+        path.lineTo(cx + r * 0.4f, cy - r * 0.5f); path.lineTo(cx + r * 0.75f, cy - r * 0.05f)
+        path.lineTo(cx + r, cy); path.lineTo(cx + r, cy + r * 0.35f); path.close()
+        canvas.drawPath(path, p)
+    }
+    private fun recirc(cx: Float, cy: Float, r: Float, col: Int, outside: Boolean) {
+        stroke(col, 2f); carSide(cx, cy + r * 0.15f, r)
+        if (outside) { line(cx - r * 0.55f, cy + r * 0.2f, cx + r * 0.5f, cy + r * 0.2f); line(cx + r * 0.25f, cy, cx + r * 0.5f, cy + r * 0.2f); line(cx + r * 0.25f, cy + r * 0.4f, cx + r * 0.5f, cy + r * 0.2f) }
+        else {
+            canvas.drawArc(RectF(cx - r * 0.45f, cy - r * 0.05f, cx + r * 0.45f, cy + r * 0.45f), 200f, 280f, false, p)
+            line(cx + r * 0.38f, cy + r * 0.02f, cx + r * 0.46f, cy + r * 0.2f); line(cx + r * 0.38f, cy + r * 0.02f, cx + r * 0.2f, cy + r * 0.05f)
+        }
+    }
+    private fun airClean(cx: Float, cy: Float, r: Float, col: Int) {
+        stroke(col, 2f)
+        for (k in -1..1) { canvas.drawArc(RectF(cx - r, cy + k * r * 0.55f - r * 0.18f, cx, cy + k * r * 0.55f + r * 0.18f), 180f, 180f, false, p); canvas.drawArc(RectF(cx, cy + k * r * 0.55f - r * 0.18f, cx + r, cy + k * r * 0.55f + r * 0.18f), 0f, -180f, false, p) }
+        // sparkle
+        val sx = cx + r * 0.7f; val sy = cy - r * 0.8f; val q = r * 0.3f
+        line(sx - q, sy, sx + q, sy); line(sx, sy - q, sx, sy + q)
+    }
+    private fun defrost(cx: Float, cy: Float, r: Float, col: Int) {
+        stroke(col, 2f)
+        path.reset(); path.moveTo(cx - r, cy + r * 0.55f); path.lineTo(cx - r * 0.65f, cy - r * 0.15f); path.lineTo(cx + r * 0.65f, cy - r * 0.15f); path.lineTo(cx + r, cy + r * 0.55f); path.close()
+        canvas.drawPath(path, p)
+        for (k in -1..1) wave(cx + k * r * 0.45f, cy + r * 0.25f, r * 0.9f)
+    }
+    private fun heat(cx: Float, cy: Float, r: Float, col: Int) {
+        stroke(col, 2f)
+        for (k in -1..1) wave(cx + k * r * 0.6f, cy + r * 0.8f, r * 1.5f)
+    }
+    private fun wheel(cx: Float, cy: Float, r: Float, col: Int) {
+        stroke(col, 2f)
+        canvas.drawCircle(cx, cy + r * 0.25f, r * 0.7f, p)
+        line(cx - r * 0.7f, cy + r * 0.25f, cx - r * 0.2f, cy + r * 0.25f); line(cx + r * 0.2f, cy + r * 0.25f, cx + r * 0.7f, cy + r * 0.25f); line(cx, cy + r * 0.25f, cx, cy + r * 0.95f)
+        for (k in -1..1) wave(cx + k * r * 0.4f, cy - r * 0.3f, r * 0.55f)
+    }
+    private fun sync(cx: Float, cy: Float, r: Float, col: Int) {
+        stroke(col, 2f)
+        line(cx - r, cy - r * 0.35f, cx + r, cy - r * 0.35f); line(cx + r * 0.6f, cy - r * 0.7f, cx + r, cy - r * 0.35f); line(cx + r * 0.6f, cy, cx + r, cy - r * 0.35f)
+        line(cx + r, cy + r * 0.45f, cx - r, cy + r * 0.45f); line(cx - r * 0.6f, cy + r * 0.1f, cx - r, cy + r * 0.45f); line(cx - r * 0.6f, cy + r * 0.8f, cx - r, cy + r * 0.45f)
+    }
+    private fun remote(cx: Float, cy: Float, r: Float, col: Int) {
+        stroke(col, 2f)
+        canvas.drawRoundRect(RectF(cx - r * 0.45f, cy - r, cx + r * 0.45f, cy + r), r * 0.15f, r * 0.15f, p)
+        line(cx - r * 0.15f, cy + r * 0.72f, cx + r * 0.15f, cy + r * 0.72f)
+        canvas.drawArc(RectF(cx + r * 0.2f, cy - r * 0.9f, cx + r * 1.1f, cy), 300f, 120f, false, p)
+    }
+    /** Seated person with air arrows: mode 1 face, 2 face+feet, 3 feet, 4 feet+windshield, 5 windshield. */
+    private fun modeIcon(cx: Float, cy: Float, r: Float, mode: Int, col: Int) {
+        stroke(col, 2f)
+        canvas.drawCircle(cx + r * 0.25f, cy - r * 0.65f, r * 0.22f, p)
+        path.reset(); path.moveTo(cx + r * 0.2f, cy - r * 0.35f); path.lineTo(cx + r * 0.3f, cy + r * 0.2f); path.lineTo(cx - r * 0.3f, cy + r * 0.2f); path.lineTo(cx - r * 0.3f, cy + r * 0.8f)
+        canvas.drawPath(path, p)
+        val face = mode == 1 || mode == 2; val feet = mode == 2 || mode == 3 || mode == 4; val win = mode == 4 || mode == 5
+        if (face) for (k in -1..1) line(cx - r * 0.85f, cy - r * 0.65f + k * r * 0.18f, cx - r * 0.25f, cy - r * 0.65f + k * r * 0.18f)
+        if (feet) for (k in 0..1) line(cx - r * 1.0f + k * r * 0.2f, cy + r * 0.85f, cx - r * 0.55f + k * r * 0.2f, cy + r * 0.85f)
+        if (win) { line(cx - r * 1.0f, cy - r * 0.2f, cx - r * 0.6f, cy - r * 0.95f); line(cx - r * 0.85f, cy - r * 0.05f, cx - r * 0.6f, cy - r * 0.45f) }
+    }
+
+    private fun tile(i: Int, cols: Int, left: Float, top: Float, w: Float, h: Float, label: String, lit: Boolean, col: Int, icon: (Float, Float, Float, Int) -> Unit) {
+        val rr = i / cols; val cc = i % cols
+        val tw = (w - dp(8f) * (cols - 1)) / cols
+        val x = left + cc * (tw + dp(8f)); val y = top + rr * (h + dp(8f))
+        val r = RectF(x, y, x + tw, y + h)
+        p.style = Paint.Style.FILL; p.color = if (lit) Color.argb(64, Color.red(col), Color.green(col), Color.blue(col)) else Color.argb(24, 255, 255, 255)
+        canvas.drawRoundRect(r, dp(16f), dp(16f), p)
+        stroke(if (lit) col else Color.argb(50, 255, 255, 255), if (lit) 2f else 1f); canvas.drawRoundRect(r, dp(16f), dp(16f), p)
+        icon(r.centerX(), r.top + h * 0.40f, dp(15f), if (lit) Color.WHITE else off)
+        text(label, r.centerX(), r.bottom - dp(15f), 12f, if (lit) Color.WHITE else Color.argb(150, 255, 255, 255), lit)
     }
 
     override fun onDraw(c: Canvas) {
@@ -4431,74 +4517,95 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         p.shader = LinearGradient(0f, 0f, 0f, h, Color.parseColor("#0E1626"), Color.parseColor("#05080F"), Shader.TileMode.CLAMP)
         p.style = Paint.Style.FILL; c.drawRect(0f, 0f, w, h, p); p.shader = null
         val m = dp(14f)
-        // header
         text("Climate", m, dp(30f), 24f, Color.WHITE, true, Paint.Align.LEFT)
         text(if (!s.climSeen) "Waiting for the A/C unit (no 0x373 frames yet)" else "Read-only: shows what the car reports",
             m, dp(54f), 12f, if (s.climSeen) Color.argb(150, 255, 255, 255) else warm, false, Paint.Align.LEFT)
         closeRect.set(w - m - dp(44f), dp(10f), w - m, dp(54f))
         p.style = Paint.Style.FILL; p.color = Color.argb(46, 255, 255, 255); c.drawRoundRect(closeRect, dp(22f), dp(22f), p)
-        p.style = Paint.Style.STROKE; p.strokeWidth = dp(2.5f); p.color = Color.WHITE; p.strokeCap = Paint.Cap.ROUND
-        val cx0 = closeRect.centerX(); val cy0 = closeRect.centerY(); val k = dp(8f)
-        c.drawLine(cx0 - k, cy0 - k, cx0 + k, cy0 + k, p); c.drawLine(cx0 - k, cy0 + k, cx0 + k, cy0 - k, p)
+        stroke(Color.WHITE, 2.5f)
+        val k = dp(8f); c.drawLine(closeRect.centerX() - k, closeRect.centerY() - k, closeRect.centerX() + k, closeRect.centerY() + k, p)
+        c.drawLine(closeRect.centerX() - k, closeRect.centerY() + k, closeRect.centerX() + k, closeRect.centerY() - k, p)
 
+        val fanH = dp(84f); val tileH = dp(82f); val rearH = dp(70f); val footH = dp(46f); val gap = dp(10f)
+        val funcH = dp(34f) + tileH * 2 + dp(8f) + dp(10f)
         var y = dp(70f)
-        val zoneH = (h - dp(70f)) * 0.40f
-        val faceNames = listOf("Face", "Face + Feet", "Feet", "Feet + Defrost", "Windshield")
+        val tempH = maxOf(dp(240f), h - y - fanH - funcH - rearH - footH - gap * 4 - dp(8f))
+        // ---- one combined temperature section
+        val tr = RectF(m, y, w - m, y + tempH)
+        card(tr, "TEMPERATURE")
         val mid = w / 2
-        zone("DRIVER", s.climDrvT, s.climDrvMode, m, mid - dp(5f), y, y + zoneH, faceNames)
-        zone("PASSENGER", s.climPassT, s.climPassMode, mid + dp(5f), w - m, y, y + zoneH, faceNames.take(4))
-        y += zoneH + dp(10f)
+        p.style = Paint.Style.FILL; p.color = Color.argb(40, 255, 255, 255); c.drawRect(mid - dp(0.5f), y + dp(34f), mid + dp(0.5f), y + tempH - dp(14f), p)
+        fun side(cx: Float, name: String, t: Double?, mode: Int, count: Int) {
+            text(name, cx, y + dp(40f), 12f, Color.argb(170, 255, 255, 255), true)
+            val col = if (t == null) off else if (t >= 22.5) warm else if (t <= 20) cool else Color.WHITE
+            text(temp(t), cx, y + tempH * 0.40f, 58f, col, true)
+            val iw = (w / 2 - m - dp(16f)) / 5
+            val x0 = cx - iw * count / 2f
+            for (i in 0 until count) {
+                val ic = x0 + iw * (i + 0.5f); val iy = y + tempH - dp(48f)
+                val lit = mode == i + 1
+                p.style = Paint.Style.FILL; p.color = if (lit) Color.argb(64, 45, 212, 191) else Color.argb(24, 255, 255, 255)
+                c.drawRoundRect(RectF(ic - iw / 2 + dp(3f), iy - dp(30f), ic + iw / 2 - dp(3f), iy + dp(30f)), dp(14f), dp(14f), p)
+                if (lit) { stroke(on, 2f); c.drawRoundRect(RectF(ic - iw / 2 + dp(3f), iy - dp(30f), ic + iw / 2 - dp(3f), iy + dp(30f)), dp(14f), dp(14f), p) }
+                modeIcon(ic, iy, dp(18f), i + 1, if (lit) Color.WHITE else off)
+            }
+        }
+        side((m + mid) / 2, "DRIVER", s.climDrvT, s.climDrvMode, 5)
+        side((mid + w - m) / 2, "PASSENGER", s.climPassT, s.climPassMode, 4)
+        y += tempH + gap
 
-        // fan
-        val fanH = dp(74f)
+        // ---- fan
         card(RectF(m, y, w - m, y + fanH), "FAN")
-        text(if (s.climFan == 0) "Off" else "${s.climFan}", w - m - dp(14f), y + dp(18f), 20f, Color.WHITE, true, Paint.Align.RIGHT)
+        fan(m + dp(62f), y + dp(16f), dp(8f), Color.argb(170, 255, 255, 255))
+        text(if (s.climFan == 0) "Off" else "${s.climFan}", w - m - dp(14f), y + dp(20f), 22f, Color.WHITE, true, Paint.Align.RIGHT)
         val segGap = dp(6f); val segW = (w - 2 * m - dp(28f) - 6 * segGap) / 7
         for (i in 0 until 7) {
-            val l = m + dp(14f) + i * (segW + segGap)
-            val sh = dp(10f) + i * dp(3.2f)
-            val r = RectF(l, y + fanH - dp(12f) - sh, l + segW, y + fanH - dp(12f))
-            p.style = Paint.Style.FILL; p.color = if (i < s.climFan) on else dim
-            c.drawRoundRect(r, dp(4f), dp(4f), p)
+            val l = m + dp(14f) + i * (segW + segGap); val sh = dp(10f) + i * dp(3.2f)
+            p.style = Paint.Style.FILL; p.color = if (i < s.climFan) on else Color.argb(50, 255, 255, 255)
+            c.drawRoundRect(RectF(l, y + fanH - dp(12f) - sh, l + segW, y + fanH - dp(12f)), dp(4f), dp(4f), p)
         }
-        y += fanH + dp(10f)
+        y += fanH + gap
 
-        // switches
-        val swH = dp(104f)
-        card(RectF(m, y, w - m, y + swH), "FUNCTIONS")
-        val cols = 4; val cw = (w - 2 * m - dp(20f)) / cols; val ph = dp(32f)
-        fun cell(i: Int, label: String, lit: Boolean, col: Int = on) {
-            val rr = i / cols; val cc = i % cols
-            pill(label, m + dp(10f) + cw * (cc + 0.5f), y + dp(40f) + rr * (ph + dp(8f)), cw - dp(8f), ph, lit, col)
-        }
-        cell(0, "A/C", s.climAc); cell(1, "AUTO", s.climAuto); cell(2, "SYNC", s.climSync)
-        cell(3, if (s.climHeat) "HEAT" else "HEAT", s.climHeat, warm)
-        cell(4, if (s.climOuterAir) "Fresh air" else "Recirc", true, if (s.climOuterAir) on else cool)
-        cell(5, "Air clean", s.climAirClean); cell(6, "Max defrost", s.climMaxDefrost, warm)
-        cell(7, "Remote A/C", s.climRemote == 1, cool)
-        y += swH + dp(10f)
+        // ---- functions
+        card(RectF(m, y, w - m, y + funcH), "FUNCTIONS")
+        val ty = y + dp(32f); val tw = w - 2 * m - dp(20f); val tl = m + dp(10f)
+        tile(0, 4, tl, ty, tw, tileH, "A/C", s.climAc, on) { x, yy, r, col -> snowflake(x, yy, r, col) }
+        tile(1, 4, tl, ty, tw, tileH, "AUTO", s.climAuto, on) { x, yy, _, col -> text("AUTO", x, yy, 15f, col, true) }
+        tile(2, 4, tl, ty, tw, tileH, "SYNC", s.climSync, on) { x, yy, r, col -> sync(x, yy, r, col) }
+        tile(3, 4, tl, ty, tw, tileH, if (s.climOuterAir) "Fresh air" else "Recirculate", s.climSeen, if (s.climOuterAir) on else cool) { x, yy, r, col -> recirc(x, yy, r, col, s.climOuterAir) }
+        tile(4, 4, tl, ty, tw, tileH, "Air clean", s.climAirClean, on) { x, yy, r, col -> airClean(x, yy, r, col) }
+        tile(5, 4, tl, ty, tw, tileH, "Defrost", s.climMaxDefrost, warm) { x, yy, r, col -> defrost(x, yy, r, col) }
+        tile(6, 4, tl, ty, tw, tileH, "Heated wheel", s.climWheelOn(), warm) { x, yy, r, col -> wheel(x, yy, r, col) }
+        tile(7, 4, tl, ty, tw, tileH, "Remote A/C", s.climRemote == 1, cool) { x, yy, r, col -> remote(x, yy, r, col) }
+        y += funcH + gap
 
-        // rear row
-        val rrH = dp(74f)
-        card(RectF(m, y, w - m, y + rrH), "REAR ROW")
+        // ---- rear row
+        card(RectF(m, y, w - m, y + rearH), "REAR ROW")
         val names = listOf("Face", "Face + Feet", "Feet", "Off")
         val rw = (w - 2 * m - dp(20f)) / 4
-        for (i in 0 until 4) pill(names[i], m + dp(10f) + rw * (i + 0.5f), y + dp(46f), rw - dp(8f), dp(30f), s.climSeen && s.climRearMode == i)
-        y += rrH + dp(10f)
-
-        // footer
-        val state = when (s.climState) {
-            0 -> "starting"; 1 -> "low-voltage"; 2 -> "high-voltage on"; 3 -> "charging"; 4 -> "remote"; 5 -> "HV discharge"; 6 -> "delay"; else -> "--"
+        for (i in 0 until 4) {
+            val lit = s.climSeen && s.climRearMode == i
+            val r = RectF(m + dp(10f) + rw * i + dp(4f), y + dp(28f), m + dp(10f) + rw * (i + 1) - dp(4f), y + dp(58f))
+            p.style = Paint.Style.FILL; p.color = if (lit) Color.argb(64, 45, 212, 191) else Color.argb(24, 255, 255, 255); c.drawRoundRect(r, dp(15f), dp(15f), p)
+            if (lit) { stroke(on, 2f); c.drawRoundRect(r, dp(15f), dp(15f), p) }
+            text(names[i], r.centerX(), r.centerY(), 13f, if (lit) Color.WHITE else Color.argb(150, 255, 255, 255), lit)
         }
+        y += rearH + gap
+
+        // ---- footer
+        val state = when (s.climState) { 0 -> "starting"; 1 -> "low-voltage"; 2 -> "high-voltage on"; 3 -> "charging"; 4 -> "remote"; 5 -> "HV discharge"; 6 -> "delay"; else -> "--" }
         val advice = when (s.climAdvice) { 1 -> "natural air"; 2 -> "cold air"; 3 -> "hot air"; else -> "" }
         val parts = ArrayList<String>()
         parts.add("Outside " + temp(s.outsideC)); parts.add("Cabin " + temp(s.cabinC))
         if (s.climSeen) parts.add("A/C unit: $state")
         if (advice.isNotEmpty()) parts.add(advice)
-        text(parts.joinToString("   ·   "), w / 2, y + dp(10f), 13f, Color.argb(190, 255, 255, 255))
+        text(parts.joinToString("   \u00B7   "), w / 2, y + dp(10f), 13f, Color.argb(190, 255, 255, 255))
         if (s.climFault) text("Thermal system fault", w / 2, y + dp(32f), 13f, Color.parseColor("#FF5A5A"), true)
         else if (s.climLimited) text("Thermal functions limited", w / 2, y + dp(32f), 13f, warm, true)
+        else if (s.wheelHeat == null) text("Heated wheel status not received", w / 2, y + dp(32f), 12f, Color.argb(120, 255, 255, 255))
     }
+
+    private fun CanSnapshot.climWheelOn() = wheelHeat == true
 
     override fun onTouchEvent(e: android.view.MotionEvent): Boolean {
         if (e.action == android.view.MotionEvent.ACTION_UP && e.x > closeRect.left - dp(12f) && e.y < closeRect.bottom + dp(12f)) onClose?.invoke()
