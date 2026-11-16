@@ -34,6 +34,7 @@ data class CanSnapshot(
     val packVolts: Double? = null,     // V (0xE9 on IBUS2, bytes 6-7)  needs the chip filters opened
     val packAmps: Double? = null,      // A (0xE9 on IBUS2, bytes 4-5, signed)
     val limit: Int? = null,            // road speed limit the car knows, in limitMph units (0x311 on IBUS2, byte 6); null = none
+    val tsrMode: Int? = null,          // where the car gets the limit: 2 camera + map, 3 camera, 4 map, 1 off, 5 error (0x313 ADAS_TSRSts, byte 6 bits 5-3)
     val limitMph: Boolean = false,     // true if that limit is in mph, false for km/h (0x311 byte 3 bit 6)
     val hold: Boolean? = null,         // auto hold is holding the car (0x332 on IBUS2, byte 2 bit 2)
     val holdEsp: Boolean? = null,      // ESP is holding the car with brake pressure (0x1B8 on IBUS1, byte 2 bit 0)
@@ -379,7 +380,7 @@ class PulseCan(
                     onStatus(if (why == null) "CAN filters: $filterReadback" else "CAN filters not changed: $why")
                 }
                 txActive = context.getSharedPreferences("prefs", Context.MODE_PRIVATE).getBoolean("climateTx", false)
-                val base = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD,1A9,5EA,505,530,534,386,528", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534,528")
+                val base = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD,1A9,5EA,505,530,534,386,528", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534,528,313")
                 // transmit is allowed only for 0x530, 0x528 and 0x534 and only when the test is ticked in Settings; otherwise the helper is receive-only
                 val args = if (txActive) base + listOf("tx:$b1=530,528,534", "tx:$b2=530,528,534") else base
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
@@ -448,7 +449,7 @@ class PulseCan(
         if (id == 0x534 && bytes.size == 8) { last534[bus] = bytes; last534At[bus] = System.currentTimeMillis() }
         if (id == 0x528 && bytes.size == 8) { last528[bus] = bytes; last528At[bus] = System.currentTimeMillis() }
         // note once where the less common IDs turn up (they may be on either bus)
-        if ((id == 0x1A9 || id == 0x5EA || id == 0x505 || id == 0x491 || id == 0x373 || id == 0x386 || id == 0x530 || id == 0x534) && seenFirst.add("$bus/$id"))
+        if ((id == 0x1A9 || id == 0x5EA || id == 0x505 || id == 0x491 || id == 0x373 || id == 0x386 || id == 0x313 || id == 0x530 || id == 0x534) && seenFirst.add("$bus/$id"))
             onStatus("First frame of 0x" + Integer.toHexString(id).uppercase() + " seen on IBUS$bus")
         val key = "$bus/$id"
         // keep the load down: a frame of the same ID is used at most every 90 ms (40 ms for brake and drive mode)
@@ -593,6 +594,10 @@ class PulseCan(
         // 0x386 BCM_0x386 (IBUS1): BCM_HeatedSteerWhlSt, heated steering wheel (byte 0, low 2 bits: 0 off, 1 on)
         if (id == 0x386 && b.isNotEmpty()) {
             return s.copy(wheelHeat = when (b[0] and 3) { 1 -> true; 0 -> false; else -> null })
+        }
+        // 0x313 ADAS_0x313: ADAS_TSRSts, where the speed limit comes from (camera, navigation map or both)
+        if (id == 0x313 && b.size >= 7) {
+            return s.copy(tsrMode = ((b[6] shr 3) and 7).takeIf { it in 1..5 })
         }
         // 0x6DD BMS_PVIU_ActualPower (IBUS1, 1 s): solar roof power in W, 10 bits starting at byte 0
         if (bus == 1 && id == 0x6DD) {
