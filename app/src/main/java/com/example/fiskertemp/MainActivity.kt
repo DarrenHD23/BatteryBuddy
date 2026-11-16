@@ -1491,6 +1491,7 @@ class MainActivity : Activity() {
                     climateView.bgColor = Color.rgb((Color.red(base) * k).toInt(), (Color.green(base) * k).toInt(), (Color.blue(base) * k).toInt())
                 }
                 climateView.fanControl = prefs().getBoolean("climateTx", false)
+                placeClimate()
                 climateView.bringToFront(); climateView.visibility = View.VISIBLE
             }
         }
@@ -1673,6 +1674,28 @@ class MainActivity : Activity() {
 
     /** Fit the dashboard to the window it is in. The window can be the whole screen or a part of a split screen, so the
      *  readouts under the gauges are stepped down (smaller, then fewer) until the gauges have enough room. */
+    /** Full-screen mode: the Climate screen floats just under the battery bar and covers about the middle two thirds. Split windows: the whole window. */
+    private fun placeClimate() {
+        val lp = climateView.layoutParams as FrameLayout.LayoutParams
+        val full = try {
+            android.os.Build.VERSION.SDK_INT >= 30 && windowManager.currentWindowMetrics.bounds.height() >= windowManager.maximumWindowMetrics.bounds.height() * 0.8
+        } catch (e: Exception) { false }
+        if (full && edgeBox.height > 0) {
+            val ref: View = if (chargeBar.visibility == View.VISIBLE) chargeBar else tripPanel
+            val a = IntArray(2); val b = IntArray(2)
+            ref.getLocationInWindow(a); edgeBox.getLocationInWindow(b)
+            var top = a[1] - b[1] + ref.height + dp(8)
+            if (ref.height <= 0 || top > edgeBox.height / 2) top = (edgeBox.height * 0.22f).toInt()
+            val hgt = minOf((edgeBox.height * 0.66f).toInt(), edgeBox.height - top - dp(70))     // the lower buttons stay visible
+            lp.topMargin = top; lp.height = hgt; lp.leftMargin = dp(8); lp.rightMargin = dp(8); lp.bottomMargin = 0
+            climateView.floating = true
+        } else {
+            lp.topMargin = 0; lp.height = FrameLayout.LayoutParams.MATCH_PARENT; lp.leftMargin = 0; lp.rightMargin = 0
+            climateView.floating = false
+        }
+        climateView.layoutParams = lp
+    }
+
     private fun adaptDashLayout(wDp: Int, hDp: Int) {
         if (wDp <= 0 || hDp <= 0) return
         val narrow = wDp < 800
@@ -4422,6 +4445,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     private val fanSegs = ArrayList<RectF>()
     private val tempBtns = ArrayList<RectF>()          // driver -, driver +, passenger -, passenger +
     var onTempTap: (() -> Unit)? = null
+    var floating = false                              // full-screen mode: a rounded panel instead of the whole window
+        set(v) { field = v; invalidate() }
     var bgColor = Color.parseColor("#0B0F1A")          // solid, from the dashboard's current background
     var onPower: ((Boolean) -> Unit)? = null        // true = turn the climate system on, false = shut it down
     private val powerRect = RectF()
@@ -4613,7 +4638,11 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         // three sizes: a third-height window (compact), half-height, and the full screen
         val compact = h < dp(560f)
         val medium = !compact && h < dp(800f)
-        p.shader = null; p.style = Paint.Style.FILL; p.color = bgColor; c.drawRect(0f, 0f, w, h, p)
+        p.shader = null; p.style = Paint.Style.FILL; p.color = bgColor
+        if (floating) {
+            c.drawRoundRect(RectF(0f, 0f, w, h), dp(24f), dp(24f), p)
+            stroke(Color.argb(70, 255, 255, 255), 1.5f); c.drawRoundRect(RectF(1f, 1f, w - 1f, h - 1f), dp(24f), dp(24f), p)
+        } else c.drawRect(0f, 0f, w, h, p)
         val m = dp(if (compact) 10f else 14f)
         val gap = dp(if (compact) 6f else 10f)
         val headH = dp(if (compact) 34f else if (medium) 50f else 66f)
