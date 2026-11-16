@@ -4450,6 +4450,12 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         p.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
         canvas.drawText(s, x, y + p.textSize * 0.35f, p)
     }
+    /** Like text(), but shrinks the size so the string never wider than maxW pixels. */
+    private fun fitText(s: String, x: Float, y: Float, sizeDp: Float, color: Int, bold: Boolean, maxW: Float) {
+        p.textSize = dp(sizeDp); p.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+        val wd = p.measureText(s)
+        text(s, x, y, if (wd > maxW && wd > 0f) sizeDp * maxW / wd else sizeDp, color, bold)
+    }
     private fun stroke(color: Int, w: Float) { p.style = Paint.Style.STROKE; p.color = color; p.strokeWidth = dp(w); p.strokeCap = Paint.Cap.ROUND; p.strokeJoin = Paint.Join.ROUND }
     private fun line(x1: Float, y1: Float, x2: Float, y2: Float) = canvas.drawLine(x1, y1, x2, y2, p)
     private fun card(r: RectF, title: String) {
@@ -4597,7 +4603,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         canvas.drawRoundRect(r, cr, cr, p)
         stroke(if (lit) col else Color.argb(50, 255, 255, 255), if (lit) 2f else 1f); canvas.drawRoundRect(r, cr, cr, p)
         icon(r.centerX(), r.top + h * 0.39f, h * 0.21f, if (lit) Color.WHITE else off)
-        text(label, r.centerX(), r.bottom - h * 0.19f, (h / d * 0.17f).coerceIn(10f, 14f), if (lit) Color.WHITE else Color.argb(150, 255, 255, 255), lit)
+        fitText(label, r.centerX(), r.bottom - h * 0.19f, (h / d * 0.17f).coerceIn(10f, 14f), if (lit) Color.WHITE else Color.argb(150, 255, 255, 255), lit, tw - dp(8f))
     }
 
     override fun onDraw(c: Canvas) {
@@ -4645,7 +4651,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val spare = maxOf(0f, h - y - fixed - fanH - tileH - rearH - tempMin)
         tileH += minOf(spare * 0.30f, dp(46f)); fanH += minOf(spare * 0.15f, dp(24f)); if (rearH > 0f) rearH += minOf(spare * 0.08f, dp(12f))
         val funcH = tileH + dp(20f)
-        val tempH = maxOf(tempMin, h - y - fixed - fanH - tileH - rearH)
+        val tempH = maxOf(dp(if (compact) 100f else if (medium) 150f else 200f), h - y - fixed - fanH - tileH - rearH)
         // ---- one combined temperature section
         card(RectF(m, y, w - m, y + tempH), "")
         val mid = w / 2
@@ -4783,7 +4789,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         if (s.climRemote == 1) parts.add("remote A/C running")
         if (advice.isNotEmpty()) parts.add(advice)
         val fy = h - dp(6f) - xs / 2
-        text(parts.joinToString("   \u00B7   "), w / 2, fy - dp(9f), if (compact) 12f else 13f, Color.argb(190, 255, 255, 255))
+        val footW = closeRect2.left - closeRect.right - dp(16f)
+        fitText(parts.joinToString("  \u00B7  "), w / 2, fy - dp(9f), if (compact) 12f else 13f, Color.argb(190, 255, 255, 255), false, footW)
         if (s.climFault) text("Thermal system fault", w / 2, fy + dp(10f), 12f, Color.parseColor("#FF5A5A"), true)
         else if (s.climLimited) text("Thermal functions limited", w / 2, fy + dp(10f), 12f, warm, true)
         else if (s.wheelHeat == null) text("Heated wheel status not received", w / 2, fy + dp(10f), 11f, Color.argb(120, 255, 255, 255))
