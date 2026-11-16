@@ -1264,6 +1264,8 @@ class MainActivity : Activity() {
     private lateinit var exitBtn: Button
     private lateinit var dashStrip: StatusStripView
     private lateinit var dashSign: SpeedSignView
+    private lateinit var dashSignSrc: TextView
+    private var lastTsrMode = -1
     private var signShown = false
     private var signSeenAt = 0L
     private var signText = ""
@@ -1425,6 +1427,9 @@ class MainActivity : Activity() {
         dashSlot = FrameLayout(this).apply {
             addView(dashLight, FrameLayout.LayoutParams(dp(42), dp(88), Gravity.CENTER))
             addView(dashSign, FrameLayout.LayoutParams(dp(64), dp(64), Gravity.CENTER))
+            // where the car got the limit (camera / map), in the spare strip under the sign; only in the roomy layout
+            dashSignSrc = TextView(this).apply { textSize = 9f; gravity = Gravity.CENTER; alpha = 0f; visibility = View.GONE; setSingleLine(true) }
+            addView(dashSignSrc, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
         }
         val mid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
@@ -1979,6 +1984,7 @@ class MainActivity : Activity() {
         dashBrake.setPadding(dp(if (short) 10 else 18), dp(if (midLevel == 2) 1 else 4), dp(if (short) 10 else 18), dp(if (midLevel == 2) 1 else 4))
         (dashSign.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 38 else if (short) 48 else 64); height = dp(if (midLevel == 2) 38 else if (short) 48 else 64) }
         poolBar.requestLayout(); lowerBox.requestLayout()
+        dashSignSrc.visibility = if (midLevel == 0) View.VISIBLE else View.GONE
         dashStrip.requestLayout(); dashRow.requestLayout(); dashGaugeRow.requestLayout(); dashLight.requestLayout(); dashSign.requestLayout()
     }
 
@@ -2307,6 +2313,10 @@ class MainActivity : Activity() {
             dashSign.metric = !mphWanted
             dashSign.euro = prefs().getString("signStyle", "us") == "eu"
             dashSign.invalidate()
+            val tm = s.tsrMode ?: 0
+            dashSignSrc.text = when (tm) { 2 -> "camera + map"; 3 -> "camera"; 4 -> "map"; 5 -> "sign data error"; else -> "" }
+            dashSignSrc.setTextColor(if (dashDay) Color.argb(200, 20, 32, 46) else Color.argb(200, 255, 255, 255))
+            if (tm != lastTsrMode) { lastTsrMode = tm; EventLog.add("speed limit source: " + (dashSignSrc.text.ifEmpty { "unknown" })) }
         }
         val lc = s.lightColor
         if (lc != null) { lightColor = lc; lightSeenAt = nowMs; dashLight.setColor(lc) }
@@ -2322,6 +2332,7 @@ class MainActivity : Activity() {
         val wantSign = (lim != null || nowMs - signSeenAt < 1500) && !seen
         if (wantSign != signShown) {
             signShown = wantSign
+            dashSignSrc.animate().alpha(if (wantSign) 1f else 0f).setDuration(if (wantSign) 300L else 250L).start()
             dashSign.animate().alpha(if (wantSign) 1f else 0f)
                 .setStartDelay(if (wantSign && lightEnded) 700L else 0L)
                 .setDuration(if (wantSign) 300L else 250L).start()
