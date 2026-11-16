@@ -87,6 +87,7 @@ data class CanSnapshot(
     val climFault: Boolean = false,
     val climLimited: Boolean = false,
     val climRemote: Int = 0,               // 0 standby, 1 remote A/C working, 2 fault
+    val rearDefrost: Boolean? = null,      // rear window heater on (0x335 BCM_ReDefrstHeatgCmd, IBUS1), status only
     val wheelHeat: Boolean? = null,        // heated steering wheel on (0x386 BCM_HeatedSteerWhlSt, IBUS1); null = not received
 )
 
@@ -265,6 +266,75 @@ class PulseCan(
 
     @Volatile private var generation = 0
 
+    // ---- test: change the fan speed by sending the car screen's 0x530 command frame (only when enabled in Settings)
+    private val last530 = arrayOfNulls<IntArray>(3)          // newest 0x530 seen from the car's own screen, per bus
+    private val last530At = LongArray(3)
+    private val last528 = arrayOfNulls<IntArray>(3)          // newest 0x528 seen from the car's own screen (carries the heated-wheel request)
+    private val last528At = LongArray(3)
+    @Volatile private var txOut: java.io.OutputStream? = null
+    @Volatile private var txIfaces: Pair<String, String>? = null
+    @Volatile private var txActive = false
+    private val txLock = Any()
+
+    /**
+     * Ask for fan level 1-7. The frame is the car screen's own last 0x530 with every momentary request bit cleared
+     * (A/C, AUTO, SYNC, recirculation, air clean, defrost, windshield blow) and only the fan field set, sent a few times on the
+     * bus where that screen's 0x530 was seen. The A/C unit's 0x373 status shows whether it was accepted.
+     */
+    fun sendFan(level: Int): String {
+        if (!txActive) return "Fan control is off: tick it in Settings and restart the app"
+        if (level !in 1..7) return "Fan level out of range"
+        val ifs = txIfaces ?: return "CAN reader not running"
+        val out = txOut ?: return "CAN reader not running"
+        var bus = 0
+        for (b in 1..2) if (last530[b] != null && (bus == 0 || last530At[b] > last530At[bus])) bus = b
+        if (bus == 0) return "No 0x530 seen from the car's screen yet: change the fan once on the car's own climate page, then try again"
+        val d = last530[bus]!!.copyOf()
+        if (d.size != 8) return "0x530 frame had an unexpected length"
+        d[2] = d[2] and 0xC7       // AUTO, SYNC, A/C requests off (bits 3-5)
+        d[3] = (d[3] and 0x8F) or level                            // recirculation, air clean, defrost requests off; fan = level
+        d[6] = d[6] and 0x7F                                       // windshield blow button off
+        val iface = if (bus == 1) ifs.first else ifs.second
+        val line = "tx $iface 530 " + d.joinToString("") { String.format("%02X", it and 0xFF) } + "\n"
+        Thread {
+            synchronized(txLock) {
+                try {
+                    for (i in 0 until 3) { out.write(line.toByteArray()); out.flush(); Thread.sleep(100) }
+                } catch (e: Exception) { onStatus("Climate TX failed: ${e.message}") }
+            }
+        }.start()
+        return "Fan $level sent on IBUS$bus"
+    }
+
+    /**
+     * Test: ask for the heated steering wheel. The frame is the car screen's own last 0x528 with the seat-heat and other
+     * requests cleared ("not change") and only ICC_SWH_Req = 1 set, sent a few times on the bus where 0x528 was seen.
+     * The request only has an "on" value, so it probably acts like the button press: watch 0x386 for the result.
+     */
+    fun sendWheelHeat(): String {
+        if (!txActive) return "Control is off: tick it in Settings and restart the app"
+        val ifs = txIfaces ?: return "CAN reader not running"
+        val out = txOut ?: return "CAN reader not running"
+        var bus = 0
+        for (b in 1..2) if (last528[b] != null && (bus == 0 || last528At[b] > last528At[bus])) bus = b
+        if (bus == 0) return "No 0x528 seen from the car's screen yet: press the heated wheel (or a seat heat) once on the car's own screen, then try again"
+        val d = last528[bus]!!.copyOf()
+        d[1] = d[1] and 0xE3                  // driver seat heat request: not change
+        d[3] = d[3] and 0xF0                  // seat-belt and anti-theft requests: not change
+        d[4] = (d[4] and 0xE0) or 1           // passenger seat heat: not change; heated wheel request = on
+        d[5] = d[5] and 0x18                  // rear seat heat requests: not change (keeps the KL15 flag)
+        val iface = if (bus == 1) ifs.first else ifs.second
+        val line = "tx $iface 528 " + d.joinToString("") { String.format("%02X", it and 0xFF) } + "\n"
+        Thread {
+            synchronized(txLock) {
+                try {
+                    for (i in 0 until 3) { out.write(line.toByteArray()); out.flush(); Thread.sleep(100) }
+                } catch (e: Exception) { onStatus("Climate TX failed: ${e.message}") }
+            }
+        }.start()
+        return "Heated wheel request sent on IBUS$bus"
+    }
+
     private fun loop(bin: String, my: Int) {
         var tries = 0
         while (running && generation == my) {
@@ -278,10 +348,15 @@ class PulseCan(
                     if (why == null) filtersDone = true
                     onStatus(if (why == null) "CAN filters: $filterReadback" else "CAN filters not changed: $why")
                 }
-                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD,1A9,5EA,505,530,534,386", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534")
+                txActive = context.getSharedPreferences("prefs", Context.MODE_PRIVATE).getBoolean("climateTx", false)
+                val base = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD,1A9,5EA,505,530,534,386,528", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534,528")
+                // transmit is allowed only for 0x530 and 0x528 and only when the test is ticked in Settings; otherwise the helper is receive-only
+                val args = if (txActive) base + listOf("tx:$b1=530,528", "tx:$b2=530,528") else base
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
+                txIfaces = b1 to b2
+                txOut = if (txActive) p.outputStream else null
                 // the helper's error output must be drained or it can block; pass on changes only
                 thread(name = "pulse-can-err", isDaemon = true) {
                     var lastMsg = ""
@@ -297,13 +372,14 @@ class PulseCan(
                         }
                     } catch (e: Exception) { /* ended */ }
                 }
-                // the helper ends when its stdin closes, so we keep it open (we never write to it)
+                // the helper ends when its stdin closes, so we keep it open (we only write to it for the fan test, when enabled)
                 p.inputStream.bufferedReader().forEachLine { handle(it, b1, b2) }
                 val code = p.waitFor()
                 onStatus("CAN reader stopped (code $code)")
             } catch (e: Exception) {
                 onStatus("CAN reader failed: ${e.message}")
             }
+            txOut = null
             proc?.destroy()
             proc = null
             if (System.currentTimeMillis() - startedAt > 30_000) tries = 0
@@ -321,6 +397,7 @@ class PulseCan(
     private fun handle(line: String, b1: String, b2: String) {
         if (line.startsWith("#")) {
             if (line.contains("ready")) onStatus("CAN reader ready")
+            else if (line.startsWith("# tx")) onStatus("Helper " + line.removePrefix("# "))
             return
         }
         val parts = line.trim().split(' ')
@@ -337,6 +414,8 @@ class PulseCan(
         for (i in bytes.indices) bytes[i] = hex.substring(i * 2, i * 2 + 2).toIntOrNull(16) ?: return
 
         frames++
+        if (id == 0x530 && bytes.size == 8) { last530[bus] = bytes; last530At[bus] = System.currentTimeMillis() }
+        if (id == 0x528 && bytes.size == 8) { last528[bus] = bytes; last528At[bus] = System.currentTimeMillis() }
         // note once where the less common IDs turn up (they may be on either bus)
         if ((id == 0x1A9 || id == 0x5EA || id == 0x505 || id == 0x491 || id == 0x373 || id == 0x386 || id == 0x530 || id == 0x534) && seenFirst.add("$bus/$id"))
             onStatus("First frame of 0x" + Integer.toHexString(id).uppercase() + " seen on IBUS$bus")
@@ -377,7 +456,7 @@ class PulseCan(
         // 0x335 BCM_0x335 (IBUS1): BCM_BrkLampOutpCmd, the brake lamp output command (1 = on)
         if (bus == 1 && id == 0x335) {
             val lamps = ((b[5] shr 3) and 1) == 1 || ((b[5] shr 4) and 1) == 1 || ((b[5] shr 5) and 3) != 0
-            return s.copy(brakeBcm = ((b[5] shr 7) and 1) == 1, headlights = lamps)
+            return s.copy(brakeBcm = ((b[5] shr 7) and 1) == 1, headlights = lamps, rearDefrost = ((b[4] shr 3) and 1) == 1)
         }
         // 0x179 TBOX_0x179 (IBUS1, every 100 ms): vehicle heading, 0.01 degrees per bit
         if (bus == 1 && id == 0x179) {
