@@ -5092,8 +5092,40 @@ class MediaWatcher(private val ctx: Context, private val ui: Handler, private va
     private fun readMeta(md: MediaMetadata?) {
         title = md?.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE) ?: md?.getString(MediaMetadata.METADATA_KEY_TITLE)
         artist = md?.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: md?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST) ?: md?.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE)
-        art = md?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) ?: md?.getBitmap(MediaMetadata.METADATA_KEY_ART) ?: md?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+        val bmp = md?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) ?: md?.getBitmap(MediaMetadata.METADATA_KEY_ART) ?: md?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+        if (bmp != null) { art = bmp; artUri = null; return }
+        // some apps only publish a link to the picture: load it in the background
+        val uri = md?.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI) ?: md?.getString(MediaMetadata.METADATA_KEY_ART_URI) ?: md?.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
+        if (uri.isNullOrEmpty()) { art = null; artUri = null; return }
+        if (uri == artUri) return                       // already loaded (or loading) this one
+        artUri = uri
+        art = null
+        Thread {
+            val b = loadArt(uri)
+            ui.post { if (artUri == uri) { art = b; if (b == null) log("media: could not load the art from $uri"); onChange?.invoke() } }
+        }.start()
     }
+
+    private var artUri: String? = null
+
+    private fun loadArt(uri: String): Bitmap? = try {
+        val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = 1 }
+        val stream = if (uri.startsWith("http://") || uri.startsWith("https://")) {
+            val conn = java.net.URL(uri).openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 6000; conn.readTimeout = 8000; conn.instanceFollowRedirects = true
+            conn.inputStream
+        } else ctx.contentResolver.openInputStream(Uri.parse(uri))
+        val bytes = stream?.use { it.readBytes() }
+        if (bytes == null) null else {
+            // keep memory small: the card is only a few hundred pixels
+            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            var ss = 1
+            while (bounds.outWidth / (ss * 2) >= 1000 && bounds.outHeight / (ss * 2) >= 1000) ss *= 2
+            opts.inSampleSize = ss
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+        }
+    } catch (e: Exception) { null }
 
     private fun key(code: Int) {
         val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
