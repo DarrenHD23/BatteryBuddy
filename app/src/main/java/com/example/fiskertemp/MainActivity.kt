@@ -4470,10 +4470,13 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         for (k in -1..1) wave(cx + k * r * 0.6f, cy + r * 0.8f, r * 1.5f)
     }
     private fun wheel(cx: Float, cy: Float, r: Float, col: Int) {
+        stroke(col, 2.6f)
+        canvas.drawCircle(cx, cy + r * 0.3f, r * 0.72f, p)
         stroke(col, 2f)
-        canvas.drawCircle(cx, cy + r * 0.25f, r * 0.7f, p)
-        line(cx - r * 0.7f, cy + r * 0.25f, cx - r * 0.2f, cy + r * 0.25f); line(cx + r * 0.2f, cy + r * 0.25f, cx + r * 0.7f, cy + r * 0.25f); line(cx, cy + r * 0.25f, cx, cy + r * 0.95f)
-        for (k in -1..1) wave(cx + k * r * 0.4f, cy - r * 0.3f, r * 0.55f)
+        line(cx - r * 0.72f, cy + r * 0.2f, cx - r * 0.22f, cy + r * 0.3f); line(cx + r * 0.72f, cy + r * 0.2f, cx + r * 0.22f, cy + r * 0.3f)
+        line(cx - r * 0.12f, cy + r * 0.45f, cx - r * 0.2f, cy + r * 1.0f); line(cx + r * 0.12f, cy + r * 0.45f, cx + r * 0.2f, cy + r * 1.0f)
+        canvas.drawCircle(cx, cy + r * 0.3f, r * 0.22f, p)
+        for (k in -1..1) wave(cx + k * r * 0.4f, cy - r * 0.35f, r * 0.55f)
     }
     private fun sync(cx: Float, cy: Float, r: Float, col: Int) {
         stroke(col, 2f)
@@ -4486,16 +4489,38 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         line(cx - r * 0.15f, cy + r * 0.72f, cx + r * 0.15f, cy + r * 0.72f)
         canvas.drawArc(RectF(cx + r * 0.2f, cy - r * 0.9f, cx + r * 1.1f, cy), 300f, 120f, false, p)
     }
-    /** Seated person with air arrows: mode 1 face, 2 face+feet, 3 feet, 4 feet+windshield, 5 windshield. */
-    private fun modeIcon(cx: Float, cy: Float, r: Float, mode: Int, col: Int) {
-        stroke(col, 2f)
-        canvas.drawCircle(cx + r * 0.25f, cy - r * 0.65f, r * 0.22f, p)
-        path.reset(); path.moveTo(cx + r * 0.2f, cy - r * 0.35f); path.lineTo(cx + r * 0.3f, cy + r * 0.2f); path.lineTo(cx - r * 0.3f, cy + r * 0.2f); path.lineTo(cx - r * 0.3f, cy + r * 0.8f)
+    private fun hwave(x1: Float, x2: Float, y: Float, amp: Float) {
+        path.reset(); path.moveTo(x1, y)
+        val seg = (x2 - x1) / 4
+        for (i in 0 until 4) path.quadTo(x1 + seg * (i + 0.5f), y + (if (i % 2 == 0) -amp else amp), x1 + seg * (i + 1), y)
         canvas.drawPath(path, p)
+    }
+    private fun thick(x1: Float, y1: Float, x2: Float, y2: Float, wd: Float, col: Int) {
+        p.style = Paint.Style.STROKE; p.color = col; p.strokeWidth = wd; p.strokeCap = Paint.Cap.ROUND
+        canvas.drawLine(x1, y1, x2, y2, p)
+    }
+    /** A seated occupant (solid shapes) with wavy air lines: mode 1 face, 2 face+feet, 3 feet, 4 feet+windshield, 5 windshield. */
+    private fun modeIcon(cx: Float, cy: Float, r: Float, mode: Int, col: Int) {
+        val soft = Color.argb(Color.alpha(col) * 6 / 10, Color.red(col), Color.green(col), Color.blue(col))
+        thick(cx + r * 0.15f, cy - r * 0.35f, cx + r * 0.32f, cy + r * 0.2f, r * 0.36f, soft)          // back
+        thick(cx + r * 0.32f, cy + r * 0.25f, cx - r * 0.25f, cy + r * 0.3f, r * 0.3f, soft)           // thigh
+        thick(cx - r * 0.25f, cy + r * 0.3f, cx - r * 0.3f, cy + r * 0.78f, r * 0.26f, soft)           // shin
+        p.style = Paint.Style.FILL; p.color = col; canvas.drawCircle(cx + r * 0.1f, cy - r * 0.75f, r * 0.22f, p)
         val face = mode == 1 || mode == 2; val feet = mode == 2 || mode == 3 || mode == 4; val win = mode == 4 || mode == 5
-        if (face) for (k in -1..1) line(cx - r * 0.85f, cy - r * 0.65f + k * r * 0.18f, cx - r * 0.25f, cy - r * 0.65f + k * r * 0.18f)
-        if (feet) for (k in 0..1) line(cx - r * 1.0f + k * r * 0.2f, cy + r * 0.85f, cx - r * 0.55f + k * r * 0.2f, cy + r * 0.85f)
-        if (win) { line(cx - r * 1.0f, cy - r * 0.2f, cx - r * 0.6f, cy - r * 0.95f); line(cx - r * 0.85f, cy - r * 0.05f, cx - r * 0.6f, cy - r * 0.45f) }
+        stroke(col, 1.6f)
+        if (face) { hwave(cx - r * 1.05f, cx - r * 0.35f, cy - r * 0.85f, r * 0.1f); hwave(cx - r * 1.05f, cx - r * 0.35f, cy - r * 0.6f, r * 0.1f) }
+        if (feet) { hwave(cx - r * 1.05f, cx - r * 0.55f, cy + r * 0.62f, r * 0.09f); hwave(cx - r * 1.05f, cx - r * 0.55f, cy + r * 0.9f, r * 0.09f) }
+        if (win) {
+            thick(cx - r * 0.95f, cy - r * 0.05f, cx - r * 0.5f, cy - r * 1.0f, r * 0.12f, col)
+            stroke(col, 1.6f)
+            wave(cx - r * 0.78f, cy - r * 0.1f, r * 0.45f); wave(cx - r * 0.58f, cy - r * 0.3f, r * 0.45f)
+        }
+    }
+    private fun autoIcon(cx: Float, cy: Float, r: Float, col: Int) {
+        stroke(col, 2f)
+        canvas.drawArc(RectF(cx - r, cy - r, cx + r, cy + r), -60f, 300f, false, p)
+        line(cx + r * 0.5f, cy - r * 0.87f, cx + r * 0.95f, cy - r * 0.35f); line(cx + r * 0.5f, cy - r * 0.87f, cx + r * 0.02f, cy - r * 0.72f)
+        text("AUTO", cx, cy, 7.5f, col, true)
     }
 
     private fun tile(i: Int, cols: Int, left: Float, top: Float, w: Float, h: Float, label: String, lit: Boolean, col: Int, icon: (Float, Float, Float, Int) -> Unit) {
@@ -4570,7 +4595,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         card(RectF(m, y, w - m, y + funcH), "FUNCTIONS")
         val ty = y + dp(32f); val tw = w - 2 * m - dp(20f); val tl = m + dp(10f)
         tile(0, 4, tl, ty, tw, tileH, "A/C", s.climAc, on) { x, yy, r, col -> snowflake(x, yy, r, col) }
-        tile(1, 4, tl, ty, tw, tileH, "AUTO", s.climAuto, on) { x, yy, _, col -> text("AUTO", x, yy, 15f, col, true) }
+        tile(1, 4, tl, ty, tw, tileH, "AUTO", s.climAuto, on) { x, yy, r, col -> autoIcon(x, yy, r, col) }
         tile(2, 4, tl, ty, tw, tileH, "SYNC", s.climSync, on) { x, yy, r, col -> sync(x, yy, r, col) }
         tile(3, 4, tl, ty, tw, tileH, if (s.climOuterAir) "Fresh air" else "Recirculate", s.climSeen, if (s.climOuterAir) on else cool) { x, yy, r, col -> recirc(x, yy, r, col, s.climOuterAir) }
         tile(4, 4, tl, ty, tw, tileH, "Air clean", s.climAirClean, on) { x, yy, r, col -> airClean(x, yy, r, col) }
