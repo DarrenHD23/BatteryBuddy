@@ -1522,6 +1522,7 @@ class MainActivity : Activity() {
                 if (mediaPopup.visibility == View.VISIBLE) { ui.removeCallbacks(hideMediaPopup); mediaPopup.visibility = View.GONE }
                 else {
                     ensureMediaWatcher(); mediaWatcher?.start()
+                    placeMediaPopup()
                     mediaPopup.bringToFront(); mediaPopup.visibility = View.VISIBLE
                     // the button bars stay on top of the card
                     lowerBox.bringToFront(); btnBar.bringToFront()
@@ -1735,6 +1736,26 @@ class MainActivity : Activity() {
     }
 
     private val hideMediaPopup = Runnable { if (::mediaPopup.isInitialized) mediaPopup.visibility = View.GONE }
+
+    /** The Media pop-up card: as high as the free space allows, just under the battery bar (or trip panel); else just above the button bar. */
+    private fun placeMediaPopup() {
+        val lp = mediaPopup.layoutParams as FrameLayout.LayoutParams
+        val base = dp(66)
+        var bottom = base
+        try {
+            val ref: View? = if (chargeBar.visibility != View.GONE) chargeBar else if (tripPanel.visibility == View.VISIBLE) tripPanel else null
+            val root = mediaPopup.parent as View
+            if (ref != null && ref.height > 0 && root.height > 0) {
+                val a = IntArray(2); val b = IntArray(2)
+                ref.getLocationInWindow(a); root.getLocationInWindow(b)
+                val refBottom = a[1] - b[1] + ref.height
+                val want = root.height - (refBottom + dp(8) + dp(132))      // bottom margin that puts the card's top just under the bar
+                if (want > base) bottom = want
+            }
+        } catch (e: Exception) { }
+        lp.setMargins(dp(8), 0, dp(8), bottom)
+        mediaPopup.layoutParams = lp
+    }
 
     /** Show the Climate screen (from its button, or automatically when the window becomes full screen). */
     private fun openClimate() {
