@@ -1428,7 +1428,7 @@ class MainActivity : Activity() {
             addView(dashLight, FrameLayout.LayoutParams(dp(42), dp(88), Gravity.CENTER))
             addView(dashSign, FrameLayout.LayoutParams(dp(64), dp(64), Gravity.CENTER))
             // where the car got the limit (camera / map), in the spare strip under the sign; only in the roomy layout
-            dashSignSrc = TextView(this).apply { textSize = 9f; gravity = Gravity.CENTER; alpha = 0f; visibility = View.GONE; setSingleLine(true) }
+            dashSignSrc = TextView(this@MainActivity).apply { textSize = 9f; gravity = Gravity.CENTER; alpha = 0f; visibility = View.GONE; setSingleLine(true) }
             addView(dashSignSrc, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
         }
         val mid = LinearLayout(this).apply {
