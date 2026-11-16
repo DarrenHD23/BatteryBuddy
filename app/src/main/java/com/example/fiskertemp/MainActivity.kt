@@ -1613,7 +1613,16 @@ class MainActivity : Activity() {
     private fun adaptDashLayout(wDp: Int, hDp: Int) {
         if (wDp <= 0 || hDp <= 0) return
         val narrow = wDp < 800
-        val tiers = listOf(
+        // a third-height split window (not half or full) keeps the bottom buttons at the left edge
+        val third = try {
+            if (android.os.Build.VERSION.SDK_INT >= 30) windowManager.currentWindowMetrics.bounds.height() < windowManager.maximumWindowMetrics.bounds.height() * 0.42 else false
+        } catch (e: Exception) { false }
+        // a half-height split window needs the bottom buttons moved in a little further
+        val half = try {
+            if (android.os.Build.VERSION.SDK_INT >= 30) windowManager.currentWindowMetrics.bounds.height().let { it >= windowManager.maximumWindowMetrics.bounds.height() * 0.42 && it < windowManager.maximumWindowMetrics.bounds.height() * 0.8 } else false
+        } catch (e: Exception) { false }
+        // a third-height window starts with a smaller stats area (keeping the screen-size button) so the gauges get more height
+        val tiers = (if (third) listOf(DashTier(44, 34, true, true, true)) else emptyList()) + listOf(
             DashTier(56, 46, true, true, true),
             DashTier(50, 40, false, true, true),
             DashTier(44, 34, false, true, true),
@@ -1635,21 +1644,13 @@ class MainActivity : Activity() {
         val tripOff = 0
         val gaugeH = hDp - stack(t) - tripOff
         val midLevel = if (gaugeH >= 300) 0 else if (gaugeH >= 235) 1 else 2
-        // a third-height split window (not half or full) keeps the bottom buttons at the left edge
-        val third = try {
-            if (android.os.Build.VERSION.SDK_INT >= 30) windowManager.currentWindowMetrics.bounds.height() < windowManager.maximumWindowMetrics.bounds.height() * 0.42 else false
-        } catch (e: Exception) { false }
-        // a half-height split window needs the bottom buttons moved in a little further
-        val half = try {
-            if (android.os.Build.VERSION.SDK_INT >= 30) windowManager.currentWindowMetrics.bounds.height().let { it >= windowManager.maximumWindowMetrics.bounds.height() * 0.42 && it < windowManager.maximumWindowMetrics.bounds.height() * 0.8 } else false
-        } catch (e: Exception) { false }
         // in a tall window (full screen) the gauges stay at the top instead of being centred in all the free height
         val gb = (if (t.showStrip) base + t.strip + 4 else base) + t.row + 8 + tripOff
         val topM = if (midLevel > 0) 20 else 8
         val wantH = maxOf((wDp - 16) * 1.15f / 3f * 1.1f, 340f)
         val tall = hDp - gb - topM > wantH + 24f
         // the trip readouts sit in the middle column under the traffic light; rows by the height left there
-        val midFixed = when (midLevel) { 0 -> 168f; 1 -> 110f; else -> 98f }
+        val midFixed = when (midLevel) { 0 -> 168f; 1 -> 142f; else -> 98f }
         val midFree = (if (tall) wantH else gaugeH - topM.toFloat()) - midFixed
         val midRows = if (midFree >= 104f) 3 else if (midFree >= 66f) 2 else 0
         // the clock goes in the free band above the left gauge (the gauge circle is centred in its height)
@@ -1677,7 +1678,7 @@ class MainActivity : Activity() {
         if (key == layoutKey) return
         layoutKey = key
         EventLog.add("layout ${wDp}x${hDp}dp tier=$ti trip=$midRows third=$third half=$half tall=$tall")
-        compact = ti > 0
+        compact = ti > 0 || third
         val short = midLevel > 0
         val stripBottom = base + tripOff
         val rowBottom = if (t.showStrip) stripBottom + t.strip + 4 else base
@@ -1705,17 +1706,24 @@ class MainActivity : Activity() {
         (dashSlot.layoutParams as LinearLayout.LayoutParams).apply { height = dp(if (midLevel == 2) 48 else if (short) 58 else 92); topMargin = dp(if (short) 4 else 4) }
         dashSlot.requestLayout()
         // short windows: READY, the light distance and the brake pill sit beside the sign instead of stacking, so the trip panel gets the height
-        // READY goes centred under the battery bar when the window is tall enough, otherwise beside the sign
-        val readyBelow = tall && !short
-        val modeKey = "$short/$readyBelow"
+        // READY / light distance / brake placement by how much height the middle column has
+        //  level 0 (roomy): READY under the battery bar when tall, light distance beside the sign, brake pill in the column
+        //  level 1 (a third-height window): READY centred above the sign, light distance below it, brake pill beside the sign
+        //  level 2 (very short): all three beside the sign
+        val readyBelow = tall && midLevel == 0
+        val modeKey = "$midLevel/$readyBelow"
         if (statusMode != modeKey) {
             statusMode = modeKey
             dashMid.removeView(dashReady); dashMid.removeView(dashLightDist); dashMid.removeView(dashBrake)
             dashSlot.removeView(dashReady); dashSlot.removeView(dashLightDist); dashSlot.removeView(dashBrake)
             dashRoot.removeView(dashReady)
-            if (readyBelow) dashRoot.addView(dashReady, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
-            else dashSlot.addView(dashReady, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.START).apply { leftMargin = dp(4) })
-            dashSlot.addView(dashLightDist, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.START).apply { leftMargin = dp(4) })
+            when {
+                readyBelow -> dashRoot.addView(dashReady, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+                midLevel == 1 -> dashMid.addView(dashReady, 0, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+                else -> dashSlot.addView(dashReady, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.START).apply { leftMargin = dp(4) })
+            }
+            if (midLevel == 1) dashMid.addView(dashLightDist, 2, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+            else dashSlot.addView(dashLightDist, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.START).apply { leftMargin = dp(4) })
             if (short) dashSlot.addView(dashBrake, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.END).apply { rightMargin = dp(4) })
             else dashMid.addView(dashBrake, 1, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
         }
@@ -1776,7 +1784,7 @@ class MainActivity : Activity() {
             else { height = FrameLayout.LayoutParams.MATCH_PARENT; setMargins(dp(8), dp(topM), dp(8), dp(gaugeBottom)) }
         }
         (dashLight.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 22 else if (short) 26 else 42); height = dp(if (midLevel == 2) 46 else if (short) 56 else 88) }
-        dashReady.textSize = if (short) 11f else 15f
+        dashReady.textSize = if (midLevel == 2) 11f else if (midLevel == 1) 12f else 15f
         // in a short window the gauges reach the top corners, so the mode badge gets its own strip above them
         dashMode.textSize = if (short) 9f else 11f
         dashMode.minWidth = dp(if (short) 60 else 84)
