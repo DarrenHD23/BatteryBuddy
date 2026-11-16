@@ -431,7 +431,8 @@ class MainActivity : Activity() {
     private lateinit var climateView: ClimateScreenView
     private lateinit var mediaCard: MediaCardView
     private var mediaWatcher: MediaWatcher? = null
-    private var mediaReserveDp = 0                       // full screen: height from the bottom edge to the top of the media card, 0 = card hidden
+    private var climateTopDp = 0                         // full screen: where the Climate panel starts (dp from the top), 0 = not in the full-screen order
+    private var climateHDp = 0                           // ... and how tall it is
     private lateinit var climateBtn: TextView
     private lateinit var mediaBtn: TextView
     private lateinit var mediaPopup: MediaCardView
@@ -1742,14 +1743,18 @@ class MainActivity : Activity() {
             android.os.Build.VERSION.SDK_INT >= 30 && windowManager.currentWindowMetrics.bounds.height() >= windowManager.maximumWindowMetrics.bounds.height() * 0.8
         } catch (e: Exception) { false }
         if (full && edgeBox.height > 0) {
-            val ref: View = if (chargeBar.visibility == View.VISIBLE) chargeBar else tripPanel
-            val a = IntArray(2); val b = IntArray(2)
-            ref.getLocationInWindow(a); edgeBox.getLocationInWindow(b)
-            var top = a[1] - b[1] + ref.height + dp(8)
-            if (ref.height <= 0 || top > edgeBox.height / 2) top = (edgeBox.height * 0.22f).toInt()
-            // down to the media card when there is one (it sits above the stats rows), else about two thirds of the window
-            val hgt = if (mediaReserveDp > 0) (edgeBox.height - edgeBox.paddingBottom - dp(mediaReserveDp + 8) - top).coerceAtLeast(dp(300))
-                      else minOf((edgeBox.height * 0.66f).toInt(), edgeBox.height - top - dp(70))
+            var top: Int; var hgt: Int
+            if (climateHDp > 0) {
+                // the full-screen order: gauges, stat rows and buttons, media card, then this panel at the bottom
+                top = dp(climateTopDp); hgt = dp(climateHDp)
+            } else {
+                val ref: View = if (chargeBar.visibility == View.VISIBLE) chargeBar else tripPanel
+                val a = IntArray(2); val b = IntArray(2)
+                ref.getLocationInWindow(a); edgeBox.getLocationInWindow(b)
+                top = a[1] - b[1] + ref.height + dp(8)
+                if (ref.height <= 0 || top > edgeBox.height / 2) top = (edgeBox.height * 0.22f).toInt()
+                hgt = minOf((edgeBox.height * 0.66f).toInt(), edgeBox.height - top - dp(70))
+            }
             lp.topMargin = top; lp.height = hgt; lp.leftMargin = dp(8); lp.rightMargin = dp(8); lp.bottomMargin = 0
             climateView.floating = true
         } else {
@@ -1892,11 +1897,24 @@ class MainActivity : Activity() {
         val gaugeBottom = lowerBottom + 4
         val sideL = 8
         val sideR = 8
-        // full screen only: a media card sits just above the stats rows, in the free band under the gauges
+        // full screen only: from the top: gauges, stat rows + button row, media card, then the Climate panel at the bottom
         val mediaH = 132
-        val showMedia = tall && (hDp - gb - topM - wantH) >= mediaH + 70f
-        mediaReserveDp = if (showMedia) lowerBottom + 6 + mediaH else 0
-        (mediaCard.layoutParams as FrameLayout.LayoutParams).apply { height = dp(mediaH); gravity = Gravity.BOTTOM; setMargins(dp(8), 0, dp(8), dp(lowerBottom + 6)) }
+        val rowTopY = topM + wantH.toInt() + 34
+        val rowBottomY = rowTopY + t.row
+        val stripBottomY = if (t.showStrip) rowBottomY + 4 + t.strip else rowBottomY
+        val lowerBoxBottomY = stripBottomY + 10 + 42
+        val mediaTopY = lowerBoxBottomY + 8
+        val mediaEndY = mediaTopY + mediaH
+        val climH = hDp - 66 - (mediaEndY + 8)
+        val showMedia = tall && climH >= 400
+        val rowBottomM = if (showMedia) hDp - rowBottomY else rowBottom
+        val stripBottomM = if (showMedia) hDp - stripBottomY else stripBottom
+        val lowerBoxBottomM = if (showMedia) hDp - lowerBoxBottomY else 10
+        val lowerBottomM = if (showMedia) hDp - rowTopY else lowerBottom
+        climateTopDp = if (showMedia) mediaEndY + 8 else 0
+        climateHDp = if (showMedia) climH else 0
+        if (climateView.visibility == View.VISIBLE) edgeBox.post { placeClimate() }
+        (mediaCard.layoutParams as FrameLayout.LayoutParams).apply { height = dp(mediaH); gravity = Gravity.BOTTOM; setMargins(dp(8), 0, dp(8), dp(maxOf(hDp - mediaEndY, 0))) }
         mediaCard.rhd = prefs().getBoolean("rhd", false); mediaPopup.rhd = mediaCard.rhd; mediaCard.invalidate(); mediaPopup.invalidate()
         mediaCard.visibility = if (showMedia) View.VISIBLE else View.GONE
         mediaBtn.visibility = if (showMedia) View.GONE else View.VISIBLE
@@ -1919,16 +1937,16 @@ class MainActivity : Activity() {
         lowerBox.background = null
         lowerBox.setPadding(0, 0, 0, 0)
         applyLowerVisibility()
-        val editBottom = if (t.showStrip) stripBottom else rowBottom
-        val poolTop = lowerBottom + 44
+        val editBottom = if (t.showStrip) stripBottomM else rowBottomM
+        val poolTop = lowerBottomM + 44
         (editBackdrop.layoutParams as FrameLayout.LayoutParams).apply { height = dp(poolTop - editBottom + 8); setMargins(dp(4), 0, dp(4), dp(maxOf(editBottom - 4, 0))) }
         editBackdrop.requestLayout()
-        (dashStrip.layoutParams as FrameLayout.LayoutParams).apply { height = dp(maxOf(t.strip, 1)); setMargins(dp(sideL), 0, dp(sideR), dp(stripBottom)) }
-        (dashRow.layoutParams as FrameLayout.LayoutParams).apply { height = dp(t.row); setMargins(dp(sideL), 0, dp(sideR), dp(rowBottom)) }
+        (dashStrip.layoutParams as FrameLayout.LayoutParams).apply { height = dp(maxOf(t.strip, 1)); setMargins(dp(sideL), 0, dp(sideR), dp(stripBottomM)) }
+        (dashRow.layoutParams as FrameLayout.LayoutParams).apply { height = dp(t.row); setMargins(dp(sideL), 0, dp(sideR), dp(rowBottomM)) }
         val edgeOff = dp(8) + (if (third) 0 else if (half) 20 else 10)
         (lowerBox.layoutParams as FrameLayout.LayoutParams).apply {
             gravity = Gravity.BOTTOM or (if (rhd) Gravity.END else Gravity.START)
-            if (rhd) setMargins(0, 0, dp(8), dp(10)) else setMargins(edgeOff, 0, 0, dp(10))
+            if (rhd) setMargins(0, 0, dp(8), dp(lowerBoxBottomM)) else setMargins(edgeOff, 0, 0, dp(lowerBoxBottomM))
         }
         // children in mirrored order for right-hand drive
         val lowerKids = listOf(climateBtn, mediaBtn, resBtn, tripBtn, lowerTabs)
@@ -1948,7 +1966,7 @@ class MainActivity : Activity() {
             btnBar.addView(v, LinearLayout.LayoutParams(-2, dp(36)).apply { if (i < barKids.size - 1) rightMargin = dp(8) })
         }
         btnBar.requestLayout(); lowerBox.requestLayout()
-        (poolBar.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), 0, dp(8), dp(lowerBottom)) }
+        (poolBar.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), 0, dp(8), dp(lowerBottomM)) }
         (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply {
             gravity = Gravity.TOP or Gravity.START
             if (tall) { height = dp(wantH.toInt()); setMargins(dp(8), dp(topM), dp(8), 0) }
