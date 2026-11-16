@@ -1318,8 +1318,13 @@ class MainActivity : Activity() {
         resBtn.text = if (screenH == 0) "Screen size" else if (resCompact) "\u21C5 $screenH" else "Screen: 1080 \u00D7 $screenH  \u21C5"
     }
     private var screenH = 0       // 1920 or 1784 once known
-    private val lowerNames = listOf("Maps", "Spotify", "Pulse", "Oceanscape")
-    private val lowerPkgs = listOf("com.google.android.apps.maps", "com.spotify.music", "", "")
+    private val slotCount = 4
+    /** The app a lower button opens (a package name); empty until the user picks one. */
+    private fun slotPkg(i: Int): String = prefs().getString("slotPkg$i", "") ?: ""
+    private fun appLabelOf(pkg: String): String = try {
+        packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+    } catch (e: Exception) { pkg }
+    private fun slotName(i: Int): String = slotPkg(i).let { if (it.isEmpty()) "empty button" else appLabelOf(it) }
     private var lowerIdx = 0
     private val swipe by lazy {
         android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
@@ -1337,7 +1342,9 @@ class MainActivity : Activity() {
                 val d = resources.displayMetrics.density
                 if (Math.abs(dx) > dp(90) && Math.abs(dx) > Math.abs(dy) * 1.5f && Math.abs(vx) > 500 * d) {
                     // finger moves left: next app; right: previous
-                    openLower((lowerIdx + (if (dx < 0) 1 else lowerNames.size - 1)) % lowerNames.size)
+                    val step = if (dx < 0) 1 else slotCount - 1
+                    var j = lowerIdx
+                    repeat(slotCount) { j = (j + step) % slotCount; if (slotPkg(j).isNotEmpty()) { openLower(j); return false } }
                 }
                 return false
             }
@@ -1480,15 +1487,18 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(18).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
             setPadding(dp(3), dp(3), dp(3), dp(3))
-            lowerNames.forEachIndexed { i, name ->
+            for (i in 0 until slotCount) {
                 addView(TextView(context).apply {
-                    text = name; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
-                    minHeight = dp(42); setPadding(dp(6), 0, dp(6), 0)
-                    setOnClickListener { openLower(i) }
+                    textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+                    minHeight = dp(42); minWidth = dp(44); setPadding(dp(6), 0, dp(6), 0)
+                    maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+                    setOnClickListener { if (slotPkg(i).isEmpty()) pickLowerApp(i) else openLower(i) }
+                    setOnLongClickListener { pickLowerApp(i); true }
                 })
             }
         }
-        lowerIdx = prefs().getInt("lowerApp", 0).coerceIn(0, lowerNames.size - 1)
+        lowerIdx = prefs().getInt("lowerApp", 0).coerceIn(0, slotCount - 1)
+        refreshLowerLabels()
         paintLowerTabs()
         tripBtn = TextView(this).apply {
             text = "Trip"; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
@@ -2018,6 +2028,63 @@ class MainActivity : Activity() {
         }
     private var scaleMph: Boolean? = null
 
+    /** Names on the four lower buttons: the chosen app, or a "+" while empty. */
+    private fun refreshLowerLabels() {
+        for (i in 0 until lowerTabs.childCount) {
+            val v = lowerTabs.getChildAt(i) as? TextView ?: continue
+            val pkg = slotPkg(i)
+            v.text = if (pkg.isEmpty()) "+" else appLabelOf(pkg)
+            v.maxWidth = dp(120)
+            v.alpha = if (pkg.isEmpty()) 0.55f else 1f
+        }
+    }
+
+    /** Let the user choose which installed app a lower button opens (long press on a button changes it later). */
+    private fun pickLowerApp(slot: Int) {
+        Thread {
+            val pm = packageManager
+            val found = LinkedHashMap<String, Pair<String, android.graphics.drawable.Drawable?>>()
+            for (cat in listOf(Intent.CATEGORY_LAUNCHER, Intent.CATEGORY_LEANBACK_LAUNCHER)) {
+                val ris = try { pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(cat), 0) } catch (e: Exception) { emptyList() }
+                for (ri in ris) {
+                    val pkg = ri.activityInfo.packageName
+                    if (pkg == packageName || found.containsKey(pkg)) continue
+                    found[pkg] = Pair(try { ri.loadLabel(pm).toString() } catch (e: Exception) { pkg }, try { ri.loadIcon(pm) } catch (e: Exception) { null })
+                }
+            }
+            val apps = found.entries.sortedBy { it.value.first.lowercase() }
+            ui.post {
+                if (isFinishing) return@post
+                val list = ListView(this)
+                var dlg: AlertDialog? = null
+                list.adapter = object : BaseAdapter() {
+                    override fun getCount() = apps.size
+                    override fun getItem(position: Int) = apps[position]
+                    override fun getItemId(position: Int) = position.toLong()
+                    override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup?): View {
+                        val e = apps[position]
+                        return LinearLayout(this@MainActivity).apply {
+                            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                            setPadding(dp(14), dp(6), dp(14), dp(6))
+                            addView(ImageView(this@MainActivity).apply { setImageDrawable(e.value.second) }, LinearLayout.LayoutParams(dp(36), dp(36)))
+                            addView(TextView(this@MainActivity).apply { text = e.value.first; textSize = 16f; setTextColor(Color.parseColor("#F0F3F8")); setPadding(dp(14), 0, 0, 0) })
+                        }
+                    }
+                }
+                list.setOnItemClickListener { _, _, pos, _ ->
+                    prefs().edit().putString("slotPkg$slot", apps[pos].key).apply()
+                    EventLog.add("lower button ${slot + 1} set to ${apps[pos].key}")
+                    refreshLowerLabels(); dlg?.dismiss()
+                }
+                val b = darkDialog().setTitle("Choose the app for this button").setView(list).setNegativeButton("Cancel", null)
+                if (slotPkg(slot).isNotEmpty()) b.setNeutralButton("Clear button") { _, _ ->
+                    prefs().edit().remove("slotPkg$slot").apply(); refreshLowerLabels()
+                }
+                dlg = b.showDark()
+            }
+        }.start()
+    }
+
     private fun paintLowerTabs() {
         val acc = Skins.look.accent
         val pale = (0.299 * Color.red(acc) + 0.587 * Color.green(acc) + 0.114 * Color.blue(acc)) / 255.0 > 0.62
@@ -2122,8 +2189,9 @@ class MainActivity : Activity() {
 
     /** Open app number [i] (0 Maps, 1 Spotify, 2 Pulse, 3 Oceanscape) in the lower half. If this app is not in split screen yet, put it there first. */
     private fun openLower(i: Int) {
+        if (slotPkg(i).isEmpty()) { pickLowerApp(i); return }
         if (isInMultiWindowMode) { launchLower(i); return }
-        EventLog.add("starting split screen for ${lowerNames[i]}")
+        EventLog.add("starting split screen for ${slotName(i)}")
         Toast.makeText(this, "Switching to split screen\u2026", Toast.LENGTH_SHORT).show()
         val myTask = taskId
         Thread {
@@ -2164,15 +2232,15 @@ class MainActivity : Activity() {
     }
 
     private fun launchLower(i: Int) {
-        val pkg = when (i) { 2 -> findPulse(); 3 -> findOceanscape(); else -> lowerPkgs[i] }
-        val words = if (i == 2) listOf("pulse", "oceanlink") else listOf("oceanscape")
-        if (pkg == null) { toast("The ${lowerNames[i]} app was not found on this device. Similar installed apps: " + (if (i >= 2) candidates(words + listOf("ocean", "fisker")) else "none")); return }
-        EventLog.add("launching ${lowerNames[i]} ($pkg)")
+        val pkg = slotPkg(i)
+        if (pkg.isEmpty()) { pickLowerApp(i); return }
+        val name = slotName(i)
+        if (try { packageManager.getApplicationInfo(pkg, 0); false } catch (e: Exception) { true }) { toast("$name is not installed on this device. Long press the button to choose another app."); return }
+        EventLog.add("launching $name ($pkg)")
         val flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT
         val tries = mutableListOf<Intent>()
         launchIntentFor(pkg)?.let { tries.add(it) }
         tries.add(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(pkg))
-        if (i == 0) tries.add(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=")))
         for (t in tries) {
             try {
                 t.addFlags(flags); startActivity(t)
@@ -2183,11 +2251,9 @@ class MainActivity : Activity() {
             } catch (e: Exception) { /* try the next one */ }
         }
         // last resort: start it through root (it comes up as a normal window)
-        if (i >= 2) {
-            Thread { rootRun("monkey -p $pkg -c android.intent.category.LAUNCHER 1") }.start()
-            lowerIdx = i; prefs().edit().putInt("lowerApp", i).apply(); paintLowerTabs()
-            toast("Starting ${lowerNames[i]} ($pkg) through root")
-        } else toast("${lowerNames[i]} could not be started")
+        Thread { rootRun("monkey -p $pkg -c android.intent.category.LAUNCHER 1") }.start()
+        lowerIdx = i; prefs().edit().putInt("lowerApp", i).apply(); paintLowerTabs()
+        toast("Starting $name through root")
     }
 
     /** Read the screen size (wm size) and show it on the button. */
