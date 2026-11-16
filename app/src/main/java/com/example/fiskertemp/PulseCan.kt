@@ -343,6 +343,60 @@ class PulseCan(
         return if (on) "Climate power ON sent on IBUS$bus" else "Climate power OFF sent on IBUS$bus"
     }
 
+    /**
+     * Test: set the driver (or both, when SYNC is on) set temperature. The frame is the car screen's own last 0x530 with every
+     * request bit cleared and the fan request 'inactive'; only the set-temperature field is filled (0 = no change for the other side).
+     */
+    fun sendTemp(driver: Boolean, tempC: Double, sync: Boolean): String {
+        if (!txActive) return "Control is off: tick it in Settings and restart the app"
+        val ifs = txIfaces ?: return "CAN reader not running"
+        val out = txOut ?: return "CAN reader not running"
+        val raw = Math.round(tempC.coerceIn(18.0, 32.0) * 2).toInt()
+        var bus = 0
+        for (b in 1..2) if (last530[b] != null && (bus == 0 || last530At[b] > last530At[bus])) bus = b
+        if (bus == 0) return "No 0x530 seen from the car's screen yet: change the temperature once on the car's own climate page, then try again"
+        val d = last530[bus]!!.copyOf()
+        if (d.size != 8) return "0x530 frame had an unexpected length"
+        d[2] = d[2] and 0xC7                       // AUTO, SYNC, A/C requests off
+        d[3] = d[3] and 0x80                       // fan request inactive; recirculation, air clean, defrost requests off
+        d[6] = d[6] and 0x7F                       // windshield blow button off
+        d[0] = if (driver || sync) raw.toByte() else 0
+        d[1] = if (!driver || sync) raw.toByte() else 0
+        val iface = if (bus == 1) ifs.first else ifs.second
+        val line = "tx $iface 530 " + d.joinToString("") { String.format("%02X", it and 0xFF) } + "\n"
+        Thread {
+            synchronized(txLock) {
+                try { out.write(line.toByteArray()); out.flush() } catch (e: Exception) { onStatus("Climate TX failed: ${e.message}") }
+            }
+        }.start()
+        return "${if (driver) "Driver" else "Passenger"}${if (sync) " + sync" else ""} temperature ${raw / 2.0} sent on IBUS$bus"
+    }
+
+    /**
+     * Test: set the driver's air direction (1 face, 2 face+feet, 3 feet, 4 feet+windshield, 5 windshield). The frame is the car
+     * screen's own last 0x534 with every button request cleared and only the driver blow mode set.
+     */
+    fun sendAirMode(mode: Int): String {
+        if (!txActive) return "Control is off: tick it in Settings and restart the app"
+        if (mode !in 1..5) return "Air direction out of range"
+        val ifs = txIfaces ?: return "CAN reader not running"
+        val out = txOut ?: return "CAN reader not running"
+        var bus = 0
+        for (b in 1..2) if (last534[b] != null && (bus == 0 || last534At[b] > last534At[bus])) bus = b
+        if (bus == 0) return "No 0x534 seen from the car's screen yet: press a climate airflow button once on the car's own screen, then try again"
+        val d = last534[bus]!!.copyOf()
+        d[6] = 0                                   // face / foot button requests and rear outlet request: none
+        d[7] = (mode shl 2).toByte()               // driver blow mode; system command and passenger mode 'inactive'
+        val iface = if (bus == 1) ifs.first else ifs.second
+        val line = "tx $iface 534 " + d.joinToString("") { String.format("%02X", it and 0xFF) } + "\n"
+        Thread {
+            synchronized(txLock) {
+                try { out.write(line.toByteArray()); out.flush() } catch (e: Exception) { onStatus("Climate TX failed: ${e.message}") }
+            }
+        }.start()
+        return "Air direction $mode sent on IBUS$bus"
+    }
+
     private fun sendOn528(): String {
         if (!txActive) return "Control is off: tick it in Settings and restart the app"
         val ifs = txIfaces ?: return "CAN reader not running"
