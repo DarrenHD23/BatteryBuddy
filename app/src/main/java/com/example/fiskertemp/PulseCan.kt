@@ -271,6 +271,8 @@ class PulseCan(
     private val last530At = LongArray(3)
     private val last528 = arrayOfNulls<IntArray>(3)          // newest 0x528 seen from the car's own screen (carries the heated-wheel request)
     private val last528At = LongArray(3)
+    private val last534 = arrayOfNulls<IntArray>(3)          // newest 0x534 from the car's screen (carries the climate power command)
+    private val last534At = LongArray(3)
     @Volatile private var txOut: java.io.OutputStream? = null
     @Volatile private var txIfaces: Pair<String, String>? = null
     @Volatile private var txActive = false
@@ -311,7 +313,35 @@ class PulseCan(
      * requests cleared ("not change") and only ICC_SWH_Req = 1 set, sent a few times on the bus where 0x528 was seen.
      * The request only has an "on" value, so it probably acts like the button press: watch 0x386 for the result.
      */
-    fun sendWheelHeat(): String {
+    fun sendWheelHeat(): String = sendOn528()
+
+    /**
+     * Test: climate system power. The frame is the car screen's own last 0x534 with every airflow button request cleared
+     * and only ECC_ECCSysSwtCmd set (1 = power on, 2 = shutdown), sent a few times on the bus where 0x534 was seen.
+     */
+    fun sendClimatePower(on: Boolean): String {
+        if (!txActive) return "Control is off: tick it in Settings and restart the app"
+        val ifs = txIfaces ?: return "CAN reader not running"
+        val out = txOut ?: return "CAN reader not running"
+        var bus = 0
+        for (b in 1..2) if (last534[b] != null && (bus == 0 || last534At[b] > last534At[bus])) bus = b
+        if (bus == 0) return "No 0x534 seen from the car's screen yet: press a climate airflow button once on the car's own screen, then try again"
+        val d = last534[bus]!!.copyOf()
+        d[6] = 0                                  // face / foot button requests and rear outlet request: none
+        d[7] = if (on) 1 else 2                   // system command; the blow-mode requests are 'inactive'
+        val iface = if (bus == 1) ifs.first else ifs.second
+        val line = "tx $iface 534 " + d.joinToString("") { String.format("%02X", it and 0xFF) } + "\n"
+        Thread {
+            synchronized(txLock) {
+                try {
+                    for (i in 0 until 3) { out.write(line.toByteArray()); out.flush(); Thread.sleep(100) }
+                } catch (e: Exception) { onStatus("Climate TX failed: ${e.message}") }
+            }
+        }.start()
+        return if (on) "Climate power ON sent on IBUS$bus" else "Climate power OFF sent on IBUS$bus"
+    }
+
+    private fun sendOn528(): String {
         if (!txActive) return "Control is off: tick it in Settings and restart the app"
         val ifs = txIfaces ?: return "CAN reader not running"
         val out = txOut ?: return "CAN reader not running"
@@ -350,8 +380,8 @@ class PulseCan(
                 }
                 txActive = context.getSharedPreferences("prefs", Context.MODE_PRIVATE).getBoolean("climateTx", false)
                 val base = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD,1A9,5EA,505,530,534,386,528", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534,528")
-                // transmit is allowed only for 0x530 and 0x528 and only when the test is ticked in Settings; otherwise the helper is receive-only
-                val args = if (txActive) base + listOf("tx:$b1=530,528", "tx:$b2=530,528") else base
+                // transmit is allowed only for 0x530, 0x528 and 0x534 and only when the test is ticked in Settings; otherwise the helper is receive-only
+                val args = if (txActive) base + listOf("tx:$b1=530,528,534", "tx:$b2=530,528,534") else base
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
@@ -415,6 +445,7 @@ class PulseCan(
 
         frames++
         if (id == 0x530 && bytes.size == 8) { last530[bus] = bytes; last530At[bus] = System.currentTimeMillis() }
+        if (id == 0x534 && bytes.size == 8) { last534[bus] = bytes; last534At[bus] = System.currentTimeMillis() }
         if (id == 0x528 && bytes.size == 8) { last528[bus] = bytes; last528At[bus] = System.currentTimeMillis() }
         // note once where the less common IDs turn up (they may be on either bus)
         if ((id == 0x1A9 || id == 0x5EA || id == 0x505 || id == 0x491 || id == 0x373 || id == 0x386 || id == 0x530 || id == 0x534) && seenFirst.add("$bus/$id"))
