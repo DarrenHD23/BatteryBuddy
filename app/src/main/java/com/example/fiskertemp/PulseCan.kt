@@ -87,6 +87,7 @@ data class CanSnapshot(
     val climFault: Boolean = false,
     val climLimited: Boolean = false,
     val climRemote: Int = 0,               // 0 standby, 1 remote A/C working, 2 fault
+    val wheelHeat: Boolean? = null,        // heated steering wheel on (0x386 BCM_HeatedSteerWhlSt, IBUS1); null = not received
 )
 
 class PulseCan(
@@ -277,7 +278,7 @@ class PulseCan(
                     if (why == null) filtersDone = true
                     onStatus(if (why == null) "CAN filters: $filterReadback" else "CAN filters not changed: $why")
                 }
-                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD,1A9,5EA,505,530,534", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534")
+                val args = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD,1A9,5EA,505,530,534,386", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534")
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
@@ -337,7 +338,7 @@ class PulseCan(
 
         frames++
         // note once where the less common IDs turn up (they may be on either bus)
-        if ((id == 0x1A9 || id == 0x5EA || id == 0x505 || id == 0x491 || id == 0x373 || id == 0x530 || id == 0x534) && seenFirst.add("$bus/$id"))
+        if ((id == 0x1A9 || id == 0x5EA || id == 0x505 || id == 0x491 || id == 0x373 || id == 0x386 || id == 0x530 || id == 0x534) && seenFirst.add("$bus/$id"))
             onStatus("First frame of 0x" + Integer.toHexString(id).uppercase() + " seen on IBUS$bus")
         val key = "$bus/$id"
         // keep the load down: a frame of the same ID is used at most every 90 ms (40 ms for brake and drive mode)
@@ -478,6 +479,10 @@ class PulseCan(
                 climPassMode = b[7] and 7,
                 climRemote = (b[7] shr 3) and 3,
             )
+        }
+        // 0x386 BCM_0x386 (IBUS1): BCM_HeatedSteerWhlSt, heated steering wheel (byte 0, low 2 bits: 0 off, 1 on)
+        if (id == 0x386 && b.isNotEmpty()) {
+            return s.copy(wheelHeat = when (b[0] and 3) { 1 -> true; 0 -> false; else -> null })
         }
         // 0x6DD BMS_PVIU_ActualPower (IBUS1, 1 s): solar roof power in W, 10 bits starting at byte 0
         if (bus == 1 && id == 0x6DD) {
