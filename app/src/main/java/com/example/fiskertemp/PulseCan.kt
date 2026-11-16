@@ -360,8 +360,8 @@ class PulseCan(
         d[2] = d[2] and 0xC7                       // AUTO, SYNC, A/C requests off
         d[3] = d[3] and 0x80                       // fan request inactive; recirculation, air clean, defrost requests off
         d[6] = d[6] and 0x7F                       // windshield blow button off
-        d[0] = if (driver || sync) raw.toByte() else 0
-        d[1] = if (!driver || sync) raw.toByte() else 0
+        d[0] = if (driver || sync) raw else 0
+        d[1] = if (!driver || sync) raw else 0
         val iface = if (bus == 1) ifs.first else ifs.second
         val line = "tx $iface 530 " + d.joinToString("") { String.format("%02X", it and 0xFF) } + "\n"
         Thread {
@@ -386,7 +386,7 @@ class PulseCan(
         if (bus == 0) return "No 0x534 seen from the car's screen yet: press a climate airflow button once on the car's own screen, then try again"
         val d = last534[bus]!!.copyOf()
         d[6] = 0                                   // face / foot button requests and rear outlet request: none
-        d[7] = (mode shl 2).toByte()               // driver blow mode; system command and passenger mode 'inactive'
+        d[7] = mode shl 2               // driver blow mode; system command and passenger mode 'inactive'
         val iface = if (bus == 1) ifs.first else ifs.second
         val line = "tx $iface 534 " + d.joinToString("") { String.format("%02X", it and 0xFF) } + "\n"
         Thread {
