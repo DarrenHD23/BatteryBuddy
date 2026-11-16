@@ -302,7 +302,8 @@ class PulseCan(
         Thread {
             synchronized(txLock) {
                 try {
-                    for (i in 0 until 3) { out.write(line.toByteArray()); out.flush(); Thread.sleep(100) }
+                    // one frame only: repeating it made the car keep stepping the fan up to 7
+                    out.write(line.toByteArray()); out.flush()
                 } catch (e: Exception) { onStatus("Climate TX failed: ${e.message}") }
             }
         }.start()
