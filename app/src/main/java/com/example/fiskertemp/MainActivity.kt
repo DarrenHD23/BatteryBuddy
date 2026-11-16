@@ -1483,6 +1483,13 @@ class MainActivity : Activity() {
             background = chipBg(12)
             setOnClickListener {
                 climateView.snap = canSnap; climateView.fahrenheit = useFahrenheit
+                // a solid colour from the dashboard's current background (the screen's inks are light, so a bright background is darkened)
+                run {
+                    val base = if (dashDay) Color.parseColor("#E6ECF4") else (Skins.look.bgBottom or (0xFF shl 24))
+                    val lum = (0.299f * Color.red(base) + 0.587f * Color.green(base) + 0.114f * Color.blue(base)) / 255f
+                    val k = if (lum > 0.35f) 0.28f else 1f
+                    climateView.bgColor = Color.rgb((Color.red(base) * k).toInt(), (Color.green(base) * k).toInt(), (Color.blue(base) * k).toInt())
+                }
                 climateView.fanControl = prefs().getBoolean("climateTx", false)
                 climateView.bringToFront(); climateView.visibility = View.VISIBLE
             }
@@ -4415,6 +4422,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     private val fanSegs = ArrayList<RectF>()
     private val tempBtns = ArrayList<RectF>()          // driver -, driver +, passenger -, passenger +
     var onTempTap: (() -> Unit)? = null
+    var bgColor = Color.parseColor("#0B0F1A")          // solid, from the dashboard's current background
     var onPower: ((Boolean) -> Unit)? = null        // true = turn the climate system on, false = shut it down
     private val powerRect = RectF()
     private var lastFanTap = 0L
@@ -4599,8 +4607,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         // three sizes: a third-height window (compact), half-height, and the full screen
         val compact = h < dp(560f)
         val medium = !compact && h < dp(800f)
-        p.shader = LinearGradient(0f, 0f, 0f, h, Color.parseColor("#0E1626"), Color.parseColor("#05080F"), Shader.TileMode.CLAMP)
-        p.style = Paint.Style.FILL; c.drawRect(0f, 0f, w, h, p); p.shader = null
+        p.shader = null; p.style = Paint.Style.FILL; p.color = bgColor; c.drawRect(0f, 0f, w, h, p)
         val m = dp(if (compact) 10f else 14f)
         val gap = dp(if (compact) 6f else 10f)
         val headH = dp(if (compact) 34f else if (medium) 50f else 66f)
