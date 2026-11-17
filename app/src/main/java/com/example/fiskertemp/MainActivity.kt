@@ -4930,7 +4930,9 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     /** One temperature dial: a 270 degree ring open at the bottom that fills from blue to orange, the value inside, - / + at the ring's two ends. */
     private fun dial(x0: Float, areaW: Float, top: Float, areaH: Float, name: String, t: Double?, driver: Boolean) {
         // the ring is sized so the ring and its - / + buttons always fit inside the area given (nothing below it is touched)
-        val dd = minOf(areaH * 0.80f, areaW * 0.88f, (areaH - dp(40f)) / 0.769f)
+        val bs = (areaH * 0.20f).coerceIn(dp(34f), dp(52f))
+        // ring + glow + tick marks reach 0.827*dd below the top at the open ends; the buttons go under that
+        val dd = minOf(areaH * 0.80f, areaW * 0.88f, (areaH - bs - dp(6f)) / 0.827f)
         val sw = dd * 0.075f
         val r = dd / 2f - sw * 1.6f
         val cx = x0 + areaW / 2f; val cy = top + dd / 2f
@@ -4960,9 +4962,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         text(name, cx, cy - dd * 0.20f, (dpD * 0.062f).coerceIn(9f, 13f), Color.argb(190, 255, 255, 255), true)
         fitText(temp(t), cx, cy + dd * 0.06f, (dpD * 0.28f).coerceIn(24f, 56f), if (t == null) off else Color.WHITE, true, dd * 0.62f)
         // - and + at the two ends of the ring
-        val ey = cy + r * 0.7071f
-        val bs = minOf(areaH * 0.23f, dd * 0.30f, (top + areaH - ey) / 1.07f).coerceAtLeast(dp(30f))
-        val by = ey + bs * 0.57f
+        val by = top + dd * 0.827f + dp(5f) + bs / 2f
         val minus = RectF(cx - r * 0.7071f - bs / 2, by - bs / 2, cx - r * 0.7071f + bs / 2, by + bs / 2)
         val plus = RectF(cx + r * 0.7071f - bs / 2, by - bs / 2, cx + r * 0.7071f + bs / 2, by + bs / 2)
         glassBtn(minus, 0); glassBtn(plus, 1)
