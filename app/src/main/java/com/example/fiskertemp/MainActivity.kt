@@ -5094,10 +5094,14 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         path.reset(); path.moveTo(206f, 14f); path.cubicTo(208f, 50f, 212f, 80f, 214f, 108f); canvas.drawPath(path, p)
         fillP(0xFF0F1A30.toInt())
         path.reset(); path.moveTo(16f, 162f); path.cubicTo(20f, 120f, 68f, 100f, 150f, 100f); path.cubicTo(232f, 100f, 280f, 120f, 284f, 162f); path.close(); canvas.drawPath(path, p)
-        fillP(0xFF161D30.toInt()); circ(150f, 20f, 10f); strokeP(0xFFC9D3E2.toInt(), 1.2f); circ(150f, 20f, 10f)
-        tmpR.set(143f, 13f, 157f, 27f)
-        fillP(0xFF4DB8FF.toInt()); canvas.drawArc(tmpR, 200f, 130f, true, p)
-        fillP(0xFFFF9A2E.toInt()); canvas.drawArc(tmpR, 20f, 130f, true, p)
+        fun badge() {
+            fillP(0xFF161D30.toInt()); circ(150f, 20f, 10f); strokeP(0xFFC9D3E2.toInt(), 1.2f); circ(150f, 20f, 10f)
+            tmpR.set(143f, 13f, 157f, 27f)
+            fillP(0xFF4DB8FF.toInt()); canvas.drawArc(tmpR, 200f, 130f, true, p)
+            fillP(0xFFFF9A2E.toInt()); canvas.drawArc(tmpR, 20f, 130f, true, p)
+        }
+        badge()
+        canvas.save(); canvas.translate(0f, 673f); badge(); canvas.restore()
         strokeP(0xFF161D30.toInt(), 5f)
         path.reset(); path.moveTo(38f, 72f); path.quadTo(42f, 52f, 62f, 38f); canvas.drawPath(path, p)
         path.reset(); path.moveTo(262f, 72f); path.quadTo(258f, 52f, 238f, 38f); canvas.drawPath(path, p)
