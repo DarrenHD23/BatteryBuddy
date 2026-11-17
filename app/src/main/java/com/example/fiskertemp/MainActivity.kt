@@ -1947,6 +1947,8 @@ class MainActivity : Activity() {
         gaugeWeight = gaugeWdp; midWeight = midWdp + ovL + ovR; ovLeftDp = ovL; ovRightDp = ovR
         (dashGaugeRow.getChildAt(0).layoutParams as LinearLayout.LayoutParams).weight = gaugeWdp
         (dashGaugeRow.getChildAt(1).layoutParams as LinearLayout.LayoutParams).weight = midWdp + ovL + ovR
+        // 1/3 split only: the middle column starts 15 dp higher (its bottom stays), so the speed sign moves up and the trip panel is 15 dp taller
+        (dashGaugeRow.getChildAt(1).layoutParams as LinearLayout.LayoutParams).topMargin = if (brakeUnder) -dp(15) else 0
         (dashGaugeRow.getChildAt(0).layoutParams as LinearLayout.LayoutParams).rightMargin = -dp(ovL)
         (dashGaugeRow.getChildAt(2).layoutParams as LinearLayout.LayoutParams).leftMargin = -dp(ovR)
         (dashGaugeRow.getChildAt(2).layoutParams as LinearLayout.LayoutParams).weight = gaugeWdp
