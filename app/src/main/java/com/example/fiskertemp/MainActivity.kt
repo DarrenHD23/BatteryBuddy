@@ -1015,7 +1015,7 @@ class MainActivity : Activity() {
         }, 4)
         box.add(CheckBox(this).apply {
             text = "Show icons instead of names on the app buttons"; isChecked = prefs().getBoolean("iconBtns", false)
-            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("iconBtns", on).apply(); refreshLowerLabels() }
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("iconBtns", on).apply(); refreshLowerLabels(); paintLowerTabs() }
         }, 4)
         box.add(Button(this).apply {
             text = "Clear an app button"; isAllCaps = false
@@ -2254,7 +2254,8 @@ class MainActivity : Activity() {
         val acc = Skins.look.accent
         val pale = (0.299 * Color.red(acc) + 0.587 * Color.green(acc) + 0.114 * Color.blue(acc)) / 255.0 > 0.62
         for (i in 0 until lowerTabs.childCount) {
-            val sel = i == lowerIdx
+            // with icons showing, the selected button gets no highlight: just the icon
+            val sel = i == lowerIdx && !(prefs().getBoolean("iconBtns", false) && slotPkg(i).isNotEmpty())
             lowerTabs.getChildAt(i).background = if (sel) GradientDrawable().apply { setColor(acc); cornerRadius = dp(15).toFloat() } else null
             (lowerTabs.getChildAt(i) as? TextView)?.setTextColor(if (sel && pale) Color.parseColor("#10151C") else Color.WHITE)
         }
