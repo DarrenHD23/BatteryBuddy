@@ -1294,6 +1294,7 @@ class MainActivity : Activity() {
     private lateinit var dashSignSrc: TextView
     private var lastTsrMode = -1
     private var signShown = false
+    private var readyBeside = false          // 1/3 split: READY sits in the sign slot; centred when no sign or light is showing
     private var signSeenAt = 0L
     private var signText = ""
     private var introDone = false
@@ -1974,6 +1975,7 @@ class MainActivity : Activity() {
         // a third-height window with the battery bar hidden: READY goes directly under the trip panel
         val readyUnderPanel = midLevel == 1 && hideBar && !readyBelow
         val modeKey = "$midLevel/$readyBelow/$readyUnderPanel/$brakeUnder"
+        readyBeside = midLevel == 1 && brakeUnder && !readyBelow && !readyUnderPanel
         if (statusMode != modeKey) {
             statusMode = modeKey
             dashMid.removeView(dashReady); dashMid.removeView(dashLightDist); dashMid.removeView(dashBrake)
@@ -2531,6 +2533,11 @@ class MainActivity : Activity() {
             dashSign.animate().alpha(if (wantSign) 1f else 0f)
                 .setStartDelay(if (wantSign && lightEnded) 700L else 0L)
                 .setDuration(if (wantSign) 300L else 250L).start()
+        }
+        if (readyBeside) {
+            val rlp = dashReady.layoutParams as? FrameLayout.LayoutParams
+            val g = if (!wantSign && !seen) Gravity.CENTER else (Gravity.CENTER_VERTICAL or Gravity.START)
+            if (rlp != null && rlp.gravity != g) { rlp.gravity = g; rlp.leftMargin = if (g == Gravity.CENTER) 0 else dp(4); dashReady.layoutParams = rlp }
         }
         dashLightDist.text = s.lightDistM?.let { "$it m" } ?: ""
         val dm = s.driveMode
