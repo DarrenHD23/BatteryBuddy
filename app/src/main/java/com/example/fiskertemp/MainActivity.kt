@@ -1832,7 +1832,7 @@ class MainActivity : Activity() {
                 ref.getLocationInWindow(a); root.getLocationInWindow(b); rowV.getLocationInWindow(c)
                 val freeW = if (rhd) root.width - (a[0] - b[0] + ref.width) - dp(28) else (a[0] - b[0]) - dp(28)
                 if (freeW >= dp(190)) {
-                    wid = minOf(freeW, dp(240)); hgt = dp(117); side = dp(16)
+                    wid = minOf(freeW, dp(240)); hgt = dp(102); side = dp(16)
                     bottom = root.height - (c[1] - b[1]) - dp(4)    // top edge 15 dp lower than before, 3 dp shorter
                     grav = Gravity.BOTTOM or (if (rhd) Gravity.END else Gravity.START)
                     placed = true
@@ -1982,7 +1982,7 @@ class MainActivity : Activity() {
         // 50/50 split: the gauges move up a little so the media card under the left gauge clears them; the clock shrinks to suit
         val up = if (half && !tall) 12 else 0
         val band = rowHdp / 2f - minOf(gaugeWdp, rowHdp) / 2f * 0.92f - 6f - up
-        val clockH = if (band >= 30f) band.toInt().coerceAtMost(110) else 0
+        val clockH = if (band >= 30f) band.toInt().coerceAtMost(110) else if (third) 24 else 0
         val rhd = prefs().getBoolean("rhd", false)
         val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$edgeL/$edgeR/$up/$rhd/$hideBar/$hideTrip/${prefs().getBoolean("iconBtns", false)}"
         if (key == layoutKey) return
@@ -2006,7 +2006,7 @@ class MainActivity : Activity() {
         (dashGaugeRow.getChildAt(0).layoutParams as LinearLayout.LayoutParams).weight = gaugeWdp
         (dashGaugeRow.getChildAt(1).layoutParams as LinearLayout.LayoutParams).weight = midWeight
         // 1/3 split only: the middle column starts 15 dp higher (its bottom stays), so the speed sign moves up and the trip panel is 15 dp taller
-        (dashGaugeRow.getChildAt(1).layoutParams as LinearLayout.LayoutParams).topMargin = if (brakeUnder) -dp(15) else 0
+        (dashGaugeRow.getChildAt(1).layoutParams as LinearLayout.LayoutParams).topMargin = if (brakeUnder) -dp(3) else 0
         (dashGaugeRow.getChildAt(0).layoutParams as LinearLayout.LayoutParams).apply { rightMargin = -dp(ovL); leftMargin = dp(edgeL) }
         dashGaugeRow.clipChildren = false
         (dashGaugeRow.getChildAt(2).layoutParams as LinearLayout.LayoutParams).apply { leftMargin = -dp(ovR); rightMargin = dp(edgeR) }
@@ -2017,7 +2017,8 @@ class MainActivity : Activity() {
         (dashClock.layoutParams as FrameLayout.LayoutParams).apply {
             width = dp(gaugeWdp.toInt() - 6); height = dp(clockH)
             gravity = Gravity.TOP or (if (rhd) Gravity.END else Gravity.START)
-            if (rhd) setMargins(0, dp(topM), dp(14), 0) else setMargins(dp(14), dp(topM), 0, 0)
+            val ct = if (third && clockH == 24) 2 else topM
+            if (rhd) setMargins(0, dp(ct), dp(14), 0) else setMargins(dp(14), dp(ct), 0, 0)
         }
         dashClock.requestLayout()
         tripPanel.visibility = if (midRows > 0) View.VISIBLE else View.GONE
