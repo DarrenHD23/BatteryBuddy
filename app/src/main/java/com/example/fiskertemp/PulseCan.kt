@@ -325,10 +325,7 @@ class PulseCan(
         if (!txActive) return "Control is off: tick it in Settings and restart the app"
         val ifs = txIfaces ?: return "CAN reader not running"
         val out = txOut ?: return "CAN reader not running"
-        var bus = 0
-        for (b in 1..2) if (last534[b] != null && (bus == 0 || last534At[b] > last534At[bus])) bus = b
-        if (bus == 0) return "No 0x534 seen from the car's screen yet: press a climate airflow button once on the car's own screen, then try again"
-        val d = last534[bus]!!.copyOf()
+        val (bus, d) = tpl534()
         d[6] = 0                                  // face / foot button requests and rear outlet request: none
         d[7] = if (on) 1 else 2                   // system command; the blow-mode requests are 'inactive'
         val iface = if (bus == 1) ifs.first else ifs.second
@@ -352,10 +349,7 @@ class PulseCan(
         val ifs = txIfaces ?: return "CAN reader not running"
         val out = txOut ?: return "CAN reader not running"
         val raw = Math.round(tempC.coerceIn(18.0, 32.0) * 2).toInt()
-        var bus = 0
-        for (b in 1..2) if (last530[b] != null && (bus == 0 || last530At[b] > last530At[bus])) bus = b
-        if (bus == 0) return "No 0x530 seen from the car's screen yet: change the temperature once on the car's own climate page, then try again"
-        val d = last530[bus]!!.copyOf()
+        val (bus, d) = tpl530()
         if (d.size != 8) return "0x530 frame had an unexpected length"
         d[2] = d[2] and 0xC7                       // AUTO, SYNC, A/C requests off
         d[3] = d[3] and 0x80                       // fan request inactive; recirculation, air clean, defrost requests off
@@ -381,10 +375,7 @@ class PulseCan(
         if (mode !in 1..5) return "Air direction out of range"
         val ifs = txIfaces ?: return "CAN reader not running"
         val out = txOut ?: return "CAN reader not running"
-        var bus = 0
-        for (b in 1..2) if (last534[b] != null && (bus == 0 || last534At[b] > last534At[bus])) bus = b
-        if (bus == 0) return "No 0x534 seen from the car's screen yet: press a climate airflow button once on the car's own screen, then try again"
-        val d = last534[bus]!!.copyOf()
+        val (bus, d) = tpl534()
         d[6] = 0                                   // face / foot button requests and rear outlet request: none
         d[7] = mode shl 2               // driver blow mode; system command and passenger mode 'inactive'
         val iface = if (bus == 1) ifs.first else ifs.second
@@ -406,10 +397,7 @@ class PulseCan(
         if (!txActive) return "Control is off: tick it in Settings and restart the app"
         val ifs = txIfaces ?: return "CAN reader not running"
         val out = txOut ?: return "CAN reader not running"
-        var bus = 0
-        for (b in 1..2) if (last530[b] != null && (bus == 0 || last530At[b] > last530At[bus])) bus = b
-        if (bus == 0) return "No 0x530 seen from the car's screen yet: press any climate button once on the car's own climate page, then try again"
-        val d = last530[bus]!!.copyOf()
+        val (bus, d) = tpl530()
         if (d.size != 8) return "0x530 frame had an unexpected length"
         d[0] = 0; d[1] = 0                         // set temperatures: no change
         d[2] = d[2] and 0xC7                       // AUTO, SYNC, A/C requests off
@@ -429,6 +417,29 @@ class PulseCan(
             }
         }.start()
         return "${listOf("A/C", "Defrost", "Recirculation")[kind]} request sent on IBUS$bus"
+    }
+
+    /** The bus the car screen is on: where its steady 0x528 turns up, else IBUS1 (the DBC puts the screen's frames there). */
+    private fun screenBus(): Int = if (last528[2] != null && (last528[1] == null || last528At[2] > last528At[1])) 2 else 1
+
+    /**
+     * A frame to start from for 0x530: the car screen's own last one if the app has seen it; the screen sends 0x530 only when someone
+     * presses something on the climate page, so otherwise one is built here: no requests, temperatures and fan 'inactive',
+     * and the navigation speed-limit fields set to their 'invalid / unknown' values.
+     */
+    private fun tpl530(): Pair<Int, IntArray> {
+        var bus = 0
+        for (b in 1..2) if (last530[b] != null && (bus == 0 || last530At[b] > last530At[bus])) bus = b
+        if (bus != 0) return Pair(bus, last530[bus]!!.copyOf())
+        return Pair(screenBus(), intArrayOf(0, 0, 0, 0, 0xFF, 0x0F, 0, 0xFF))
+    }
+
+    /** The same for 0x534 (airflow and power): no requests; minimum-charge setting 'invalid'; the battery-heating switch state 'off'. */
+    private fun tpl534(): Pair<Int, IntArray> {
+        var bus = 0
+        for (b in 1..2) if (last534[b] != null && (bus == 0 || last534At[b] > last534At[bus])) bus = b
+        if (bus != 0) return Pair(bus, last534[bus]!!.copyOf())
+        return Pair(screenBus(), intArrayOf(0, 0, 0, 0, 0xFF, 0, 0, 0))
     }
 
     private fun sendOn528(): String {
