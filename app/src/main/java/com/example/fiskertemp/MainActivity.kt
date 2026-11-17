@@ -1462,8 +1462,8 @@ class MainActivity : Activity() {
             addView(dashLight, FrameLayout.LayoutParams(dp(42), dp(88), Gravity.CENTER))
             addView(dashSign, FrameLayout.LayoutParams(dp(64), dp(64), Gravity.CENTER))
             // where the car got the limit (camera / map), in the spare strip under the sign; only in the roomy layout
-            dashSignSrc = TextView(this@MainActivity).apply { textSize = 9f; gravity = Gravity.CENTER; alpha = 0f; visibility = View.GONE; setSingleLine(true) }
-            addView(dashSignSrc, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(3) })   // keeps the tail of the p inside the slot
+            dashSignSrc = TextView(this@MainActivity).apply { textSize = 9f; gravity = Gravity.CENTER; alpha = 0f; visibility = View.GONE; setSingleLine(true); includeFontPadding = true; setPadding(0, 0, 0, dp(2)) }
+            addView(dashSignSrc, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(5) })   // keeps the tail of the p inside the slot
         }
         val mid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
@@ -1551,7 +1551,7 @@ class MainActivity : Activity() {
                     mediaPopup.bringToFront(); mediaPopup.visibility = View.VISIBLE
                     // the button bars stay on top of the card
                     lowerBox.bringToFront(); btnBar.bringToFront()
-                    ui.removeCallbacks(hideMediaPopup); ui.postDelayed(hideMediaPopup, 15000)
+                    ui.removeCallbacks(hideMediaPopup)
                 }
             }
         }
@@ -1575,9 +1575,9 @@ class MainActivity : Activity() {
         f.addView(flyBtn, FrameLayout.LayoutParams(dp(38), dp(38), Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(10), 0, 0, dp(190)) })
         mediaPopup = MediaCardView(this).apply {
             visibility = View.GONE
-            onPrev = { mediaWatcher?.prev(); ui.removeCallbacks(hideMediaPopup); ui.postDelayed(hideMediaPopup, 15000) }
-            onToggle = { mediaWatcher?.toggle(); ui.removeCallbacks(hideMediaPopup); ui.postDelayed(hideMediaPopup, 15000) }
-            onNext = { mediaWatcher?.next(); ui.removeCallbacks(hideMediaPopup); ui.postDelayed(hideMediaPopup, 15000) }
+            onPrev = { mediaWatcher?.prev(); ui.removeCallbacks(hideMediaPopup) }
+            onToggle = { mediaWatcher?.toggle(); ui.removeCallbacks(hideMediaPopup) }
+            onNext = { mediaWatcher?.next(); ui.removeCallbacks(hideMediaPopup) }
             onTap = { openMusicApp(true) }
         }
         f.addView(mediaPopup, FrameLayout.LayoutParams(-1, dp(132), Gravity.BOTTOM).apply { setMargins(dp(8), 0, dp(8), dp(66)) })
@@ -1791,8 +1791,8 @@ class MainActivity : Activity() {
                 ref.getLocationInWindow(a); root.getLocationInWindow(b); rowV.getLocationInWindow(c)
                 val freeW = if (rhd) root.width - (a[0] - b[0] + ref.width) - dp(28) else (a[0] - b[0]) - dp(28)
                 if (freeW >= dp(190)) {
-                    wid = minOf(freeW, dp(240)); hgt = dp(120); side = dp(16)
-                    bottom = root.height - (c[1] - b[1]) + dp(8)
+                    wid = minOf(freeW, dp(240)); hgt = dp(117); side = dp(16)
+                    bottom = root.height - (c[1] - b[1]) - dp(4)    // top edge 15 dp lower than before, 3 dp shorter
                     grav = Gravity.BOTTOM or (if (rhd) Gravity.END else Gravity.START)
                     placed = true
                 }
@@ -1821,6 +1821,8 @@ class MainActivity : Activity() {
                     val lum = (0.299f * Color.red(base) + 0.587f * Color.green(base) + 0.114f * Color.blue(base)) / 255f
                     val k = if (lum > 0.35f) 0.28f else 1f
                     climateView.bgColor = Color.rgb((Color.red(base) * k).toInt(), (Color.green(base) * k).toInt(), (Color.blue(base) * k).toInt())
+                    val top = if (dashDay) Color.parseColor("#F2F6FB") else (Skins.look.bgTop or (0xFF shl 24))
+                    climateView.bgTopColor = Color.rgb((Color.red(top) * k).toInt(), (Color.green(top) * k).toInt(), (Color.blue(top) * k).toInt())
                 }
                 climateView.fanControl = prefs().getBoolean("climateTx", false)
                 placeClimate()
@@ -4718,6 +4720,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     var floating = false                              // full-screen mode: a rounded panel instead of the whole window
         set(v) { field = v; invalidate() }
     var bgColor = Color.parseColor("#0B0F1A")          // solid, from the dashboard's current background
+    var bgTopColor = Color.parseColor("#050A14")       // the top of that gradient
     var onPower: ((Boolean) -> Unit)? = null        // true = turn the climate system on, false = shut it down
     private val powerRect = RectF()
     private var lastFanTap = 0L
@@ -4945,9 +4948,12 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         p.color = Color.argb(28, 255, 255, 255); p.strokeWidth = sw
         canvas.drawArc(oval, 135f, 270f, false, p)
         if (t != null) {
-            val f = ((t - 18.0) / 14.0).toFloat().coerceIn(0f, 1f)
+            val f = ((t - 16.0) / 17.0).toFloat().coerceIn(0f, 1f)      // 16 or Lo = blue, 33 = red
             val sweep = 270f * f
-            val sg = SweepGradient(cx, cy, intArrayOf(cool, warm), floatArrayOf(0f, 0.75f))
+            // the colour depends on the temperature along the arc: blue, light blue, yellow, orange, red (the arc covers 0..0.75 of the sweep gradient)
+            val sg = SweepGradient(cx, cy,
+                intArrayOf(Color.parseColor("#3B82FF"), Color.parseColor("#3DD6FF"), Color.parseColor("#FFD93D"), Color.parseColor("#FF9A2E"), Color.parseColor("#FF3B30"), Color.parseColor("#FF3B30")),
+                floatArrayOf(0f, 0.15f, 0.375f, 0.5625f, 0.75f, 1f))
             val mtx = android.graphics.Matrix(); mtx.setRotate(135f, cx, cy); sg.setLocalMatrix(mtx)
             p.shader = sg
             p.strokeWidth = sw * 2.0f; p.alpha = 40; canvas.drawArc(oval, 135f, sweep, false, p)
@@ -5062,7 +5068,11 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         // background: the dashboard's colour, a touch lighter at the top
         val rad = if (floating) dp(28f) else 0f
         p.style = Paint.Style.FILL
-        p.shader = RadialGradient(w / 2f, 0f, maxOf(w, h) * 0.95f, intArrayOf(mixC(bgColor, Color.WHITE, 0.10f), bgColor, mixC(bgColor, Color.BLACK, 0.35f)), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
+        // fully opaque: a solid base first, then the skin's top-to-bottom gradient (the same colours as behind the kW and Speed gauges)
+        val solid = bgColor or (0xFF shl 24)
+        p.color = solid
+        c.drawRoundRect(RectF(0f, 0f, w, h), rad, rad, p)
+        p.shader = LinearGradient(0f, 0f, 0f, h, bgTopColor or (0xFF shl 24), solid, Shader.TileMode.CLAMP)
         c.drawRoundRect(RectF(0f, 0f, w, h), rad, rad, p); p.shader = null
         if (floating) { stroke(Color.argb(70, 255, 255, 255), 1.5f); c.drawRoundRect(RectF(1f, 1f, w - 1f, h - 1f), rad, rad, p) }
         val m = dp(if (small) 12f else 16f)
