@@ -1463,7 +1463,7 @@ class MainActivity : Activity() {
             addView(dashSign, FrameLayout.LayoutParams(dp(64), dp(64), Gravity.CENTER))
             // where the car got the limit (camera / map), in the spare strip under the sign; only in the roomy layout
             dashSignSrc = TextView(this@MainActivity).apply { textSize = 9f; gravity = Gravity.CENTER; alpha = 0f; visibility = View.GONE; setSingleLine(true); includeFontPadding = true; setPadding(0, 0, 0, dp(2)) }
-            addView(dashSignSrc, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(5) })   // keeps the tail of the p inside the slot
+            addView(dashSignSrc, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = 0 })   // keeps the tail of the p inside the slot
         }
         val mid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
@@ -1783,6 +1783,10 @@ class MainActivity : Activity() {
             val half = try {
                 android.os.Build.VERSION.SDK_INT >= 30 && windowManager.currentWindowMetrics.bounds.height().let { it >= windowManager.maximumWindowMetrics.bounds.height() * 0.42 && it < windowManager.maximumWindowMetrics.bounds.height() * 0.8 }
             } catch (e: Exception) { false }
+            // a third-height window (1/3 split): the window is under 42% of the screen height
+            val third = try {
+                android.os.Build.VERSION.SDK_INT >= 30 && windowManager.currentWindowMetrics.bounds.height() < windowManager.maximumWindowMetrics.bounds.height() * 0.42
+            } catch (e: Exception) { false }
             val rowV: View? = if (dashRow.visibility == View.VISIBLE && dashRow.height > 0) dashRow else if (dashStrip.visibility == View.VISIBLE && dashStrip.height > 0) dashStrip else null
             val rhd = prefs().getBoolean("rhd", false)
             var placed = false
@@ -1802,7 +1806,7 @@ class MainActivity : Activity() {
                 ref.getLocationInWindow(a); root.getLocationInWindow(b)
                 val top = a[1] - b[1] + ref.height + dp(5)                         // 5 dp under the battery bar
                 // the same size in every layout, 5 dp under the battery bar (it can cover the stat rows in the shorter 1784 screen)
-                hgt = dp(132)
+                hgt = if (third) dp(122) else dp(132)                         // 10 dp less tall in 1/3 split only
                 bottom = maxOf(root.height - (top + hgt), dp(66))
             }
         } catch (e: Exception) { }
@@ -1928,6 +1932,11 @@ class MainActivity : Activity() {
         EventLog.add("layout ${wDp}x${hDp}dp tier=$ti trip=$midRows third=$third half=$half tall=$tall")
         compact = ti > 0 || third
         val short = midLevel > 0
+        // a third-height window (1/3 split): the brake text goes back under the speed limit sign, with its full wording
+        val thirdWin = try {
+            android.os.Build.VERSION.SDK_INT >= 30 && windowManager.currentWindowMetrics.bounds.height() < windowManager.maximumWindowMetrics.bounds.height() * 0.42
+        } catch (e: Exception) { false }
+        val brakeUnder = short && thirdWin
         val stripBottom = base + tripOff
         val rowBottom = if (t.showStrip) stripBottom + t.strip + 4 else base
         tripMidRows = midRows
@@ -1952,7 +1961,7 @@ class MainActivity : Activity() {
         dashClock.requestLayout()
         tripPanel.visibility = if (midRows > 0) View.VISIBLE else View.GONE
         tripBtn.visibility = if (midRows > 0) View.GONE else View.VISIBLE
-        (dashSlot.layoutParams as LinearLayout.LayoutParams).apply { height = dp(if (midLevel == 2) 48 else if (short) 58 else 92); topMargin = dp(if (short) 4 else 4) }
+        (dashSlot.layoutParams as LinearLayout.LayoutParams).apply { height = dp(if (midLevel == 2) 48 else if (short) 58 else 92); topMargin = dp(if (brakeUnder) 0 else 4) }
         dashSlot.requestLayout()
         // short windows: READY, the light distance and the brake pill sit beside the sign instead of stacking, so the trip panel gets the height
         // READY / light distance / brake placement by how much height the middle column has
@@ -1962,7 +1971,7 @@ class MainActivity : Activity() {
         val readyBelow = tall && midLevel == 0
         // a third-height window with the battery bar hidden: READY goes directly under the trip panel
         val readyUnderPanel = midLevel == 1 && hideBar && !readyBelow
-        val modeKey = "$midLevel/$readyBelow/$readyUnderPanel"
+        val modeKey = "$midLevel/$readyBelow/$readyUnderPanel/$brakeUnder"
         if (statusMode != modeKey) {
             statusMode = modeKey
             dashMid.removeView(dashReady); dashMid.removeView(dashLightDist); dashMid.removeView(dashBrake)
@@ -1976,7 +1985,8 @@ class MainActivity : Activity() {
             }
             if (midLevel == 1) dashMid.addView(dashLightDist, if (readyUnderPanel) 1 else 2, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
             else dashSlot.addView(dashLightDist, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.START).apply { leftMargin = dp(4) })
-            if (short) dashSlot.addView(dashBrake, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.END).apply { rightMargin = dp(4) })
+            if (brakeUnder) dashMid.addView(dashBrake, dashMid.indexOfChild(dashSlot) + 1, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(1) })
+            else if (short) dashSlot.addView(dashBrake, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.END).apply { rightMargin = dp(4) })
             else dashMid.addView(dashBrake, 1, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
             if (readyUnderPanel) dashMid.addView(dashReady, dashMid.indexOfChild(tripPanel) + 1, LinearLayout.LayoutParams(-1, -2).apply { topMargin = 0; bottomMargin = dp(2) })
         }
@@ -1984,7 +1994,7 @@ class MainActivity : Activity() {
             (dashReady.layoutParams as FrameLayout.LayoutParams).topMargin = dp(topM + wantH.toInt() + 4)
             dashReady.requestLayout()
         }
-        dashBrake.text = if (short) "Brake" else "Brake light on"
+        dashBrake.text = if (short && !brakeUnder) "Brake" else "Brake light on"
         val lowerBottom = rowBottom + t.row + 4          // top of the info row: the stat editor sits here
         val gaugeBottom = lowerBottom + 4
         val sideL = 8
@@ -2092,7 +2102,7 @@ class MainActivity : Activity() {
         dashHeading.textSize = if (short) 12f else 16f
         dashHeading.gravity = Gravity.CENTER_VERTICAL
         dashBrake.textSize = if (midLevel == 2) 11f else if (short) 13f else 16f
-        (dashBrake.layoutParams as? LinearLayout.LayoutParams)?.apply { topMargin = dp(if (midLevel == 2) 3 else 8) }
+        (dashBrake.layoutParams as? LinearLayout.LayoutParams)?.apply { topMargin = dp(if (brakeUnder) 1 else if (midLevel == 2) 3 else 8) }
         dashBrake.setPadding(dp(if (short) 10 else 18), dp(if (midLevel == 2) 1 else 4), dp(if (short) 10 else 18), dp(if (midLevel == 2) 1 else 4))
         (dashSign.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 38 else if (short) 48 else 64); height = dp(if (midLevel == 2) 38 else if (short) 48 else 64) }
         poolBar.requestLayout(); lowerBox.requestLayout()
@@ -2724,8 +2734,29 @@ class MainActivity : Activity() {
 
     override fun onTrimMemory(level: Int) { super.onTrimMemory(level); EventLog.add("trim memory level $level") }
     override fun onLowMemory() { super.onLowMemory(); EventLog.add("LOW MEMORY warning") }
-    override fun onPause() { super.onPause(); EventLog.add("paused") }
-    override fun onResume() { super.onResume(); EventLog.add("resumed") }
+    /** Was this app in split screen when it was last put in the background? (kept in memory only: it applies while the app keeps running) */
+    private var splitWhenLeft = false
+
+    override fun onPause() {
+        super.onPause()
+        splitWhenLeft = isInMultiWindowMode
+        EventLog.add("paused" + if (splitWhenLeft) " (in split screen)" else "")
+    }
+
+    override fun onResume() {
+        super.onResume()
+        EventLog.add("resumed")
+        // another app took over the screen in full screen and the user came back: put the split screen and the lower app back as they were
+        if (splitWhenLeft && !isInMultiWindowMode) {
+            splitWhenLeft = false
+            EventLog.add("coming back from full screen: restoring split screen")
+            ui.postDelayed({
+                if (!isInMultiWindowMode) {
+                    if (lowerIdx >= 0 && slotPkg(lowerIdx).isNotEmpty()) openLower(lowerIdx) else { pendingPkg = ""; openLower(-1) }
+                }
+            }, 900)
+        } else splitWhenLeft = false
+    }
 
     private fun log(s: String) {
         EventLog.add(s)
