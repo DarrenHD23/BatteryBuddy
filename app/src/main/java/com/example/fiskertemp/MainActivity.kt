@@ -5254,7 +5254,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val barsH = (areaH * 0.15f).coerceIn(dp(20f), dp(40f))
         val labH = dp(if (small) 16f else 20f)
         val carH = areaH - barsH - labH - dp(10f)
-        overheadCar(cx, top, areaW, carH, s, s.climSeen && s.climFan > 0, s.climDrvMode)
+        overheadCar(cx, top - dp(10f), areaW, carH, s, s.climSeen && s.climFan > 0, s.climDrvMode)
         // fan speed bars
         val bt = top + carH + dp(10f)
         val bw = minOf(dp(13f), areaW * 0.07f); val bg = dp(5f)
