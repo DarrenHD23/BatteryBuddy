@@ -1982,7 +1982,7 @@ class MainActivity : Activity() {
             when {
                 readyBelow -> dashRoot.addView(dashReady, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
                 readyUnderPanel -> { }
-                midLevel == 1 -> dashMid.addView(dashReady, 0, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+                midLevel == 1 && !brakeUnder -> dashMid.addView(dashReady, 0, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
                 else -> dashSlot.addView(dashReady, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.START).apply { leftMargin = dp(4) })
             }
             if (midLevel == 1) dashMid.addView(dashLightDist, if (readyUnderPanel) 1 else 2, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
@@ -2079,7 +2079,8 @@ class MainActivity : Activity() {
             else { height = FrameLayout.LayoutParams.MATCH_PARENT; setMargins(dp(8), dp(topM), dp(8), dp(gaugeBottom)) }
         }
         (dashLight.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 22 else if (short) 26 else 42); height = dp(if (midLevel == 2) 46 else if (short) 56 else 88) }
-        dashReady.textSize = if (midLevel == 2) 11f else if (midLevel == 1) 12f else 15f
+        dashReady.textSize = if (midLevel == 2 || (midLevel == 1 && brakeUnder)) 11f else if (midLevel == 1) 12f else 15f
+        dashReady.letterSpacing = if (midLevel == 1 && brakeUnder && !readyUnderPanel) 0.06f else 0.18f
         // in a short window the gauges reach the top corners, so the mode badge gets its own strip above them
         dashMode.textSize = if (short) 9f else 11f
         dashMode.minWidth = dp(if (short) 60 else 84)
