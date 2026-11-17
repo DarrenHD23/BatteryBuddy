@@ -4950,10 +4950,11 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         if (t != null) {
             val f = ((t - 16.0) / 17.0).toFloat().coerceIn(0f, 1f)      // 16 or Lo = blue, 33 = red
             val sweep = 270f * f
-            // the colour depends on the temperature along the arc: blue, light blue, yellow, orange, red (the arc covers 0..0.75 of the sweep gradient)
+            // colour by temperature along the arc (16..33): 16 blue, 17.5 light blue, 19 yellow, 20 orange, 26.5 deep orange, 33 red.
+            // the arc covers 0..0.75 of the sweep gradient, so a temperature T sits at (T - 16) / 17 * 0.75
             val sg = SweepGradient(cx, cy,
-                intArrayOf(Color.parseColor("#3B82FF"), Color.parseColor("#3DD6FF"), Color.parseColor("#FFD93D"), Color.parseColor("#FF9A2E"), Color.parseColor("#FF3B30"), Color.parseColor("#FF3B30")),
-                floatArrayOf(0f, 0.15f, 0.375f, 0.5625f, 0.75f, 1f))
+                intArrayOf(Color.parseColor("#2F6BFF"), Color.parseColor("#4DB8FF"), Color.parseColor("#FFD93D"), Color.parseColor("#FF9A2E"), Color.parseColor("#FF6A2E"), Color.parseColor("#FF2D2D"), Color.parseColor("#FF2D2D"), Color.parseColor("#2F6BFF"), Color.parseColor("#2F6BFF")),
+                floatArrayOf(0f, 0.0662f, 0.1324f, 0.1765f, 0.4632f, 0.75f, 0.92f, 0.96f, 1f))   // past the end the gradient comes back to blue, so the round start cap (which wraps around) is blue, not red
             val mtx = android.graphics.Matrix(); mtx.setRotate(135f, cx, cy); sg.setLocalMatrix(mtx)
             p.shader = sg
             p.strokeWidth = sw * 2.0f; p.alpha = 40; canvas.drawArc(oval, 135f, sweep, false, p)
