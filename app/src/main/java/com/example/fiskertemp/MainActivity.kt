@@ -5010,55 +5010,187 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         tempBtnInfo.add(Pair(driver, -1)); tempBtnInfo.add(Pair(driver, 1))
     }
 
+    // ---------------------------------------------------------------- overhead car with animated airflow
+    private fun tempColor(t: Double?): Int {
+        if (t == null) return Color.parseColor("#7CF0DE")
+        val st = doubleArrayOf(16.0, 17.5, 19.0, 20.0, 28.0, 33.0)
+        val cs = intArrayOf(0x2F6BFF, 0x4DB8FF, 0xFFD93D, 0xFF9A2E, 0xFF6A2E, 0xFF2D2D)
+        if (t <= st[0]) return Color.rgb(Color.red(cs[0]), Color.green(cs[0]), Color.blue(cs[0]))
+        for (i in 1 until st.size) if (t <= st[i]) {
+            val f = ((t - st[i - 1]) / (st[i] - st[i - 1])).toFloat()
+            val a = cs[i - 1]; val b = cs[i]
+            return Color.rgb(
+                (Color.red(a) + (Color.red(b) - Color.red(a)) * f).toInt(),
+                (Color.green(a) + (Color.green(b) - Color.green(a)) * f).toInt(),
+                (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * f).toInt())
+        }
+        return Color.rgb(Color.red(cs[5]), Color.green(cs[5]), Color.blue(cs[5]))
+    }
+
+    private val tmpR = RectF()
+    private val carMat = android.graphics.Matrix()
+
+    /** The car from above (white body, glass, dash, seats) with the air streams, coloured by the set temperatures. Drawn in a 320 x 716 box, squeezed to 88% in height. */
+    private fun overheadCar(cx: Float, top: Float, areaW: Float, carH: Float, s: CanSnapshot, flow: Boolean, mode: Int) {
+        val sy = 0.88f
+        val k = minOf(carH / (716f * sy), areaW / 320f)
+        val now = android.os.SystemClock.uptimeMillis()
+        val ph = (now % 1600L) / 1600f
+        val pulse = (0.65f + 0.35f * Math.sin(ph * 2.0 * Math.PI)).toFloat()
+        val dt = s.climDrvT; val pt = s.climPassT
+        val cL = tempColor(dt); val cR = tempColor(pt)
+        val cC = if (dt != null && pt != null) tempColor((dt + pt) / 2.0) else if (dt != null) cL else cR
+        fun sideCol(x: Float) = if (x < 149f) cL else if (x > 151f) cR else cC
+        fun withA(col: Int, a: Int) = (col and 0x00FFFFFF) or (a.coerceIn(0, 255) shl 24)
+        fun fillP(col: Int) { p.shader = null; p.style = Paint.Style.FILL; p.color = col }
+        fun strokeP(col: Int, w: Float) { p.shader = null; p.style = Paint.Style.STROKE; p.color = col; p.strokeWidth = w; p.strokeCap = Paint.Cap.ROUND; p.strokeJoin = Paint.Join.ROUND }
+        fun rr(x: Float, y: Float, w: Float, h: Float, r: Float) { tmpR.set(x, y, x + w, y + h); canvas.drawRoundRect(tmpR, r, r, p) }
+        fun both(x: Float, y: Float, w: Float, h: Float, r: Float, f: Int, st: Int, sw: Float) { fillP(f); rr(x, y, w, h, r); strokeP(st, sw); rr(x, y, w, h, r) }
+        fun circ(x: Float, y: Float, r: Float) = canvas.drawCircle(x, y, r, p)
+        fun flowShader(col: Int, up: Boolean): Shader {
+            val sh = LinearGradient(0f, 0f, 0f, 64f, intArrayOf(withA(col, 31), withA(col, 217), withA(col, 31)), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.REPEAT)
+            carMat.setTranslate(0f, if (up) -ph * 64f else ph * 64f); sh.setLocalMatrix(carMat); return sh
+        }
+        fun wedge(x: Float, y: Float, x2: Float, y2: Float, w0: Float, w1: Float, sh: Shader) {
+            val l = Math.hypot((x2 - x).toDouble(), (y2 - y).toDouble()).toFloat()
+            val dx = (x2 - x) / l; val dy = (y2 - y) / l; val px = -dy; val py = dx
+            path.reset()
+            path.moveTo(x + px * w0 / 2, y + py * w0 / 2); path.lineTo(x2 + px * w1 / 2, y2 + py * w1 / 2)
+            path.quadTo(x2 + dx * 10f, y2 + dy * 10f, x2 - px * w1 / 2, y2 - py * w1 / 2)
+            path.lineTo(x - px * w0 / 2, y - py * w0 / 2); path.close()
+            p.style = Paint.Style.FILL; p.shader = sh; canvas.drawPath(path, p); p.shader = null
+        }
+        fun glow(x: Float, y: Float, r: Float, col: Int) {
+            p.style = Paint.Style.FILL
+            p.shader = RadialGradient(x, y, r, withA(col, (230 * pulse).toInt()), withA(col, 0), Shader.TileMode.CLAMP)
+            circ(x, y, r); p.shader = null
+        }
+        fun mirror() {
+            path.reset(); path.moveTo(24f, 190f); path.lineTo(2f, 203f); path.quadTo(-11f, 211f, -11f, 223f); path.quadTo(-9f, 234f, 3f, 233f); path.lineTo(24f, 217f); path.close()
+            fillP(0xFF0B101B.toInt()); canvas.drawPath(path, p); strokeP(0xFF6F86AD.toInt(), 1f); canvas.drawPath(path, p)
+            path.reset(); path.moveTo(22f, 219f); path.lineTo(4f, 232f); path.quadTo(-6f, 234f, -9f, 224f)
+            strokeP(0xFFF2F6FB.toInt(), 2.4f); canvas.drawPath(path, p)
+            fillP(0xFF0B101B.toInt()); rr(18f, 198f, 9f, 9f, 2f)
+        }
+
+        canvas.save()
+        canvas.translate(cx - 150f * k, top + (carH - 716f * sy * k) / 2f)
+        canvas.scale(k, k * sy)
+
+        // ---- exterior: body, hood, cowl, lights, mirrors, rear panel
+        path.reset()
+        path.moveTo(79f, 8f); path.cubicTo(118f, 1f, 182f, 1f, 221f, 8f); path.cubicTo(252f, 15f, 271f, 44f, 279f, 90f)
+        path.cubicTo(285f, 122f, 290f, 152f, 292f, 200f); path.lineTo(294f, 390f); path.lineTo(292f, 640f)
+        path.cubicTo(292f, 676f, 270f, 702f, 216f, 706f); path.cubicTo(184f, 710f, 116f, 710f, 84f, 706f)
+        path.cubicTo(30f, 702f, 8f, 676f, 8f, 640f); path.lineTo(6f, 390f); path.lineTo(8f, 200f)
+        path.cubicTo(10f, 152f, 15f, 122f, 21f, 90f); path.cubicTo(29f, 44f, 48f, 15f, 79f, 8f); path.close()
+        p.style = Paint.Style.FILL
+        p.shader = LinearGradient(6f, 0f, 294f, 0f, intArrayOf(0xFFC9D3E2.toInt(), 0xFFF6F9FD.toInt(), 0xFFFFFFFF.toInt(), 0xFFF6F9FD.toInt(), 0xFFC9D3E2.toInt()), floatArrayOf(0f, 0.18f, 0.5f, 0.82f, 1f), Shader.TileMode.CLAMP)
+        canvas.drawPath(path, p)
+        p.shader = LinearGradient(0f, 0f, 0f, 716f, 0x00FFFFFF, 0x599FB0C8, Shader.TileMode.CLAMP); canvas.drawPath(path, p); p.shader = null
+        strokeP(0xFF8FA2BF.toInt(), 1.4f); canvas.drawPath(path, p)
+        strokeP(0x29, 1.3f); p.color = Color.argb(41, 30, 45, 80)
+        path.reset(); path.moveTo(94f, 14f); path.cubicTo(92f, 50f, 88f, 80f, 86f, 108f); canvas.drawPath(path, p)
+        path.reset(); path.moveTo(206f, 14f); path.cubicTo(208f, 50f, 212f, 80f, 214f, 108f); canvas.drawPath(path, p)
+        fillP(0xFF0F1A30.toInt())
+        path.reset(); path.moveTo(16f, 162f); path.cubicTo(20f, 120f, 68f, 100f, 150f, 100f); path.cubicTo(232f, 100f, 280f, 120f, 284f, 162f); path.close(); canvas.drawPath(path, p)
+        strokeP(0xFF2A3652.toInt(), 3f); canvas.drawLine(130f, 16f, 170f, 16f, p)
+        strokeP(0xFF161D30.toInt(), 5f)
+        path.reset(); path.moveTo(38f, 72f); path.quadTo(42f, 52f, 62f, 38f); canvas.drawPath(path, p)
+        path.reset(); path.moveTo(262f, 72f); path.quadTo(258f, 52f, 238f, 38f); canvas.drawPath(path, p)
+        mirror()
+        canvas.save(); canvas.translate(300f, 0f); canvas.scale(-1f, 1f); mirror(); canvas.restore()
+        fillP(0xFF0D121C.toInt())
+        path.reset(); path.moveTo(28f, 646f); path.lineTo(272f, 646f); path.cubicTo(270f, 664f, 256f, 676f, 220f, 680f); path.lineTo(80f, 680f); path.cubicTo(44f, 676f, 30f, 664f, 28f, 646f); path.close(); canvas.drawPath(path, p)
+        strokeP(0xFFE0323C.toInt(), 4.5f)
+        path.reset(); path.moveTo(38f, 674f); path.cubicTo(54f, 692f, 92f, 702f, 126f, 703f); canvas.drawPath(path, p)
+        path.reset(); path.moveTo(262f, 674f); path.cubicTo(246f, 692f, 208f, 702f, 174f, 703f); canvas.drawPath(path, p)
+        fillP(0xFFFF9A2E.toInt()); rr(8f, 616f, 4f, 14f, 2f); rr(288f, 616f, 4f, 14f, 2f)
+
+        // ---- cabin (everything below sits 130 lower)
+        canvas.translate(0f, 130f)
+        path.reset()
+        path.moveTo(52f, 12f); path.lineTo(248f, 12f); path.quadTo(280f, 12f, 280f, 50f); path.lineTo(280f, 470f); path.quadTo(280f, 508f, 248f, 508f)
+        path.lineTo(52f, 508f); path.quadTo(20f, 508f, 20f, 470f); path.lineTo(20f, 50f); path.quadTo(20f, 12f, 52f, 12f); path.close()
+        p.style = Paint.Style.FILL; p.shader = LinearGradient(0f, 12f, 0f, 508f, 0xFF14213B.toInt(), 0xFF0B1426.toInt(), Shader.TileMode.CLAMP); canvas.drawPath(path, p); p.shader = null
+        strokeP(0xFF1B2540.toInt(), 3f); canvas.drawPath(path, p)
+        val wsPath = Path()
+        wsPath.moveTo(36f, 63f); wsPath.cubicTo(38f, 42f, 50f, 24f, 84f, 19f); wsPath.quadTo(150f, 11f, 216f, 19f); wsPath.cubicTo(250f, 24f, 262f, 42f, 264f, 63f); wsPath.close()
+        fillP(Color.argb(26, 120, 180, 255)); canvas.drawPath(wsPath, p); strokeP(Color.argb(90, 160, 200, 255), 1.2f); canvas.drawPath(wsPath, p)
+        path.reset(); path.moveTo(44f, 498f); path.lineTo(256f, 498f); path.lineTo(264f, 478f); path.lineTo(36f, 478f); path.close()
+        fillP(Color.argb(20, 120, 180, 255)); canvas.drawPath(path, p); strokeP(Color.argb(76, 160, 200, 255), 1.2f); canvas.drawPath(path, p)
+        both(46f, 150f, 208f, 282f, 16f, Color.argb(10, 120, 180, 255), Color.argb(50, 160, 200, 255), 1f)
+        both(24f, 80f, 12f, 392f, 5f, 0xFF18264A.toInt(), 0xFF2F4270.toInt(), 1f); both(264f, 80f, 12f, 392f, 5f, 0xFF18264A.toInt(), 0xFF2F4270.toInt(), 1f)
+        // dash
+        path.reset(); path.moveTo(38f, 64f); path.lineTo(262f, 64f); path.lineTo(262f, 122f); path.quadTo(150f, 136f, 38f, 122f); path.close()
+        p.style = Paint.Style.FILL; p.shader = LinearGradient(0f, 64f, 0f, 134f, 0xFF26375A.toInt(), 0xFF121D35.toInt(), Shader.TileMode.CLAMP); canvas.drawPath(path, p); p.shader = null
+        strokeP(0xFF4A6190.toInt(), 1.4f); canvas.drawPath(path, p)
+        both(58f, 78f, 56f, 10f, 3f, 0xFF0A1220.toInt(), 0xFF5B7299.toInt(), 1f)
+        fillP(0xFF6F86AD.toInt()); for (vx in floatArrayOf(38f, 112f, 164f, 238f)) rr(vx, 72f, 24f, 5f, 2f); rr(137f, 62f, 26f, 5f, 2f)
+        strokeP(0xFF8AA0C6.toInt(), 3.4f); tmpR.set(64f, 109f, 108f, 123f); canvas.drawOval(tmpR, p)
+        fillP(0xFF3D5280.toInt()); circ(86f, 116f, 5f)
+        both(135f, 83f, 30f, 47f, 5f, 0xFF0A1220.toInt(), 0xFF8AA0C6.toInt(), 1.4f)
+        // console
+        both(132f, 138f, 36f, 190f, 10f, 0xFF16233D.toInt(), 0xFF3D5280.toInt(), 1.2f)
+        fillP(0xFF0E182C.toInt()); rr(136f, 144f, 13f, 34f, 3f); rr(151f, 144f, 13f, 34f, 3f)
+        fillP(0xFF0A1220.toInt()); circ(143f, 196f, 8.5f); circ(157f, 196f, 8.5f); strokeP(0xFF4A6190.toInt(), 1f); circ(143f, 196f, 8.5f); circ(157f, 196f, 8.5f)
+        both(133f, 262f, 34f, 62f, 10f, 0xFF22335A.toInt(), 0xFF44597F.toInt(), 1.2f)
+        // seats
+        fun seat(x0: Float, y0: Float, w: Float, hh: Float, r: Float) {
+            p.style = Paint.Style.FILL; p.shader = LinearGradient(x0, y0, x0 + w, y0 + hh, 0xFF2F4268.toInt(), 0xFF1A2744.toInt(), Shader.TileMode.CLAMP); rr(x0, y0, w, hh, r); p.shader = null
+            strokeP(0xFF44597F.toInt(), 1.2f); rr(x0, y0, w, hh, r)
+        }
+        for (x0 in floatArrayOf(54f, 178f)) { seat(x0, 196f, 68f, 62f, 14f); seat(x0 + 2f, 258f, 64f, 30f, 12f); seat(x0 + 18f, 288f, 32f, 14f, 6f) }
+        strokeP(Color.argb(140, 159, 184, 200), 2f); canvas.drawLine(88f, 200f, 88f, 296f, p); canvas.drawLine(212f, 200f, 212f, 296f, p)
+        fillP(Color.argb(235, 74, 95, 138))
+        for (hx in floatArrayOf(88f, 212f)) { tmpR.set(hx - 28f, 262f, hx + 28f, 282f); canvas.drawOval(tmpR, p); circ(hx, 292f, 11f) }
+        seat(46f, 372f, 68f, 66f, 12f); seat(116f, 372f, 68f, 66f, 8f); seat(186f, 372f, 68f, 66f, 12f)
+        seat(46f, 438f, 68f, 30f, 10f); seat(116f, 438f, 68f, 30f, 8f); seat(186f, 438f, 68f, 30f, 10f)
+        seat(64f, 468f, 32f, 13f, 6f); seat(134f, 468f, 32f, 13f, 6f); seat(204f, 468f, 32f, 13f, 6f)
+        strokeP(Color.argb(128, 159, 184, 200), 2f); canvas.drawLine(80f, 376f, 80f, 466f, p); canvas.drawLine(220f, 376f, 220f, 466f, p)
+        fillP(Color.argb(235, 74, 95, 138))
+        for (hx in floatArrayOf(80f, 220f)) { tmpR.set(hx - 24f, 443f, hx + 24f, 461f); canvas.drawOval(tmpR, p); circ(hx, 474f, 10f) }
+        fillP(0xFF6F86AD.toInt()); rr(74f, 250f, 28f, 5f, 2f); rr(198f, 250f, 28f, 5f, 2f)
+
+        // ---- air streams
+        if (flow) {
+            val faceOn = mode in 0..2; val feetOn = mode in 2..4; val winOn = mode == 4 || mode == 5
+            if (faceOn) {
+                for (x in floatArrayOf(50f, 124f, 176f, 250f)) { glow(x, 78f, 14f, sideCol(x)); wedge(x, 80f, x, 134f, 10f, 44f, flowShader(sideCol(x), false)) }
+                glow(150f, 330f, 12f, cC)
+                wedge(146f, 334f, 114f, 374f, 10f, 38f, flowShader(cC, false)); wedge(154f, 334f, 186f, 374f, 10f, 38f, flowShader(cC, false))
+            }
+            if (feetOn) {
+                glow(86f, 126f, 16f, cL); glow(214f, 126f, 16f, cR); glow(150f, 342f, 12f, cC)
+                wedge(86f, 130f, 86f, 178f, 14f, 50f, flowShader(cL, false)); wedge(214f, 130f, 214f, 178f, 14f, 50f, flowShader(cR, false))
+                wedge(144f, 344f, 108f, 362f, 10f, 36f, flowShader(cC, false)); wedge(156f, 344f, 192f, 362f, 10f, 36f, flowShader(cC, false))
+                glow(88f, 300f, 14f, cL); glow(212f, 300f, 14f, cR)
+                wedge(88f, 304f, 88f, 350f, 14f, 48f, flowShader(cL, false)); wedge(212f, 304f, 212f, 350f, 14f, 48f, flowShader(cR, false))
+            }
+            if (winOn) {
+                glow(150f, 64f, 22f, cC)
+                canvas.save(); canvas.clipPath(wsPath)
+                p.style = Paint.Style.FILL
+                p.shader = LinearGradient(0f, 64f, 0f, 14f, intArrayOf(withA(cC, (242 * pulse).toInt()), withA(cC, (128 * pulse).toInt()), withA(cC, (38 * pulse).toInt())), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
+                canvas.drawRect(0f, 0f, 300f, 70f, p)
+                val sw = LinearGradient(0f, 0f, 0f, 50f, intArrayOf(withA(cC, 0), withA(cC, 140), withA(cC, 0)), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.REPEAT)
+                carMat.setTranslate(0f, -ph * 50f); sw.setLocalMatrix(carMat); p.shader = sw
+                canvas.drawRect(0f, 0f, 300f, 70f, p); p.shader = null
+                canvas.restore()
+                wedge(42f, 100f, 28f, 84f, 10f, 26f, flowShader(cL, true)); wedge(258f, 100f, 272f, 84f, 10f, 26f, flowShader(cR, true))
+            }
+            postInvalidateDelayed(40)
+        }
+        canvas.restore()
+        p.shader = null
+    }
+
     /** The cabin from above with the airflow lit by the driver's air direction, and the fan speed bars under it. */
     private fun cabin(cx: Float, top: Float, areaW: Float, areaH: Float, s: CanSnapshot, small: Boolean) {
         val barsH = (areaH * 0.15f).coerceIn(dp(20f), dp(40f))
         val labH = dp(if (small) 16f else 20f)
         val carH = areaH - barsH - labH - dp(10f)
-        val k = minOf(carH / 250f, areaW * 0.62f / 150f)
-        val u = 1f / k
-        val flow = s.climSeen && s.climFan > 0
-        val mode = s.climDrvMode
-        val mint = Color.parseColor("#7CF0DE")
-        canvas.save()
-        canvas.translate(cx - 75f * k, top)
-        canvas.scale(k, k)
-        path.reset()
-        path.moveTo(75f, 8f); path.cubicTo(110f, 8f, 124f, 30f, 126f, 70f); path.lineTo(128f, 190f)
-        path.cubicTo(128f, 225f, 108f, 242f, 75f, 242f); path.cubicTo(42f, 242f, 22f, 225f, 22f, 190f)
-        path.lineTo(24f, 70f); path.cubicTo(26f, 30f, 40f, 8f, 75f, 8f); path.close()
-        p.shader = null; p.style = Paint.Style.FILL; p.color = Color.argb(14, 255, 255, 255); canvas.drawPath(path, p)
-        p.style = Paint.Style.STROKE; p.strokeWidth = dp(1.5f) * u; p.strokeCap = Paint.Cap.ROUND; p.strokeJoin = Paint.Join.ROUND
-        p.color = Color.argb(75, 255, 255, 255); canvas.drawPath(path, p)
-        if (flow) {
-            p.style = Paint.Style.FILL
-            p.shader = RadialGradient(75f, 110f, 72f, Color.argb(140, Color.red(on), Color.green(on), Color.blue(on)), Color.argb(0, Color.red(on), Color.green(on), Color.blue(on)), Shader.TileMode.CLAMP)
-            canvas.drawOval(RectF(13f, 40f, 137f, 180f), p); p.shader = null
-        }
-        val winLit = flow && (mode == 4 || mode == 5)
-        p.style = Paint.Style.FILL; p.color = Color.argb(if (winLit) 140 else 70, Color.red(cool), Color.green(cool), Color.blue(cool))
-        path.reset(); path.moveTo(36f, 78f); path.quadTo(75f, 62f, 114f, 78f); path.lineTo(110f, 100f); path.quadTo(75f, 90f, 40f, 100f); path.close(); canvas.drawPath(path, p)
-        p.color = Color.argb(40, Color.red(cool), Color.green(cool), Color.blue(cool))
-        path.reset(); path.moveTo(42f, 196f); path.quadTo(75f, 206f, 108f, 196f); path.lineTo(104f, 214f); path.quadTo(75f, 222f, 46f, 214f); path.close(); canvas.drawPath(path, p)
-        p.color = Color.argb(if (flow) 125 else 50, Color.red(on), Color.green(on), Color.blue(on))
-        canvas.drawRoundRect(RectF(36f, 116f, 68f, 154f), 10f, 10f, p); canvas.drawRoundRect(RectF(82f, 116f, 114f, 154f), 10f, 10f, p)
-        p.style = Paint.Style.STROKE; p.color = if (flow) on else Color.argb(80, 255, 255, 255)
-        canvas.drawRoundRect(RectF(36f, 116f, 68f, 154f), 10f, 10f, p); canvas.drawRoundRect(RectF(82f, 116f, 114f, 154f), 10f, 10f, p)
-        p.style = Paint.Style.FILL; p.color = Color.argb(20, 255, 255, 255); canvas.drawRoundRect(RectF(36f, 166f, 114f, 190f), 10f, 10f, p)
-        if (flow) {
-            p.style = Paint.Style.STROKE; p.color = mint; p.strokeWidth = dp(2.2f) * u
-            if (mode == 0 || mode == 1 || mode == 2) {
-                for (x in listOf(52f, 75f, 98f)) { path.reset(); path.moveTo(x, 98f); path.cubicTo(x - 2f, 104f, x - 2f, 108f, x, 114f); canvas.drawPath(path, p) }
-            }
-            if (mode == 2 || mode == 3 || mode == 4) {
-                for (x in listOf(50f, 100f)) { path.reset(); path.moveTo(x, 156f); path.cubicTo(x - 2f, 160f, x - 2f, 164f, x, 170f); canvas.drawPath(path, p) }
-            }
-            if (mode == 4 || mode == 5) {
-                path.reset(); path.moveTo(44f, 91f); path.quadTo(75f, 79f, 106f, 91f); canvas.drawPath(path, p)
-                path.reset(); path.moveTo(50f, 83f); path.quadTo(75f, 72f, 100f, 83f); canvas.drawPath(path, p)
-            }
-        }
-        canvas.restore()
+        overheadCar(cx, top, areaW, carH, s, s.climSeen && s.climFan > 0, s.climDrvMode)
         // fan speed bars
         val bt = top + carH + dp(10f)
         val bw = minOf(dp(13f), areaW * 0.07f); val bg = dp(5f)
