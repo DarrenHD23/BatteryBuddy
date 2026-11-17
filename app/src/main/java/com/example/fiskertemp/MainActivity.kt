@@ -1352,6 +1352,8 @@ class MainActivity : Activity() {
     private lateinit var tripSpacer: View
     private var ovLeftDp = 0
     private var ovRightDp = 0
+    private var edgeLeftDp = 0
+    private var edgeRightDp = 0
     private lateinit var btnBar: LinearLayout
     private var gaugeWeight = 1.15f
     private var midWeight = 0.7f
@@ -1724,9 +1726,9 @@ class MainActivity : Activity() {
         dashGaugeRow.removeAllViews()
         val left = if (speedLeft) dashSpeedGauge else dashPowerGauge
         val right = if (speedLeft) dashPowerGauge else dashSpeedGauge
-        dashGaugeRow.addView(left, LinearLayout.LayoutParams(0, -1, gaugeWeight).apply { rightMargin = -dp(ovLeftDp) })
+        dashGaugeRow.addView(left, LinearLayout.LayoutParams(0, -1, gaugeWeight).apply { rightMargin = -dp(ovLeftDp); leftMargin = dp(edgeLeftDp) })
         dashGaugeRow.addView(dashMid, LinearLayout.LayoutParams(0, -1, midWeight))
-        dashGaugeRow.addView(right, LinearLayout.LayoutParams(0, -1, gaugeWeight).apply { leftMargin = -dp(ovRightDp) })
+        dashGaugeRow.addView(right, LinearLayout.LayoutParams(0, -1, gaugeWeight).apply { leftMargin = -dp(ovRightDp); rightMargin = dp(edgeRightDp) })
         dashSpeedGauge.invalidate(); dashPowerGauge.invalidate()
     }
 
@@ -1944,21 +1946,26 @@ class MainActivity : Activity() {
         val wInner = (wDp - 16).toFloat()
         val arcMode = prefs().getString("arcStyle", "mirror")
         val ovL: Int; val ovR: Int
+        var edgeL = 0; var edgeR = 0; var sameMid = -1f
         if (arcMode == "left" || arcMode == "right") {
-            // both arcs curve the same way: the middle column spans exactly the free space between the two arcs
-            // (centred there, with a clear gap on each side); the arcs shrink if that space would be too narrow
+            // both arcs curve the same way: the middle column is centred on the window, with a clear gap to each arc.
+            // The gauge on the far side from the "free" side moves outward (its box may reach past the window edge, it is empty there)
             val gapDp = 10f
             val midMin = wInner * 0.25f
-            fun free(g: Float) = wInner - g - 1.707f * (minOf(g, rowHdp) / 2f * 0.92f) - 2f * gapDp
-            while (free(gaugeWdp) < midMin && gaugeWdp > gwDefault * 0.6f) gaugeWdp -= 2f
+            fun halfW(g: Float) = wInner / 2f - g / 2f - 0.707f * (minOf(g, rowHdp) / 2f * 0.92f) - gapDp
+            while (2f * halfW(gaugeWdp) < midMin && gaugeWdp > gwDefault * 0.6f) gaugeWdp -= 2f
             val g = gaugeWdp
             val r = minOf(g, rowHdp) / 2f * 0.92f
-            // "(" reaches 0.707 r to the right of its centre, ")" reaches 0.707 r to the left; the far side reaches a full r
-            val kL = if (arcMode == "left") 0.707f else 1f
-            val kR = if (arcMode == "left") 1f else 0.707f
-            val a = g / 2f + kL * r + gapDp
-            val b = wInner - g / 2f - kR * r - gapDp
-            ovL = (g - a).toInt(); ovR = (b - (wInner - g)).toInt()
+            val h = halfW(g)
+            val a = wInner / 2f - h
+            val b = wInner / 2f + h
+            val cxL: Float; val cxR: Float
+            if (arcMode == "left") { cxL = g / 2f; cxR = b + gapDp + r } else { cxR = wInner - g / 2f; cxL = a - gapDp - r }
+            edgeL = (cxL - g / 2f).toInt()                      // first box starts here (negative = past the left edge)
+            edgeR = (wInner - (cxR + g / 2f)).toInt()           // last box's right margin (negative = past the right edge)
+            sameMid = b - a
+            ovL = (edgeL + g - a).toInt()
+            ovR = (b - (cxR - g / 2f)).toInt()
         } else {
             // mirrored arcs open toward the middle, so the middle column may reach over the gauge boxes
             val midW0 = wInner - 2f * gaugeWdp
@@ -1967,10 +1974,12 @@ class MainActivity : Activity() {
             ovL = (ovTotal / 2f).coerceIn(0f, ovCap).toInt(); ovR = ovL
         }
         val midWdp = wInner - 2f * gaugeWdp
-        val band = rowHdp / 2f - minOf(gaugeWdp, rowHdp) / 2f * 0.92f - 6f
+        // 50/50 split: the gauges move up a little so the media card under the left gauge clears them; the clock shrinks to suit
+        val up = if (half && !tall) 12 else 0
+        val band = rowHdp / 2f - minOf(gaugeWdp, rowHdp) / 2f * 0.92f - 6f - up
         val clockH = if (band >= 30f) band.toInt().coerceAtMost(110) else 0
         val rhd = prefs().getBoolean("rhd", false)
-        val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$rhd/$hideBar/$hideTrip/${prefs().getBoolean("iconBtns", false)}"
+        val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$edgeL/$edgeR/$up/$rhd/$hideBar/$hideTrip/${prefs().getBoolean("iconBtns", false)}"
         if (key == layoutKey) return
         layoutKey = key
         EventLog.add("layout ${wDp}x${hDp}dp tier=$ti trip=$midRows third=$third half=$half tall=$tall")
@@ -1988,13 +1997,14 @@ class MainActivity : Activity() {
         // with plenty of height the panel stays a little shorter and sits just above the battery bar
         (tripSpacer.layoutParams as LinearLayout.LayoutParams).weight = if (midRows >= 3 && midLevel > 0) 0.28f else 0f
         tripSpacer.requestLayout()
-        gaugeWeight = gaugeWdp; midWeight = midWdp + ovL + ovR; ovLeftDp = ovL; ovRightDp = ovR
+        gaugeWeight = gaugeWdp; midWeight = if (sameMid > 0f) sameMid else midWdp + ovL + ovR; ovLeftDp = ovL; ovRightDp = ovR; edgeLeftDp = edgeL; edgeRightDp = edgeR
         (dashGaugeRow.getChildAt(0).layoutParams as LinearLayout.LayoutParams).weight = gaugeWdp
-        (dashGaugeRow.getChildAt(1).layoutParams as LinearLayout.LayoutParams).weight = midWdp + ovL + ovR
+        (dashGaugeRow.getChildAt(1).layoutParams as LinearLayout.LayoutParams).weight = midWeight
         // 1/3 split only: the middle column starts 15 dp higher (its bottom stays), so the speed sign moves up and the trip panel is 15 dp taller
         (dashGaugeRow.getChildAt(1).layoutParams as LinearLayout.LayoutParams).topMargin = if (brakeUnder) -dp(15) else 0
-        (dashGaugeRow.getChildAt(0).layoutParams as LinearLayout.LayoutParams).rightMargin = -dp(ovL)
-        (dashGaugeRow.getChildAt(2).layoutParams as LinearLayout.LayoutParams).leftMargin = -dp(ovR)
+        (dashGaugeRow.getChildAt(0).layoutParams as LinearLayout.LayoutParams).apply { rightMargin = -dp(ovL); leftMargin = dp(edgeL) }
+        dashGaugeRow.clipChildren = false
+        (dashGaugeRow.getChildAt(2).layoutParams as LinearLayout.LayoutParams).apply { leftMargin = -dp(ovR); rightMargin = dp(edgeR) }
         (dashGaugeRow.getChildAt(2).layoutParams as LinearLayout.LayoutParams).weight = gaugeWdp
         dashGaugeRow.requestLayout()
         dashClock.visibility = if (clockH > 0) View.VISIBLE else View.GONE
@@ -2122,7 +2132,7 @@ class MainActivity : Activity() {
         (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply {
             gravity = Gravity.TOP or Gravity.START
             if (tall) { height = dp(wantH.toInt()); setMargins(dp(8), dp(topM), dp(8), 0) }
-            else { height = FrameLayout.LayoutParams.MATCH_PARENT; setMargins(dp(8), dp(topM), dp(8), dp(gaugeBottom)) }
+            else { height = FrameLayout.LayoutParams.MATCH_PARENT; setMargins(dp(8), dp(topM - up), dp(8), dp(gaugeBottom + up)) }
         }
         (dashLight.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 22 else if (short) 26 else 42); height = dp(if (midLevel == 2) 46 else if (short) 56 else 88) }
         dashReady.textSize = if (midLevel == 2 || (midLevel == 1 && brakeUnder)) 11f else if (midLevel == 1) 12f else 15f
