@@ -749,7 +749,7 @@ class MainActivity : Activity() {
             }
             onButton = { kind ->
                 val msg = pulse?.sendButton(kind) ?: "CAN reader is not running"
-                EventLog.add("Climate button test (${listOf("A/C", "defrost", "recirculation")[kind]}): $msg")
+                EventLog.add("Climate button test (${listOf("A/C", "defrost", "recirculation", "sync", "auto")[kind]}): $msg")
                 toast(msg)
             }
             onMode = { mode ->
@@ -1578,6 +1578,7 @@ class MainActivity : Activity() {
             onPrev = { mediaWatcher?.prev(); ui.removeCallbacks(hideMediaPopup); ui.postDelayed(hideMediaPopup, 15000) }
             onToggle = { mediaWatcher?.toggle(); ui.removeCallbacks(hideMediaPopup); ui.postDelayed(hideMediaPopup, 15000) }
             onNext = { mediaWatcher?.next(); ui.removeCallbacks(hideMediaPopup); ui.postDelayed(hideMediaPopup, 15000) }
+            onTap = { openMusicApp(true) }
         }
         f.addView(mediaPopup, FrameLayout.LayoutParams(-1, dp(132), Gravity.BOTTOM).apply { setMargins(dp(8), 0, dp(8), dp(66)) })
         mediaCard = MediaCardView(this).apply {
@@ -1585,6 +1586,7 @@ class MainActivity : Activity() {
             onPrev = { mediaWatcher?.prev() }
             onToggle = { mediaWatcher?.toggle() }
             onNext = { mediaWatcher?.next() }
+            onTap = { openMusicApp(false) }
         }
         f.addView(mediaCard, FrameLayout.LayoutParams(-1, dp(132), Gravity.BOTTOM).apply { setMargins(dp(8), 0, dp(8), dp(200)) })
         f.addOnLayoutChangeListener { v, _, top, _, bottom, _, _, _, _ ->
@@ -1772,22 +1774,40 @@ class MainActivity : Activity() {
     private fun placeMediaPopup() {
         if (!::mediaPopup.isInitialized) return
         val lp = mediaPopup.layoutParams as FrameLayout.LayoutParams
-        var bottom = dp(66); var hgt = dp(132)
+        var bottom = dp(66); var hgt = dp(132); var wid = FrameLayout.LayoutParams.MATCH_PARENT; var side = dp(8)
+        var grav = Gravity.BOTTOM
         try {
             val ref: View? = if (chargeBar.visibility != View.GONE) chargeBar else if (tripPanel.visibility == View.VISIBLE) tripPanel else null
             val root = mediaPopup.parent as View
-            if (ref != null && ref.height > 0 && root.height > 0) {
+            // a half-height window (50/50 split): the card sits in the free space under the left gauge, between the trip panel and the stat rows
+            val half = try {
+                android.os.Build.VERSION.SDK_INT >= 30 && windowManager.currentWindowMetrics.bounds.height().let { it >= windowManager.maximumWindowMetrics.bounds.height() * 0.42 && it < windowManager.maximumWindowMetrics.bounds.height() * 0.8 }
+            } catch (e: Exception) { false }
+            val rowV: View? = if (dashRow.visibility == View.VISIBLE && dashRow.height > 0) dashRow else if (dashStrip.visibility == View.VISIBLE && dashStrip.height > 0) dashStrip else null
+            val rhd = prefs().getBoolean("rhd", false)
+            var placed = false
+            if (half && ref != null && ref.width > 0 && rowV != null && root.height > 0) {
+                val a = IntArray(2); val b = IntArray(2); val c = IntArray(2)
+                ref.getLocationInWindow(a); root.getLocationInWindow(b); rowV.getLocationInWindow(c)
+                val freeW = if (rhd) root.width - (a[0] - b[0] + ref.width) - dp(28) else (a[0] - b[0]) - dp(28)
+                if (freeW >= dp(190)) {
+                    wid = minOf(freeW, dp(240)); hgt = dp(120); side = dp(16)
+                    bottom = root.height - (c[1] - b[1]) + dp(8)
+                    grav = Gravity.BOTTOM or (if (rhd) Gravity.END else Gravity.START)
+                    placed = true
+                }
+            }
+            if (!placed && ref != null && ref.height > 0 && root.height > 0) {
                 val a = IntArray(2); val b = IntArray(2)
                 ref.getLocationInWindow(a); root.getLocationInWindow(b)
                 val top = a[1] - b[1] + ref.height + dp(5)                         // 5 dp under the battery bar
-                // always the full size, 5 dp under the battery bar, whatever the screen size (it can cover the stat rows in the shorter 1784 screen)
-                // the same size in every layout
+                // the same size in every layout, 5 dp under the battery bar (it can cover the stat rows in the shorter 1784 screen)
                 hgt = dp(132)
                 bottom = maxOf(root.height - (top + hgt), dp(66))
             }
         } catch (e: Exception) { }
-        if (lp.height != hgt || lp.bottomMargin != bottom) {
-            lp.height = hgt; lp.setMargins(dp(8), 0, dp(8), bottom)
+        if (lp.height != hgt || lp.width != wid || lp.bottomMargin != bottom || lp.leftMargin != side || lp.gravity != grav) {
+            lp.height = hgt; lp.width = wid; lp.gravity = grav; lp.setMargins(side, 0, side, bottom)
             mediaPopup.layoutParams = lp
         }
     }
@@ -2250,10 +2270,24 @@ class MainActivity : Activity() {
     }
 
     /** Open app number [i] (0 Maps, 1 Spotify, 2 Pulse, 3 Oceanscape) in the lower half. If this app is not in split screen yet, put it there first. */
+    /** A tap on the media card: bring up the app that is playing the music in the lower half. */
+    private fun openMusicApp(hidePopup: Boolean) {
+        val pkg = mediaWatcher?.pkg
+        if (pkg.isNullOrEmpty()) { toast("No music app is playing right now"); return }
+        if (pkg.contains("bluetooth", true)) { toast("This music is coming over Bluetooth from the phone, so there is no app here to open"); return }
+        if (hidePopup) { ui.removeCallbacks(hideMediaPopup); mediaPopup.visibility = View.GONE }
+        val slot = (0 until slotCount).firstOrNull { slotPkg(it) == pkg }
+        if (slot != null) { openLower(slot); return }
+        pendingPkg = pkg
+        openLower(-1)
+    }
+
+    private var pendingPkg = ""
+
     private fun openLower(i: Int) {
-        if (slotPkg(i).isEmpty()) { pickLowerApp(i); return }
+        if (i >= 0 && slotPkg(i).isEmpty()) { pickLowerApp(i); return }
         if (isInMultiWindowMode) { launchLower(i); return }
-        EventLog.add("starting split screen for ${slotName(i)}")
+        EventLog.add("starting split screen for ${if (i >= 0) slotName(i) else appLabelOf(pendingPkg)}")
         Toast.makeText(this, "Switching to split screen\u2026", Toast.LENGTH_SHORT).show()
         val myTask = taskId
         Thread {
@@ -2294,9 +2328,9 @@ class MainActivity : Activity() {
     }
 
     private fun launchLower(i: Int) {
-        val pkg = slotPkg(i)
-        if (pkg.isEmpty()) { pickLowerApp(i); return }
-        val name = slotName(i)
+        val pkg = if (i >= 0) slotPkg(i) else pendingPkg
+        if (pkg.isEmpty()) { if (i >= 0) pickLowerApp(i); return }
+        val name = if (i >= 0) slotName(i) else appLabelOf(pkg)
         if (try { packageManager.getApplicationInfo(pkg, 0); false } catch (e: Exception) { true }) { toast("$name is not installed on this device. Long press the button to choose another app."); return }
         EventLog.add("launching $name ($pkg)")
         val flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT
@@ -2306,15 +2340,15 @@ class MainActivity : Activity() {
         for (t in tries) {
             try {
                 t.addFlags(flags); startActivity(t)
-                lowerIdx = i
-                prefs().edit().putInt("lowerApp", i).apply()
+                if (i >= 0) { lowerIdx = i; prefs().edit().putInt("lowerApp", i).apply() }
                 paintLowerTabs()
                 return
             } catch (e: Exception) { /* try the next one */ }
         }
         // last resort: start it through root (it comes up as a normal window)
         Thread { rootRun("monkey -p $pkg -c android.intent.category.LAUNCHER 1") }.start()
-        lowerIdx = i; prefs().edit().putInt("lowerApp", i).apply(); paintLowerTabs()
+        if (i >= 0) { lowerIdx = i; prefs().edit().putInt("lowerApp", i).apply() }
+        paintLowerTabs()
         toast("Starting $name through root")
     }
 
@@ -4677,8 +4711,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     var onTempTap: (() -> Unit)? = null
     var onTemp: ((Boolean, Int) -> Unit)? = null     // driver?, +1 / -1 (half a degree each)
     var onMode: ((Int) -> Unit)? = null              // air direction 1..5
-    var onButton: ((Int) -> Unit)? = null            // 0 A/C, 1 defrost, 2 recirculation
-    private val btnRects = ArrayList<RectF>()          // the function tiles that are buttons: A/C (0), defrost (2), recirculation (4)
+    var onButton: ((Int) -> Unit)? = null            // 0 A/C, 1 defrost, 2 recirculation, 3 sync, 4 auto
+    private val btnRects = ArrayList<RectF>()          // the function tiles that are buttons: A/C (0), defrost (2), recirculation (4), sync (5), auto (6)
     private val modeRects = ArrayList<RectF>()
     private val tempBtnInfo = ArrayList<Pair<Boolean, Int>>()
     var floating = false                              // full-screen mode: a rounded panel instead of the whole window
@@ -4853,184 +4887,285 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         text("AUTO", cx, cy, 7.5f, col, true)
     }
 
+    private fun tileGap(small: Boolean) = dp(if (small) 6f else 8f)
+
     private fun tile(i: Int, cols: Int, left: Float, top: Float, w: Float, h: Float, label: String, lit: Boolean, col: Int, small: Boolean, icon: (Float, Float, Float, Int) -> Unit) {
         val rr = i / cols; val cc = i % cols
-        val gp = dp(if (small) 5f else 8f)
+        val gp = tileGap(small)
         val tw = (w - gp * (cols - 1)) / cols
         val x = left + cc * (tw + gp); val y = top + rr * (h + gp)
         val r = RectF(x, y, x + tw, y + h)
-        val cr = dp(if (small) 12f else 16f)
-        p.style = Paint.Style.FILL; p.color = if (lit) Color.argb(64, Color.red(col), Color.green(col), Color.blue(col)) else Color.argb(24, 255, 255, 255)
+        val cr = dp(if (small) 14f else 20f)
+        p.shader = null
+        if (lit) {
+            // a soft glow in the tile's colour
+            stroke(Color.argb(40, Color.red(col), Color.green(col), Color.blue(col)), 8f); canvas.drawRoundRect(r, cr, cr, p)
+            stroke(Color.argb(70, Color.red(col), Color.green(col), Color.blue(col)), 4f); canvas.drawRoundRect(r, cr, cr, p)
+        }
+        p.style = Paint.Style.FILL; p.color = if (lit) Color.argb(46, Color.red(col), Color.green(col), Color.blue(col)) else Color.argb(14, 255, 255, 255)
         canvas.drawRoundRect(r, cr, cr, p)
-        stroke(if (lit) col else Color.argb(50, 255, 255, 255), if (lit) 2f else 1f); canvas.drawRoundRect(r, cr, cr, p)
-        icon(r.centerX(), r.top + h * 0.39f, h * 0.21f, if (lit) Color.WHITE else off)
-        fitText(label, r.centerX(), r.bottom - h * 0.19f, (h / d * 0.17f).coerceIn(10f, 16f), if (lit) Color.WHITE else Color.argb(150, 255, 255, 255), lit, tw - dp(8f))
+        stroke(if (lit) col else Color.argb(30, 255, 255, 255), if (lit) 1.8f else 1f); canvas.drawRoundRect(r, cr, cr, p)
+        icon(r.centerX(), r.top + h * 0.39f, h * 0.21f, if (lit) Color.WHITE else Color.argb(150, 255, 255, 255))
+        fitText(label, r.centerX(), r.bottom - h * 0.19f, (h / d * 0.17f).coerceIn(10f, 14f), if (lit) Color.WHITE else Color.argb(160, 255, 255, 255), true, tw - dp(8f))
+    }
+
+    private fun mixC(a: Int, b: Int, t: Float): Int = Color.argb(
+        (Color.alpha(a) + (Color.alpha(b) - Color.alpha(a)) * t).toInt(), (Color.red(a) + (Color.red(b) - Color.red(a)) * t).toInt(),
+        (Color.green(a) + (Color.green(b) - Color.green(a)) * t).toInt(), (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * t).toInt())
+
+    /** A glass rounded-square button with a - or + on it (sym 0 = minus, 1 = plus). */
+    private fun glassBtn(r: RectF, sym: Int) {
+        val cr = r.width() * 0.28f
+        p.shader = null; p.style = Paint.Style.FILL; p.color = Color.argb(70, 0, 0, 0)
+        canvas.drawRoundRect(RectF(r.left, r.top + dp(3f), r.right, r.bottom + dp(3f)), cr, cr, p)
+        p.shader = LinearGradient(0f, r.top, 0f, r.bottom, Color.argb(66, 255, 255, 255), Color.argb(14, 255, 255, 255), Shader.TileMode.CLAMP)
+        canvas.drawRoundRect(r, cr, cr, p); p.shader = null
+        stroke(Color.argb(100, 255, 255, 255), 1.4f); canvas.drawRoundRect(r, cr, cr, p)
+        val l = r.width() * 0.22f
+        stroke(Color.WHITE, 2.8f)
+        line(r.centerX() - l, r.centerY(), r.centerX() + l, r.centerY())
+        if (sym == 1) line(r.centerX(), r.centerY() - l, r.centerX(), r.centerY() + l)
+    }
+
+    /** One temperature dial: a 270 degree ring open at the bottom that fills from blue to orange, the value inside, - / + at the ring's two ends. */
+    private fun dial(x0: Float, areaW: Float, top: Float, areaH: Float, name: String, t: Double?, driver: Boolean) {
+        // the ring is sized so the ring and its - / + buttons always fit inside the area given (nothing below it is touched)
+        val dd = minOf(areaH * 0.80f, areaW * 0.88f, (areaH - dp(40f)) / 0.769f)
+        val sw = dd * 0.075f
+        val r = dd / 2f - sw * 1.6f
+        val cx = x0 + areaW / 2f; val cy = top + dd / 2f
+        val oval = RectF(cx - r, cy - r, cx + r, cy + r)
+        p.shader = null; p.style = Paint.Style.STROKE; p.strokeCap = Paint.Cap.ROUND
+        // tick marks just outside the ring
+        val ro = r + sw * 1.1f
+        p.color = Color.argb(60, 255, 255, 255); p.strokeWidth = dp(1.3f); p.pathEffect = android.graphics.DashPathEffect(floatArrayOf(dp(1.5f), dp(9f)), 0f)
+        canvas.drawArc(RectF(cx - ro, cy - ro, cx + ro, cy + ro), 135f, 270f, false, p); p.pathEffect = null
+        p.color = Color.argb(28, 255, 255, 255); p.strokeWidth = sw
+        canvas.drawArc(oval, 135f, 270f, false, p)
+        if (t != null) {
+            val f = ((t - 18.0) / 14.0).toFloat().coerceIn(0f, 1f)
+            val sweep = 270f * f
+            val sg = SweepGradient(cx, cy, intArrayOf(cool, warm), floatArrayOf(0f, 0.75f))
+            val mtx = android.graphics.Matrix(); mtx.setRotate(135f, cx, cy); sg.setLocalMatrix(mtx)
+            p.shader = sg
+            p.strokeWidth = sw * 2.0f; p.alpha = 40; canvas.drawArc(oval, 135f, sweep, false, p)
+            p.strokeWidth = sw * 1.45f; p.alpha = 70; canvas.drawArc(oval, 135f, sweep, false, p)
+            p.strokeWidth = sw; p.alpha = 255; canvas.drawArc(oval, 135f, sweep, false, p)
+            p.shader = null
+            val ang = Math.toRadians(135.0 + sweep)
+            p.style = Paint.Style.FILL; p.color = Color.WHITE
+            canvas.drawCircle(cx + r * Math.cos(ang).toFloat(), cy + r * Math.sin(ang).toFloat(), sw * 0.62f, p)
+        }
+        val dpD = dd / d
+        text(name, cx, cy - dd * 0.20f, (dpD * 0.062f).coerceIn(9f, 13f), Color.argb(190, 255, 255, 255), true)
+        fitText(temp(t), cx, cy + dd * 0.06f, (dpD * 0.28f).coerceIn(24f, 56f), if (t == null) off else Color.WHITE, true, dd * 0.62f)
+        // - and + at the two ends of the ring
+        val ey = cy + r * 0.7071f
+        val bs = minOf(areaH * 0.23f, dd * 0.30f, (top + areaH - ey) / 1.07f).coerceAtLeast(dp(30f))
+        val by = ey + bs * 0.57f
+        val minus = RectF(cx - r * 0.7071f - bs / 2, by - bs / 2, cx - r * 0.7071f + bs / 2, by + bs / 2)
+        val plus = RectF(cx + r * 0.7071f - bs / 2, by - bs / 2, cx + r * 0.7071f + bs / 2, by + bs / 2)
+        glassBtn(minus, 0); glassBtn(plus, 1)
+        tempBtns.add(minus); tempBtns.add(plus)
+        tempBtnInfo.add(Pair(driver, -1)); tempBtnInfo.add(Pair(driver, 1))
+    }
+
+    /** The cabin from above with the airflow lit by the driver's air direction, and the fan speed bars under it. */
+    private fun cabin(cx: Float, top: Float, areaW: Float, areaH: Float, s: CanSnapshot, small: Boolean) {
+        val barsH = (areaH * 0.15f).coerceIn(dp(20f), dp(40f))
+        val labH = dp(if (small) 16f else 20f)
+        val carH = areaH - barsH - labH - dp(10f)
+        val k = minOf(carH / 250f, areaW * 0.62f / 150f)
+        val u = 1f / k
+        val flow = s.climSeen && s.climFan > 0
+        val mode = s.climDrvMode
+        val mint = Color.parseColor("#7CF0DE")
+        canvas.save()
+        canvas.translate(cx - 75f * k, top)
+        canvas.scale(k, k)
+        path.reset()
+        path.moveTo(75f, 8f); path.cubicTo(110f, 8f, 124f, 30f, 126f, 70f); path.lineTo(128f, 190f)
+        path.cubicTo(128f, 225f, 108f, 242f, 75f, 242f); path.cubicTo(42f, 242f, 22f, 225f, 22f, 190f)
+        path.lineTo(24f, 70f); path.cubicTo(26f, 30f, 40f, 8f, 75f, 8f); path.close()
+        p.shader = null; p.style = Paint.Style.FILL; p.color = Color.argb(14, 255, 255, 255); canvas.drawPath(path, p)
+        p.style = Paint.Style.STROKE; p.strokeWidth = dp(1.5f) * u; p.strokeCap = Paint.Cap.ROUND; p.strokeJoin = Paint.Join.ROUND
+        p.color = Color.argb(75, 255, 255, 255); canvas.drawPath(path, p)
+        if (flow) {
+            p.style = Paint.Style.FILL
+            p.shader = RadialGradient(75f, 110f, 72f, Color.argb(140, Color.red(on), Color.green(on), Color.blue(on)), Color.argb(0, Color.red(on), Color.green(on), Color.blue(on)), Shader.TileMode.CLAMP)
+            canvas.drawOval(RectF(13f, 40f, 137f, 180f), p); p.shader = null
+        }
+        val winLit = flow && (mode == 4 || mode == 5)
+        p.style = Paint.Style.FILL; p.color = Color.argb(if (winLit) 140 else 70, Color.red(cool), Color.green(cool), Color.blue(cool))
+        path.reset(); path.moveTo(36f, 78f); path.quadTo(75f, 62f, 114f, 78f); path.lineTo(110f, 100f); path.quadTo(75f, 90f, 40f, 100f); path.close(); canvas.drawPath(path, p)
+        p.color = Color.argb(40, Color.red(cool), Color.green(cool), Color.blue(cool))
+        path.reset(); path.moveTo(42f, 196f); path.quadTo(75f, 206f, 108f, 196f); path.lineTo(104f, 214f); path.quadTo(75f, 222f, 46f, 214f); path.close(); canvas.drawPath(path, p)
+        p.color = Color.argb(if (flow) 125 else 50, Color.red(on), Color.green(on), Color.blue(on))
+        canvas.drawRoundRect(RectF(36f, 116f, 68f, 154f), 10f, 10f, p); canvas.drawRoundRect(RectF(82f, 116f, 114f, 154f), 10f, 10f, p)
+        p.style = Paint.Style.STROKE; p.color = if (flow) on else Color.argb(80, 255, 255, 255)
+        canvas.drawRoundRect(RectF(36f, 116f, 68f, 154f), 10f, 10f, p); canvas.drawRoundRect(RectF(82f, 116f, 114f, 154f), 10f, 10f, p)
+        p.style = Paint.Style.FILL; p.color = Color.argb(20, 255, 255, 255); canvas.drawRoundRect(RectF(36f, 166f, 114f, 190f), 10f, 10f, p)
+        if (flow) {
+            p.style = Paint.Style.STROKE; p.color = mint; p.strokeWidth = dp(2.2f) * u
+            if (mode == 0 || mode == 1 || mode == 2) {
+                for (x in listOf(52f, 75f, 98f)) { path.reset(); path.moveTo(x, 98f); path.cubicTo(x - 2f, 104f, x - 2f, 108f, x, 114f); canvas.drawPath(path, p) }
+            }
+            if (mode == 2 || mode == 3 || mode == 4) {
+                for (x in listOf(50f, 100f)) { path.reset(); path.moveTo(x, 156f); path.cubicTo(x - 2f, 160f, x - 2f, 164f, x, 170f); canvas.drawPath(path, p) }
+            }
+            if (mode == 4 || mode == 5) {
+                path.reset(); path.moveTo(44f, 91f); path.quadTo(75f, 79f, 106f, 91f); canvas.drawPath(path, p)
+                path.reset(); path.moveTo(50f, 83f); path.quadTo(75f, 72f, 100f, 83f); canvas.drawPath(path, p)
+            }
+        }
+        canvas.restore()
+        // fan speed bars
+        val bt = top + carH + dp(10f)
+        val bw = minOf(dp(13f), areaW * 0.07f); val bg = dp(5f)
+        val x0 = cx - (7 * bw + 6 * bg) / 2f
+        for (i in 0 until 7) {
+            val bh = barsH * (0.24f + 0.76f * i / 6f)
+            val rr = RectF(x0 + i * (bw + bg), bt + barsH - bh, x0 + i * (bw + bg) + bw, bt + barsH)
+            p.style = Paint.Style.FILL
+            if (i < s.climFan) {
+                p.color = Color.argb(60, Color.red(on), Color.green(on), Color.blue(on)); canvas.drawRoundRect(RectF(rr.left - dp(2f), rr.top - dp(2f), rr.right + dp(2f), rr.bottom + dp(2f)), bw * 0.4f, bw * 0.4f, p)
+                p.color = on
+            } else p.color = Color.argb(36, 255, 255, 255)
+            canvas.drawRoundRect(rr, bw * 0.3f, bw * 0.3f, p)
+        }
+        val label = "FAN  " + (if (s.climFan == 0) "Off" else "${s.climFan}")
+        p.textSize = dp(if (small) 13f else 15f); p.typeface = Typeface.DEFAULT_BOLD
+        val tw0 = p.measureText(label)
+        val ly = bt + barsH + labH * 0.55f
+        fan(cx - tw0 / 2 - dp(14f), ly, dp(if (small) 7f else 9f), Color.argb(190, 255, 255, 255))
+        text(label, cx + dp(8f), ly, if (small) 13f else 15f, Color.WHITE, true)
+    }
+
+    private fun pill(right: Float, cy: Float, ph: Float, label: String, value: String, small: Boolean): Float {
+        p.typeface = Typeface.DEFAULT; p.textSize = dp(if (small) 11f else 12f); val lw = p.measureText(label)
+        p.typeface = Typeface.DEFAULT_BOLD; p.textSize = dp(if (small) 13f else 15f); val vw = p.measureText(value)
+        val pad = dp(12f); val gp = dp(6f)
+        val r = RectF(right - (pad * 2 + lw + gp + vw), cy - ph / 2, right, cy + ph / 2)
+        p.style = Paint.Style.FILL; p.color = Color.argb(18, 255, 255, 255); canvas.drawRoundRect(r, ph / 2, ph / 2, p)
+        stroke(Color.argb(34, 255, 255, 255), 1f); canvas.drawRoundRect(r, ph / 2, ph / 2, p)
+        text(label, r.left + pad, cy, if (small) 11f else 12f, Color.argb(190, 255, 255, 255), false, Paint.Align.LEFT)
+        text(value, r.left + pad + lw + gp, cy, if (small) 13f else 15f, Color.WHITE, true, Paint.Align.LEFT)
+        return r.left
     }
 
     override fun onDraw(c: Canvas) {
         canvas = c
         val w = width.toFloat(); val h = height.toFloat()
         val s = snap
-        // three sizes: a third-height window (compact), half-height, and the full screen
-        val compact = h < dp(560f)
-        val medium = !compact && h < dp(800f)
-        p.shader = null; p.style = Paint.Style.FILL; p.color = bgColor
-        if (floating) {
-            c.drawRoundRect(RectF(0f, 0f, w, h), dp(24f), dp(24f), p)
-            stroke(Color.argb(70, 255, 255, 255), 1.5f); c.drawRoundRect(RectF(1f, 1f, w - 1f, h - 1f), dp(24f), dp(24f), p)
-        } else c.drawRect(0f, 0f, w, h, p)
-        val m = dp(if (compact) 10f else 14f)
-        val gap = dp(if (compact) 6f else 10f)
-        val headH = dp(if (compact) 34f else if (medium) 50f else 66f)
-        if (compact) {
-            text("Climate", m, dp(18f), 18f, Color.WHITE, true, Paint.Align.LEFT)
-            text(if (!s.climSeen) "Waiting for the A/C unit (no 0x373 frames yet)" else "Read-only: shows what the car reports" + (if (fanControl) " \u00B7 controls on" else ""),
-                m + dp(86f), dp(19f), 11f, if (s.climSeen) Color.argb(150, 255, 255, 255) else warm, false, Paint.Align.LEFT)
-        } else {
-            text("Climate", m, dp(28f), 24f, Color.WHITE, true, Paint.Align.LEFT)
-            text(if (!s.climSeen) "Waiting for the A/C unit (no 0x373 frames yet)" else "Read-only: shows what the car reports" + (if (fanControl) " \u00B7 controls on" else ""),
-                m, dp(50f), 12f, if (s.climSeen) Color.argb(150, 255, 255, 255) else warm, false, Paint.Align.LEFT)
-        }
-        // close buttons at both bottom corners, easy to reach from either front seat
-        val xs = dp(if (compact) 32f else 38f)
-        val cw = dp(if (compact) 72f else 86f)
-        val bp = dp(6f)
-        closeRect.set(m, h - bp - xs, m + cw, h - bp)
-        closeRect2.set(w - m - cw, h - bp - xs, w - m, h - bp)
-        for (cr in listOf(closeRect, closeRect2)) {
-            p.style = Paint.Style.FILL; p.color = Color.argb(70, 255, 255, 255); c.drawRoundRect(cr, xs / 2, xs / 2, p)
-            stroke(Color.argb(120, 255, 255, 255), 1.5f); c.drawRoundRect(cr, xs / 2, xs / 2, p)
-            text("Close", cr.centerX(), cr.centerY(), if (compact) 13f else 15f, Color.WHITE, true)
+        val hd = h / d
+        val small = hd < 470f                          // a third-height window: everything a little tighter
+        // background: the dashboard's colour, a touch lighter at the top
+        val rad = if (floating) dp(28f) else 0f
+        p.style = Paint.Style.FILL
+        p.shader = RadialGradient(w / 2f, 0f, maxOf(w, h) * 0.95f, intArrayOf(mixC(bgColor, Color.WHITE, 0.10f), bgColor, mixC(bgColor, Color.BLACK, 0.35f)), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
+        c.drawRoundRect(RectF(0f, 0f, w, h), rad, rad, p); p.shader = null
+        if (floating) { stroke(Color.argb(70, 255, 255, 255), 1.5f); c.drawRoundRect(RectF(1f, 1f, w - 1f, h - 1f), rad, rad, p) }
+        val m = dp(if (small) 12f else 16f)
+        val gap = dp(if (small) 6f else 8f)
+        val topY = dp(if (small) 8f else 12f)
+        val headH = dp(if (small) 40f else 56f)
+        val footH = dp(if (small) 40f else 50f)
+        val tileH = (h * 0.155f).coerceIn(dp(60f), dp(100f))
+        val chipH = (h * 0.104f).coerceIn(dp(40f), dp(62f))
+        val tilesTop = h - footH - gap - tileH
+        val chipsTop = tilesTop - gap - chipH
+        val dialTop = topY + headH
+        val dialH = chipsTop - gap - dialTop
+
+        // ---- header: power, title, cabin and outside readings
+        run {
+            val ps = headH * 0.80f
+            powerRect.set(m, topY + (headH - ps) / 2, m + ps, topY + (headH + ps) / 2)
+            val isOff = s.climSeen && s.climFan == 0
+            val pc = if (isOff) Color.parseColor("#FF5A5A") else on
+            p.style = Paint.Style.FILL; p.color = Color.argb(22, Color.red(pc), Color.green(pc), Color.blue(pc))
+            c.drawRoundRect(RectF(powerRect.left - dp(3f), powerRect.top - dp(3f), powerRect.right + dp(3f), powerRect.bottom + dp(3f)), ps * 0.34f, ps * 0.34f, p)
+            p.color = Color.argb(if (isOff) 70 else 40, Color.red(pc), Color.green(pc), Color.blue(pc))
+            c.drawRoundRect(powerRect, ps * 0.30f, ps * 0.30f, p)
+            stroke(pc, 1.8f); c.drawRoundRect(powerRect, ps * 0.30f, ps * 0.30f, p)
+            powerIcon(powerRect.centerX(), powerRect.centerY() + ps * 0.03f, ps * 0.26f, Color.WHITE)
+            text("Climate", powerRect.right + dp(12f), powerRect.centerY(), if (small) 18f else 22f, Color.WHITE, true, Paint.Align.LEFT)
+            val ph = dp(if (small) 26f else 32f)
+            val l1 = pill(w - m, powerRect.centerY(), ph, "Outside", temp(s.outsideC), small)
+            pill(l1 - dp(8f), powerRect.centerY(), ph, "Cabin", temp(s.cabinC), small)
         }
 
-        val cols = 7
-        var fanH = dp(if (compact) 62f else if (medium) 74f else 88f)
-        var tileH = dp(if (compact) 58f else if (medium) 66f else 82f)
-        val rearH = 0f                                // no rear-row controls on this car
-        val footH = xs + dp(6f)
-        var y = headH
-        val tempMin = dp(if (compact) 130f else if (medium) 190f else 240f)
-        val nGaps = 3
-        val fixed = footH + gap * nGaps + dp(4f) + dp(20f)             // dp(20f): padding inside the functions card
-        // spare height after the minimums: tiles, fan and rear row grow a little before the temperature section takes the rest
-        val spare = maxOf(0f, h - y - fixed - fanH - tileH - rearH - tempMin)
-        tileH += minOf(spare * 0.55f, dp(80f)); fanH += minOf(spare * 0.22f, dp(40f))
-        val funcH = tileH + dp(20f)
-        val tempH = maxOf(dp(if (compact) 100f else if (medium) 150f else 200f), h - y - fixed - fanH - tileH - rearH)
-        // ---- one combined temperature section
-        card(RectF(m, y, w - m, y + tempH), "")
-        val mid = w / 2
-        val modeH = dp(if (compact) 42f else 60f)
-        p.style = Paint.Style.FILL; p.color = Color.argb(40, 255, 255, 255); c.drawRect(mid - dp(0.5f), y + dp(14f), mid + dp(0.5f), y + tempH - modeH - dp(22f), p)
+        // ---- the two dials and the cabin between them
         tempBtns.clear(); tempBtnInfo.clear(); modeRects.clear()
-        fun side(cx: Float, name: String, t: Double?, mode: Int, count: Int) {
-            text(name, cx, y + dp(if (compact) 18f else 26f), if (compact) 11f else 13f, Color.argb(170, 255, 255, 255), true)
-            val col = if (t == null) off else if (t >= 22.5) warm else if (t <= 20) cool else Color.WHITE
-            val tTop = y + dp(if (compact) 34f else 46f); val tBot = y + tempH - modeH - dp(12f)
-            val fs = ((tBot - tTop) / d * 0.62f).coerceIn(26f, 58f)
-            text(temp(t), cx, (tTop + tBot) / 2, fs, col, true)
-            // - and + side by side to the left of the readout, as large as the space allows (not wired to the car yet)
-            p.textSize = dp(fs); p.typeface = Typeface.DEFAULT_BOLD
-            val half = p.measureText(temp(t)) / 2f
-            val availW = (cx - half - dp(12f)) - (if (cx < mid) m + dp(6f) else mid + dp(10f))
-            val bs = minOf(tBot - tTop, (availW - dp(6f)) / 2f).coerceAtLeast(dp(26f))
-            val cy = (tTop + tBot) / 2
-            val minus = RectF(cx - half - dp(12f) - 2 * bs - dp(6f), cy - bs / 2, cx - half - dp(12f) - bs - dp(6f), cy + bs / 2)
-            val plus = RectF(cx - half - dp(12f) - bs, cy - bs / 2, cx - half - dp(12f), cy + bs / 2)
-            for ((r, sym) in listOf(minus to "\u2212", plus to "+")) {
-                p.style = Paint.Style.FILL; p.color = Color.argb(48, 255, 255, 255); c.drawRoundRect(r, bs * 0.22f, bs * 0.22f, p)
-                stroke(Color.argb(120, 255, 255, 255), 1.5f); c.drawRoundRect(r, bs * 0.22f, bs * 0.22f, p)
-                text(sym, r.centerX(), r.centerY(), (bs / d * 0.6f).coerceIn(18f, 36f), Color.WHITE, true)
-            }
-            tempBtns.add(minus); tempBtns.add(plus)
-            tempBtnInfo.add(Pair(count > 0, -1)); tempBtnInfo.add(Pair(count > 0, 1))   // 'count' is 5 for the driver's side
-            val iw = (w / 2 - m - dp(16f)) / 5
-            val x0 = mid - iw * count / 2f                 // centred across the whole section
-            val iy = y + tempH - dp(8f) - modeH / 2
-            for (i in 0 until count) {
-                val ic = x0 + iw * (i + 0.5f)
-                val lit = mode == i + 1
-                val rr = RectF(ic - iw / 2 + dp(3f), iy - modeH / 2, ic + iw / 2 - dp(3f), iy + modeH / 2)
-                p.style = Paint.Style.FILL; p.color = if (lit) Color.argb(64, 45, 212, 191) else Color.argb(24, 255, 255, 255)
-                c.drawRoundRect(rr, dp(14f), dp(14f), p)
-                if (lit) { stroke(on, 2f); c.drawRoundRect(rr, dp(14f), dp(14f), p) }
-                modeIcon(ic, iy, modeH * 0.30f, i + 1, if (lit) Color.WHITE else off)
+        val cabinW = w * 0.30f
+        val dialW = (w - cabinW - 3 * m) / 2f
+        dial(m, dialW, dialTop, dialH, "DRIVER", s.climDrvT, true)
+        dial(w - m - dialW, dialW, dialTop, dialH, "PASSENGER", s.climPassT, false)
+        cabin(w / 2f, dialTop, cabinW, dialH, s, small)
+
+        // ---- air direction (the driver's; the car has no separate passenger airflow)
+        run {
+            val names = listOf("Face", "Face + Feet", "Feet", "Feet + Screen", "Screen")
+            val cg = dp(if (small) 6f else 10f)
+            val cw = (w - 2 * m - 4 * cg) / 5f
+            for (i in 0 until 5) {
+                val rr = RectF(m + i * (cw + cg), chipsTop, m + i * (cw + cg) + cw, chipsTop + chipH)
+                val lit = s.climSeen && s.climDrvMode == i + 1
+                val cr = chipH * 0.32f
+                p.style = Paint.Style.FILL
+                if (lit) { p.color = Color.argb(40, Color.red(on), Color.green(on), Color.blue(on)); c.drawRoundRect(RectF(rr.left - dp(2f), rr.top - dp(2f), rr.right + dp(2f), rr.bottom + dp(2f)), cr, cr, p) }
+                p.color = if (lit) Color.argb(46, Color.red(on), Color.green(on), Color.blue(on)) else Color.argb(14, 255, 255, 255)
+                c.drawRoundRect(rr, cr, cr, p)
+                stroke(if (lit) on else Color.argb(34, 255, 255, 255), if (lit) 1.8f else 1f); c.drawRoundRect(rr, cr, cr, p)
+                modeIcon(rr.left + chipH * 0.78f, rr.centerY(), chipH * 0.30f, i + 1, if (lit) Color.WHITE else Color.argb(150, 255, 255, 255))
+                val tx0 = rr.left + chipH * 1.18f
+                fitText(names[i], (tx0 + rr.right - dp(4f)) / 2f, rr.centerY(), if (small) 11f else 12f, if (lit) Color.WHITE else Color.argb(170, 255, 255, 255), true, rr.right - dp(6f) - tx0)
                 modeRects.add(rr)
             }
         }
-        side((m + mid) / 2, "DRIVER", s.climDrvT, s.climDrvMode, 5)
-        // climate power, top left of the driver section: red when the A/C unit reports the fan off (system off)
-        run {
-            val ps = dp(if (compact) 28f else 40f)
-            powerRect.set(m + dp(8f), y + dp(6f), m + dp(8f) + ps, y + dp(6f) + ps)
-            val isOff = s.climSeen && s.climFan == 0
-            val pc = if (isOff) Color.parseColor("#FF5A5A") else on
-            p.style = Paint.Style.FILL; p.color = Color.argb(if (isOff) 70 else 36, Color.red(pc), Color.green(pc), Color.blue(pc))
-            c.drawRoundRect(powerRect, ps * 0.26f, ps * 0.26f, p)
-            stroke(pc, 1.8f); c.drawRoundRect(powerRect, ps * 0.26f, ps * 0.26f, p)
-            powerIcon(powerRect.centerX(), powerRect.centerY() + ps * 0.03f, ps * 0.27f, Color.WHITE)
-        }
-        side((mid + w - m) / 2, "PASSENGER", s.climPassT, s.climPassMode, 0)   // the car has no separate passenger airflow, so no mode icons
-        y += tempH + gap
 
-        // ---- fan
-        card(RectF(m, y, w - m, y + fanH), "")
-        var barL = m + dp(14f); val barR = w - m - dp(14f)
-        fanMinus.setEmpty(); fanPlus.setEmpty(); fanSegs.clear()
-        // the word and icon sit in the middle of the stepped bars
-        run {
-            val cxBar = (barL + barR) / 2
-            val label = "FAN  " + (if (s.climFan == 0) "Off" else "${s.climFan}")
-            p.textSize = dp(if (compact) 14f else 16f); p.typeface = Typeface.DEFAULT_BOLD
-            val tw0 = p.measureText(label)
-            val iy = y + dp(if (compact) 13f else 18f)
-            fan(cxBar - tw0 / 2 - dp(14f), iy, dp(if (compact) 8f else 10f), Color.argb(190, 255, 255, 255))
-            text(label, cxBar + dp(8f), iy, if (compact) 14f else 16f, Color.WHITE, true)
-        }
-        val segGap = dp(5f); val segW = (barR - barL - 6 * segGap) / 7
-        val maxBar = fanH - dp(if (compact) 28f else 36f) - dp(6f)       // the label row above the steps stays clear of every step
-        for (i in 0 until 7) {
-            val l = barL + i * (segW + segGap); val sh = (dp(8f) + (maxBar - dp(8f)) * i / 6f)
-            p.style = Paint.Style.FILL; p.color = if (i < s.climFan) on else Color.argb(50, 255, 255, 255)
-            c.drawRoundRect(RectF(l, y + fanH - dp(8f) - sh, l + segW, y + fanH - dp(8f)), dp(4f), dp(4f), p)
-        }
-        y += fanH + gap
-
-        // ---- functions
-        card(RectF(m, y, w - m, y + funcH), "")
-        val ty = y + dp(10f); val tw = w - 2 * m - dp(20f); val tl = m + dp(10f)
-        tile(0, cols, tl, ty, tw, tileH, "A/C", s.climAc, on, compact) { x, yy, r, col -> snowflake(x, yy, r, col) }
-        tile(1, cols, tl, ty, tw, tileH, "Heated wheel", s.climWheelOn(), warm, compact) { x, yy, r, col -> wheel(x, yy, r, col) }
-        tile(2, cols, tl, ty, tw, tileH, "Defrost", s.climMaxDefrost, warm, compact) { x, yy, r, col -> defrost(x, yy, r, col) }
-        tile(3, cols, tl, ty, tw, tileH, "Rear defrost", s.rearDefrost == true, warm, compact) { x, yy, r, col -> rearDefrost(x, yy, r, col) }
-        tile(4, cols, tl, ty, tw, tileH, "Recirc", s.climSeen && !s.climOuterAir, cool, compact) { x, yy, r, col -> recirc(x, yy, r, col, s.climOuterAir) }
-        tile(5, cols, tl, ty, tw, tileH, "Sync", s.climSync, on, compact) { x, yy, r, col -> sync(x, yy, r, col) }
-        tile(6, cols, tl, ty, tw, tileH, "Auto", s.climAuto, on, compact) { x, yy, r, col -> autoIcon(x, yy, r, col) }
-        // the heated-wheel tile is a button while the control test is on
-        wheelRect.setEmpty()
-        btnRects.clear()
+        // ---- function tiles
+        val cols = 7
+        tile(0, cols, m, tilesTop, w - 2 * m, tileH, "A/C", s.climAc, on, small) { x, yy, r, col -> snowflake(x, yy, r, col) }
+        tile(1, cols, m, tilesTop, w - 2 * m, tileH, "Heated wheel", s.climWheelOn(), warm, small) { x, yy, r, col -> wheel(x, yy, r, col) }
+        tile(2, cols, m, tilesTop, w - 2 * m, tileH, "Defrost", s.climMaxDefrost, warm, small) { x, yy, r, col -> defrost(x, yy, r, col) }
+        tile(3, cols, m, tilesTop, w - 2 * m, tileH, "Rear defrost", s.rearDefrost == true, warm, small) { x, yy, r, col -> rearDefrost(x, yy, r, col) }
+        tile(4, cols, m, tilesTop, w - 2 * m, tileH, "Recirc", s.climSeen && !s.climOuterAir, cool, small) { x, yy, r, col -> recirc(x, yy, r, col, s.climOuterAir) }
+        tile(5, cols, m, tilesTop, w - 2 * m, tileH, "Sync", s.climSync, on, small) { x, yy, r, col -> sync(x, yy, r, col) }
+        tile(6, cols, m, tilesTop, w - 2 * m, tileH, "Auto", s.climAuto, on, small) { x, yy, r, col -> autoIcon(x, yy, r, col) }
+        wheelRect.setEmpty(); btnRects.clear()
         if (fanControl) {
-            val gp = dp(if (compact) 5f else 8f); val tw1 = (tw - gp * (cols - 1)) / cols
-            val i = 1; val x = tl + i * (tw1 + gp)
-            wheelRect.set(x, ty, x + tw1, ty + tileH)
-            for (ti in listOf(0, 2, 4)) { val xx = tl + ti * (tw1 + gp); btnRects.add(RectF(xx, ty, xx + tw1, ty + tileH)) }
+            val gp = tileGap(small); val tw1 = (w - 2 * m - gp * (cols - 1)) / cols
+            val wx = m + 1 * (tw1 + gp); wheelRect.set(wx, tilesTop, wx + tw1, tilesTop + tileH)
+            for (ti in listOf(0, 2, 4, 5, 6)) { val xx = m + ti * (tw1 + gp); btnRects.add(RectF(xx, tilesTop, xx + tw1, tilesTop + tileH)) }
         }
-        y += funcH + gap
 
-        // ---- footer, between the two close buttons
+        // ---- close buttons at both bottom corners, status between them
+        val xs = dp(if (small) 34f else 38f)
+        val cw = dp(if (small) 84f else 96f)
+        val bp = dp(if (small) 6f else 10f)
+        closeRect.set(m, h - bp - xs, m + cw, h - bp)
+        closeRect2.set(w - m - cw, h - bp - xs, w - m, h - bp)
+        for (cr in listOf(closeRect, closeRect2)) {
+            p.style = Paint.Style.FILL; p.color = Color.argb(40, 255, 255, 255); c.drawRoundRect(cr, xs / 2, xs / 2, p)
+            stroke(Color.argb(100, 255, 255, 255), 1.4f); c.drawRoundRect(cr, xs / 2, xs / 2, p)
+            text("Close", cr.centerX(), cr.centerY(), if (small) 13f else 15f, Color.WHITE, true)
+        }
         val state = when (s.climState) { 0 -> "starting"; 1 -> "low-voltage"; 2 -> "high-voltage on"; 3 -> "charging"; 4 -> "remote"; 5 -> "HV discharge"; 6 -> "delay"; else -> "--" }
         val advice = when (s.climAdvice) { 1 -> "natural air"; 2 -> "cold air"; 3 -> "hot air"; else -> "" }
         val parts = ArrayList<String>()
-        parts.add("Outside " + temp(s.outsideC)); parts.add("Cabin " + temp(s.cabinC))
         if (s.climSeen) parts.add("A/C unit: $state")
         if (s.climRemote == 1) parts.add("remote A/C running")
         if (advice.isNotEmpty()) parts.add(advice)
-        val fy = h - dp(6f) - xs / 2
+        val fy = h - bp - xs / 2
         val footW = closeRect2.left - closeRect.right - dp(16f)
-        fitText(parts.joinToString("  \u00B7  "), w / 2, fy - dp(9f), if (compact) 12f else 13f, Color.argb(190, 255, 255, 255), false, footW)
-        if (s.climFault) text("Thermal system fault", w / 2, fy + dp(10f), 12f, Color.parseColor("#FF5A5A"), true)
-        else if (s.climLimited) text("Thermal functions limited", w / 2, fy + dp(10f), 12f, warm, true)
-        else if (s.wheelHeat == null) text("Heated wheel status not received", w / 2, fy + dp(10f), 11f, Color.argb(120, 255, 255, 255))
+        if (!s.climSeen) fitText("Waiting for the A/C unit (no 0x373 frames yet)", w / 2, fy, if (small) 11f else 12f, warm, false, footW)
+        else fitText(parts.joinToString("  ·  "), w / 2, fy - (if (s.climFault || s.climLimited || s.wheelHeat == null) dp(9f) else 0f), if (small) 11f else 12f, Color.argb(190, 255, 255, 255), false, footW)
+        if (s.climSeen) {
+            if (s.climFault) text("Thermal system fault", w / 2, fy + dp(10f), 11f, Color.parseColor("#FF5A5A"), true)
+            else if (s.climLimited) text("Thermal functions limited", w / 2, fy + dp(10f), 11f, warm, true)
+            else if (s.wheelHeat == null) text("Heated wheel status not received", w / 2, fy + dp(10f), 10f, Color.argb(120, 255, 255, 255))
+        }
     }
 
     private fun CanSnapshot.climWheelOn() = wheelHeat == true
@@ -5055,7 +5190,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             val mi = modeRects.indexOfFirst { it.contains(e.x, e.y) }
             if (mi >= 0) { lastFanTap = System.currentTimeMillis(); onMode?.invoke(mi + 1); return true }
         }
-        if (fanControl && btnRects.size == 3 && System.currentTimeMillis() - lastFanTap > 600) {
+        if (fanControl && btnRects.size == 5 && System.currentTimeMillis() - lastFanTap > 600) {
             val bi = btnRects.indexOfFirst { it.contains(e.x, e.y) }
             if (bi >= 0) { lastFanTap = System.currentTimeMillis(); onButton?.invoke(bi); return true }
         }
@@ -5073,6 +5208,8 @@ class MediaWatcher(private val ctx: Context, private val ui: Handler, private va
     var playing = false
     var hasSession = false
     var onChange: (() -> Unit)? = null
+    /** The app whose media session the card follows. */
+    val pkg: String? get() = ctl?.packageName
 
     private val msm = ctx.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
     private val comp = ComponentName(ctx, MainActivity::class.java)
@@ -5213,6 +5350,7 @@ class MediaCardView(ctx: Context) : View(ctx) {
     var onPrev: (() -> Unit)? = null
     var onToggle: (() -> Unit)? = null
     var onNext: (() -> Unit)? = null
+    var onTap: (() -> Unit)? = null                  // a tap anywhere on the card that is not one of the three buttons
     var rhd = false                                   // right-hand drive: controls on the right
     private var title: String? = null
     private var artist: String? = null
@@ -5266,10 +5404,12 @@ class MediaCardView(ctx: Context) : View(ctx) {
         c.drawRoundRect(RectF(1f, 1f, w - 1f, h - 1f), rad, rad, p)
 
         // controls on the driver's side: previous, play / pause, next, three identical round glass buttons
-        val bsz = h * 0.58f; val gap = dp(16f)
-        val cy = h / 2
+        val small = w < dp(380f)                       // a narrow card: the text on top, the three buttons in a row underneath
+        val gap = dp(if (small) 10f else 16f)
+        val bsz = if (small) minOf(h * 0.40f, (w - dp(28f) - 2 * gap) / 3) else h * 0.58f
+        val cy = if (small) h - dp(8f) - bsz / 2 else h / 2
         val total = bsz * 3 + gap * 2
-        val left = if (rhd) w - dp(20f) - total else dp(20f)
+        val left = if (small) (w - total) / 2 else if (rhd) w - dp(20f) - total else dp(20f)
         rPrev.set(left, cy - bsz / 2, left + bsz, cy + bsz / 2)
         rPlay.set(rPrev.right + gap, cy - bsz / 2, rPrev.right + gap + bsz, cy + bsz / 2)
         rNext.set(rPlay.right + gap, cy - bsz / 2, rPlay.right + gap + bsz, cy + bsz / 2)
@@ -5277,14 +5417,16 @@ class MediaCardView(ctx: Context) : View(ctx) {
         icon(c, rPrev, 0); icon(c, rPlay, if (playing) 3 else 2); icon(c, rNext, 1)
 
         // title and artist on the other side
-        val tx = if (rhd) dp(20f) else rNext.right + dp(24f)
-        val maxW = if (rhd) rPrev.left - tx - dp(24f) else w - tx - dp(20f)
+        val tx = if (small) dp(14f) else if (rhd) dp(20f) else rNext.right + dp(24f)
+        val maxW = if (small) w - dp(28f) else if (rhd) rPrev.left - tx - dp(24f) else w - tx - dp(20f)
+        val y1 = if (small) h * 0.17f else h * 0.38f; val y2 = if (small) h * 0.35f else h * 0.64f
+        val s1 = if (small) 15f else 20f; val s2 = if (small) 12f else 14f
         if (hasSession && !title.isNullOrEmpty()) {
-            fitText(title!!, tx, h * 0.38f, 20f, Color.WHITE, true, maxW)
-            if (!artist.isNullOrEmpty()) fitText(artist!!, tx, h * 0.64f, 14f, Color.argb(210, 255, 255, 255), false, maxW)
+            fitText(title!!, tx, y1, s1, Color.WHITE, true, maxW)
+            if (!artist.isNullOrEmpty()) fitText(artist!!, tx, y2, s2, Color.argb(210, 255, 255, 255), false, maxW)
         } else {
-            fitText("Nothing playing", tx, h * 0.38f, 18f, Color.argb(220, 255, 255, 255), true, maxW)
-            fitText("Music from the phone over Bluetooth shows here", tx, h * 0.64f, 12f, Color.argb(150, 255, 255, 255), false, maxW)
+            fitText("Nothing playing", tx, y1, if (small) 14f else 18f, Color.argb(220, 255, 255, 255), true, maxW)
+            fitText(if (small) "Bluetooth music shows here" else "Music from the phone over Bluetooth shows here", tx, y2, 12f, Color.argb(150, 255, 255, 255), false, maxW)
         }
     }
 
@@ -5336,7 +5478,7 @@ class MediaCardView(ctx: Context) : View(ctx) {
         if (e.action == android.view.MotionEvent.ACTION_UP) {
             val s = dp(8f)
             fun hit(r: RectF) = e.x >= r.left - s && e.x <= r.right + s && e.y >= r.top - s && e.y <= r.bottom + s
-            when { hit(rPlay) -> onToggle?.invoke(); hit(rPrev) -> onPrev?.invoke(); hit(rNext) -> onNext?.invoke() }
+            when { hit(rPlay) -> onToggle?.invoke(); hit(rPrev) -> onPrev?.invoke(); hit(rNext) -> onNext?.invoke(); else -> onTap?.invoke() }
         }
         return true
     }
