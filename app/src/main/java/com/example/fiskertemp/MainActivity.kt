@@ -1000,6 +1000,33 @@ class MainActivity : Activity() {
             }
         }
         box.add(arcG, 4)
+        fun relayout() { layoutKey = ""; if (::dashRoot.isInitialized && dashRoot.width > 0) { val dn = resources.displayMetrics.density; adaptDashLayout((dashRoot.width / dn).toInt(), (dashRoot.height / dn).toInt()) } }
+        box.add(CheckBox(this).apply {
+            text = "Hide the traffic light"; isChecked = prefs().getBoolean("hideLight", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideLight", on).apply() }
+        }, 4)
+        box.add(CheckBox(this).apply {
+            text = "Hide the speed limit sign"; isChecked = prefs().getBoolean("hideSign", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideSign", on).apply() }
+        }, 4)
+        box.add(CheckBox(this).apply {
+            text = "Hide the trip information"; isChecked = prefs().getBoolean("hideTrip", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideTrip", on).apply(); relayout() }
+        }, 4)
+        box.add(CheckBox(this).apply {
+            text = "Show icons instead of names on the app buttons"; isChecked = prefs().getBoolean("iconBtns", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("iconBtns", on).apply(); refreshLowerLabels() }
+        }, 4)
+        box.add(Button(this).apply {
+            text = "Clear an app button"; isAllCaps = false
+            setOnClickListener {
+                val names = Array(slotCount) { i -> "Button ${i + 1}: " + (if (slotPkg(i).isEmpty()) "(no app)" else appLabelOf(slotPkg(i))) }
+                darkDialog().setTitle("Clear which button?").setItems(names) { _, i ->
+                    prefs().edit().remove("slotPkg$i").apply(); refreshLowerLabels()
+                    EventLog.add("lower button ${i + 1} cleared")
+                }.setNegativeButton("Cancel", null).showDark()
+            }
+        }, 8)
         box.add(CheckBox(this).apply {
             text = "Hide the battery bar under the trip information (small windows give the space to the trip information)"; isChecked = prefs().getBoolean("hideBatteryBar", false)
             setOnCheckedChangeListener { _, on ->
@@ -1907,29 +1934,43 @@ class MainActivity : Activity() {
         // with the battery bar hidden, short windows give its height to the trip panel; roomy ones keep the panel as it is
         val midFixed = when (midLevel) { 0 -> 168f; 1 -> 142f; else -> 98f } - (if (hideBar && midLevel > 0) 34f else 0f)
         val midFree = (if (tall) wantH else gaugeH - topM.toFloat()) - midFixed
-        val midRows = if (midFree >= 104f) 3 else if (midFree >= 66f) 2 else 0
+        val hideTrip = prefs().getBoolean("hideTrip", false)
+        val midRows = if (hideTrip) 0 else if (midFree >= 104f) 3 else if (midFree >= 66f) 2 else 0
         // the clock goes in the free band above the left gauge (the gauge circle is centred in its height)
         val rowHdp = if (tall) wantH else gaugeH - topM.toFloat()
         // the gauge circles are limited by the row height, so any spare width goes to the middle column (bigger trip text)
         val gwDefault = (wDp - 16) * 1.15f / 3.0f
-        val gaugeWdp = maxOf(minOf(gwDefault, rowHdp), gwDefault * 0.85f)
-        val midWdp = (wDp - 16) - 2f * gaugeWdp
-        // the middle column may reach over the gauge boxes: where the arcs open toward the middle there is free room there
+        var gaugeWdp = maxOf(minOf(gwDefault, rowHdp), gwDefault * 0.85f)
+        val wInner = (wDp - 16).toFloat()
         val arcMode = prefs().getString("arcStyle", "mirror")
-        val ovCap = gaugeWdp * 0.15f
-        val ovTotal = (wDp - 16) * 0.275f - midWdp
-        // a gauge whose ring faces the middle (both arcs curved the same way) gets a clear gap instead of an overlap
-        val faceL = arcMode == "right"
-        val faceR = arcMode == "left"
-        val gap = -16f
         val ovL: Int; val ovR: Int
-        if (faceL && !faceR) { ovR = (ovTotal - gap).coerceIn(0f, ovCap).toInt(); ovL = gap.toInt() }
-        else if (faceR && !faceL) { ovL = (ovTotal - gap).coerceIn(0f, ovCap).toInt(); ovR = gap.toInt() }
-        else { ovL = (ovTotal / 2f).coerceIn(0f, ovCap).toInt(); ovR = ovL }
+        if (arcMode == "left" || arcMode == "right") {
+            // both arcs curve the same way: the middle column spans exactly the free space between the two arcs
+            // (centred there, with a clear gap on each side); the arcs shrink if that space would be too narrow
+            val gapDp = 10f
+            val midMin = wInner * 0.25f
+            fun free(g: Float) = wInner - g - 1.707f * (minOf(g, rowHdp) / 2f * 0.92f) - 2f * gapDp
+            while (free(gaugeWdp) < midMin && gaugeWdp > gwDefault * 0.6f) gaugeWdp -= 2f
+            val g = gaugeWdp
+            val r = minOf(g, rowHdp) / 2f * 0.92f
+            // "(" reaches 0.707 r to the right of its centre, ")" reaches 0.707 r to the left; the far side reaches a full r
+            val kL = if (arcMode == "left") 0.707f else 1f
+            val kR = if (arcMode == "left") 1f else 0.707f
+            val a = g / 2f + kL * r + gapDp
+            val b = wInner - g / 2f - kR * r - gapDp
+            ovL = (g - a).toInt(); ovR = (b - (wInner - g)).toInt()
+        } else {
+            // mirrored arcs open toward the middle, so the middle column may reach over the gauge boxes
+            val midW0 = wInner - 2f * gaugeWdp
+            val ovCap = gaugeWdp * 0.15f
+            val ovTotal = wInner * 0.275f - midW0
+            ovL = (ovTotal / 2f).coerceIn(0f, ovCap).toInt(); ovR = ovL
+        }
+        val midWdp = wInner - 2f * gaugeWdp
         val band = rowHdp / 2f - minOf(gaugeWdp, rowHdp) / 2f * 0.92f - 6f
         val clockH = if (band >= 30f) band.toInt().coerceAtMost(110) else 0
         val rhd = prefs().getBoolean("rhd", false)
-        val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$rhd/$hideBar"
+        val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$rhd/$hideBar/$hideTrip/${prefs().getBoolean("iconBtns", false)}"
         if (key == layoutKey) return
         layoutKey = key
         EventLog.add("layout ${wDp}x${hDp}dp tier=$ti trip=$midRows third=$third half=$half tall=$tall")
@@ -1965,7 +2006,7 @@ class MainActivity : Activity() {
         }
         dashClock.requestLayout()
         tripPanel.visibility = if (midRows > 0) View.VISIBLE else View.GONE
-        tripBtn.visibility = if (midRows > 0) View.GONE else View.VISIBLE
+        tripBtn.visibility = if (midRows > 0 || hideTrip) View.GONE else View.VISIBLE
         (dashSlot.layoutParams as LinearLayout.LayoutParams).apply { height = dp(if (midLevel == 2) 48 else if (short) 58 else 92); topMargin = dp(if (brakeUnder) 0 else 4) }
         dashSlot.requestLayout()
         // short windows: READY, the light distance and the brake pill sit beside the sign instead of stacking, so the trip panel gets the height
@@ -2076,6 +2117,7 @@ class MainActivity : Activity() {
             btnBar.addView(v, LinearLayout.LayoutParams(-2, dp(36)).apply { if (i < barKids.size - 1) rightMargin = dp(8) })
         }
         btnBar.requestLayout(); lowerBox.requestLayout()
+        refreshLowerLabels()
         (poolBar.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), 0, dp(8), dp(lowerBottomM)) }
         (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -2131,11 +2173,33 @@ class MainActivity : Activity() {
 
     /** Names on the four lower buttons: the chosen app, or a "+" while empty. */
     private fun refreshLowerLabels() {
+        // every name is cut with "..." so the row of app buttons never runs into the Hide / Exit buttons on the right
+        val un = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        val ready = ::btnBar.isInitialized && ::tripBtn.isInitialized && ::climateBtn.isInitialized && ::mediaBtn.isInitialized && ::resBtn.isInitialized
+        var per = dp(120)
+        if (ready) {
+            var others = 0
+            for (b in listOf(climateBtn, mediaBtn, resBtn, tripBtn)) if (b.visibility != View.GONE) { b.measure(un, un); others += b.measuredWidth + dp(6) }
+            btnBar.measure(un, un)
+            val totalW = if (::dashRoot.isInitialized && dashRoot.width > 0) dashRoot.width else resources.displayMetrics.widthPixels
+            val room = totalW - dp(8 + 20 + 16) - others - btnBar.measuredWidth - dp(6 + 6 * slotCount)
+            per = (room / slotCount).coerceIn(dp(44), dp(120))
+        }
         for (i in 0 until lowerTabs.childCount) {
             val v = lowerTabs.getChildAt(i) as? TextView ?: continue
             val pkg = slotPkg(i)
-            v.text = if (pkg.isEmpty()) "+" else appLabelOf(pkg)
-            v.maxWidth = dp(120)
+            val icons = prefs().getBoolean("iconBtns", false) && pkg.isNotEmpty()
+            val ic = if (icons) try { packageManager.getApplicationIcon(pkg) } catch (e: Exception) { null } else null
+            if (ic != null) {
+                ic.setBounds(0, 0, dp(28), dp(28))
+                v.text = ""
+                v.setCompoundDrawables(ic, null, null, null)
+                v.maxWidth = minOf(dp(56), per)
+            } else {
+                v.setCompoundDrawables(null, null, null, null)
+                v.text = if (pkg.isEmpty()) "+" else appLabelOf(pkg)
+                v.maxWidth = per
+            }
             v.alpha = if (pkg.isEmpty()) 0.55f else 1f
         }
     }
@@ -2498,7 +2562,7 @@ class MainActivity : Activity() {
         fun t(c: Double?) = if (c == null) "--" else fmt(c, "\u00B0C", 0)
         val nowMs = System.currentTimeMillis()
         // speed limit sign: shown in the dashboard's own speed unit; fades in and out with the car's knowledge of the limit
-        val lim = s.limit
+        val lim = if (prefs().getBoolean("hideSign", false)) null else s.limit
         if (lim != null) {
             val mphWanted = speedMph()
             val shownLim = when {
@@ -2517,7 +2581,7 @@ class MainActivity : Activity() {
             dashSignSrc.setTextColor(if (dashDay) Color.argb(200, 20, 32, 46) else Color.argb(200, 255, 255, 255))
             if (tm != lastTsrMode) { lastTsrMode = tm; EventLog.add("speed limit source: " + (dashSignSrc.text.ifEmpty { "unknown" })) }
         }
-        val lc = s.lightColor
+        val lc = if (prefs().getBoolean("hideLight", false)) null else s.lightColor
         if (lc != null) { lightColor = lc; lightSeenAt = nowMs; dashLight.setColor(lc) }
         val seen = lc != null || nowMs - lightSeenAt < 1500   // brief hold so one missed frame does not flicker
         val lightEnded = lightShown && !seen
@@ -2541,7 +2605,7 @@ class MainActivity : Activity() {
             val g = if (!wantSign && !seen) Gravity.CENTER else (Gravity.CENTER_VERTICAL or Gravity.START)
             if (rlp != null && rlp.gravity != g) { rlp.gravity = g; rlp.leftMargin = if (g == Gravity.CENTER) 0 else dp(4); dashReady.layoutParams = rlp }
         }
-        dashLightDist.text = s.lightDistM?.let { "$it m" } ?: ""
+        dashLightDist.text = if (lc == null) "" else s.lightDistM?.let { "$it m" } ?: ""
         val dm = s.driveMode
         if (dm == null) dashMode.visibility = View.INVISIBLE else {
             val (name, col) = when (dm) {
