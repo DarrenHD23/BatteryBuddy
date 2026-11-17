@@ -1463,7 +1463,7 @@ class MainActivity : Activity() {
             addView(dashSign, FrameLayout.LayoutParams(dp(64), dp(64), Gravity.CENTER))
             // where the car got the limit (camera / map), in the spare strip under the sign; only in the roomy layout
             dashSignSrc = TextView(this@MainActivity).apply { textSize = 9f; gravity = Gravity.CENTER; alpha = 0f; visibility = View.GONE; setSingleLine(true) }
-            addView(dashSignSrc, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
+            addView(dashSignSrc, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(3) })   // keeps the tail of the p inside the slot
         }
         val mid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
@@ -1776,18 +1776,14 @@ class MainActivity : Activity() {
         try {
             val ref: View? = if (chargeBar.visibility != View.GONE) chargeBar else if (tripPanel.visibility == View.VISIBLE) tripPanel else null
             val root = mediaPopup.parent as View
-            val rowV: View? = if (dashRow.visibility == View.VISIBLE && dashRow.height > 0) dashRow else if (dashStrip.visibility == View.VISIBLE && dashStrip.height > 0) dashStrip else null
             if (ref != null && ref.height > 0 && root.height > 0) {
                 val a = IntArray(2); val b = IntArray(2)
                 ref.getLocationInWindow(a); root.getLocationInWindow(b)
                 val top = a[1] - b[1] + ref.height + dp(5)                         // 5 dp under the battery bar
-                var limit = root.height - dp(66)                                  // the bottom buttons
-                if (rowV != null) { val c = IntArray(2); rowV.getLocationInWindow(c); limit = c[1] - b[1] - dp(12) }   // clear of the stat rows and their labels
-                val room = limit - top
-                if (room >= dp(80)) {
-                    hgt = minOf(dp(132), room)
-                    bottom = root.height - (top + hgt)
-                }
+                // always the full size, 5 dp under the battery bar, whatever the screen size (it can cover the stat rows in the shorter 1784 screen)
+                // the same size in every layout
+                hgt = dp(132)
+                bottom = maxOf(root.height - (top + hgt), dp(66))
             }
         } catch (e: Exception) { }
         if (lp.height != hgt || lp.bottomMargin != bottom) {
@@ -2464,7 +2460,7 @@ class MainActivity : Activity() {
             dashSign.euro = prefs().getString("signStyle", "us") == "eu"
             dashSign.invalidate()
             val tm = s.tsrMode ?: 0
-            dashSignSrc.text = when (tm) { 2 -> "camera + map"; 3 -> "camera"; 4 -> "map"; 5 -> "sign data error"; else -> "" }
+            dashSignSrc.text = when (tm) { 2 -> "Camera + Map"; 3 -> "Camera"; 4 -> "Map"; 5 -> "sign data error"; else -> "" }
             dashSignSrc.setTextColor(if (dashDay) Color.argb(200, 20, 32, 46) else Color.argb(200, 255, 255, 255))
             if (tm != lastTsrMode) { lastTsrMode = tm; EventLog.add("speed limit source: " + (dashSignSrc.text.ifEmpty { "unknown" })) }
         }
