@@ -948,7 +948,6 @@ class MainActivity : Activity() {
         val kmh = RadioButton(this).apply { text = "km/h"; id = View.generateViewId(); isChecked = !speedMph() }
         val mph = RadioButton(this).apply { text = "mph"; id = View.generateViewId(); isChecked = speedMph() }
         val spg = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL; addView(kmh); addView(mph) }
-        spg.setOnCheckedChangeListener { _, checkedId -> prefs().edit().putBoolean("mph", checkedId == mph.id).apply() }
         box.add(spg, 6)
         box.add(TextView(this).apply { text = "Efficiency units"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
         val dU = if (speedMph()) "mi" else "km"
@@ -958,6 +957,12 @@ class MainActivity : Activity() {
         val efg = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL; addView(ef1); addView(ef2); addView(ef3) }
         efg.setOnCheckedChangeListener { _, checkedId -> prefs().edit().putString("effUnit", when (checkedId) { ef2.id -> "perkwh"; ef3.id -> "kwhper"; else -> "wh" }).apply() }
         box.add(efg, 6)
+        // the efficiency wording follows the speed unit straight away
+        spg.setOnCheckedChangeListener { _, checkedId ->
+            prefs().edit().putBoolean("mph", checkedId == mph.id).apply()
+            val u = if (checkedId == mph.id) "mi" else "km"
+            ef1.text = "Wh/$u  (Wh used per $u)"; ef2.text = "$u/kWh  ($u per kWh)"; ef3.text = "kWh/$u  (kWh used per $u)"
+        }
         box.add(TextView(this).apply { text = "Dashboard"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
         box.add(CheckBox(this).apply {
             text = "Show the dashboard when the app starts"; isChecked = prefs().getBoolean("dashDefault", false)
