@@ -762,6 +762,8 @@ class MainActivity : Activity() {
                 EventLog.add("Heated wheel test: $msg")
                 toast(msg)
             }
+            paintIdx = prefs().getInt("carPaint", 3)
+            onPaint = { i -> prefs().edit().putInt("carPaint", i).apply() }
             onFan = { level ->
                 val was = climateView.snap.climFan
                 val msg = pulse?.sendFan(level) ?: "CAN reader is not running"
@@ -5036,6 +5038,47 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     }
 
     private val tmpR = RectF()
+    // ---- paint colour: tap the car to pick one of Fisker's paints
+    private val paints = listOf(
+        "Big Sur Blue" to 0xFF1A2130.toInt(), "Black Pearl" to 0xFF17181D.toInt(), "Blue Planet" to 0xFF2A4163.toInt(), "Great White" to 0xFFE6E8EA.toInt(),
+        "Horizon Grey" to 0xFF2F3038.toInt(), "Mariana" to 0xFF2A303B.toInt(), "Marine Layer" to 0xFFE0E1DA.toInt(), "Night Drive" to 0xFF1A1A1A.toInt(),
+        "Red Planet" to 0xFF7F1510.toInt(), "Sea Grass" to 0xFF222B27.toInt(), "Silver Lining" to 0xFF767A84.toInt(), "Solar Orange" to 0xFFC4502A.toInt(),
+        "Stealth Green" to 0xFF161F1B.toInt(), "Sun Soaked" to 0xFFC9B0A3.toInt())
+    var paintIdx = 3
+        set(v) { field = v.coerceIn(0, 13); invalidate() }
+    var onPaint: ((Int) -> Unit)? = null
+    private var paintOpen = false
+    private val carRect = RectF()
+    private val paintRects = ArrayList<RectF>()
+    private val paintPanel = RectF()
+    private fun adj(c: Int, k: Float): Int {
+        val t = if (k < 0f) 0 else 255; val f = Math.abs(k)
+        return Color.rgb((Color.red(c) + (t - Color.red(c)) * f).toInt(), (Color.green(c) + (t - Color.green(c)) * f).toInt(), (Color.blue(c) + (t - Color.blue(c)) * f).toInt())
+    }
+    private fun paintPopup() {
+        val c = canvas; val w = width.toFloat(); val h = height.toFloat()
+        p.shader = null; p.style = Paint.Style.FILL; p.color = Color.argb(170, 0, 0, 0); c.drawRect(0f, 0f, w, h, p)
+        val pw = minOf(w - dp(24f), dp(580f)); val pad = dp(16f); val cols = 7
+        val cell = (pw - 2 * pad) / cols
+        val sw = minOf(cell * 0.66f, dp(58f)); val rowH = sw + dp(32f); val headH = dp(40f)
+        val ph = pad + headH + 2 * rowH + pad * 0.5f
+        val left = (w - pw) / 2f; val top = (h - ph) / 2f
+        paintPanel.set(left, top, left + pw, top + ph)
+        p.color = 0xFF18203A.toInt(); c.drawRoundRect(paintPanel, dp(22f), dp(22f), p)
+        stroke(Color.argb(90, 255, 255, 255), 1.2f); c.drawRoundRect(paintPanel, dp(22f), dp(22f), p)
+        text("Paint colour", left + pad, top + pad + dp(10f), 18f, Color.WHITE, true, Paint.Align.LEFT)
+        text(paints[paintIdx].first, left + pw - pad, top + pad + dp(10f), 14f, Color.argb(200, 255, 255, 255), false, Paint.Align.RIGHT)
+        paintRects.clear()
+        for (i in paints.indices) {
+            val r = i / cols; val cc = i % cols
+            val cx = left + pad + cell * (cc + 0.5f); val cy = top + pad + headH + rowH * r + sw / 2f
+            p.style = Paint.Style.FILL; p.color = paints[i].second; c.drawCircle(cx, cy, sw / 2f, p)
+            stroke(Color.argb(70, 255, 255, 255), 1.2f); c.drawCircle(cx, cy, sw / 2f, p)
+            if (i == paintIdx) { stroke(on, 3f); c.drawCircle(cx, cy, sw / 2f + dp(5f), p) }
+            fitText(paints[i].first, cx, cy + sw / 2f + dp(15f), 10.5f, Color.argb(215, 255, 255, 255), false, cell - dp(4f))
+            paintRects.add(RectF(cx - cell / 2f, cy - sw / 2f - dp(6f), cx + cell / 2f, cy + sw / 2f + dp(28f)))
+        }
+    }
     private val carMat = android.graphics.Matrix()
 
     /** The car from above (white body, glass, dash, seats) with the air streams, coloured by the set temperatures. Drawn in a 320 x 716 box, squeezed to 88% in height. */
@@ -5047,6 +5090,10 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val pulse = (0.65f + 0.35f * Math.sin(ph * 2.0 * Math.PI)).toFloat()
         val dt = s.climDrvT; val pt = s.climPassT
         val cL = tempColor(dt); val cR = tempColor(pt)
+        val baseCol = paints[paintIdx].second
+        val lightPaint = (0.299 * Color.red(baseCol) + 0.587 * Color.green(baseCol) + 0.114 * Color.blue(baseCol)) / 255.0 > 0.6
+        val bodyCols = if (paintIdx == 3) intArrayOf(0xFFC9D3E2.toInt(), 0xFFF6F9FD.toInt(), 0xFFFFFFFF.toInt(), 0xFFF6F9FD.toInt(), 0xFFC9D3E2.toInt())
+            else intArrayOf(adj(baseCol, -0.28f), adj(baseCol, 0.05f), adj(baseCol, 0.13f), adj(baseCol, 0.05f), adj(baseCol, -0.28f))
         val cC = if (dt != null && pt != null) tempColor((dt + pt) / 2.0) else if (dt != null) cL else cR
         fun sideCol(x: Float) = if (x < 149f) cL else if (x > 151f) cR else cC
         fun withA(col: Int, a: Int) = (col and 0x00FFFFFF) or (a.coerceIn(0, 255) shl 24)
@@ -5081,8 +5128,10 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             fillP(0xFF0B101B.toInt()); rr(18f, 198f, 9f, 9f, 2f)
         }
 
+        val carTop0 = top + (carH - 676f * sy * k) / 2f
+        carRect.set(cx - 150f * k, carTop0, cx + 150f * k, carTop0 + 676f * sy * k)
         canvas.save()
-        canvas.translate(cx - 150f * k, top + (carH - 676f * sy * k) / 2f)
+        canvas.translate(cx - 150f * k, carTop0)
         canvas.scale(k, k * sy)
 
         // ---- exterior: body, hood, cowl, lights, mirrors, rear panel
@@ -5093,11 +5142,11 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         path.cubicTo(30f, 666f, 8f, 640f, 8f, 604f); path.lineTo(6f, 354f); path.lineTo(8f, 200f)
         path.cubicTo(10f, 152f, 15f, 122f, 21f, 90f); path.cubicTo(29f, 44f, 48f, 15f, 79f, 8f); path.close()
         p.style = Paint.Style.FILL
-        p.shader = LinearGradient(6f, 0f, 294f, 0f, intArrayOf(0xFFC9D3E2.toInt(), 0xFFF6F9FD.toInt(), 0xFFFFFFFF.toInt(), 0xFFF6F9FD.toInt(), 0xFFC9D3E2.toInt()), floatArrayOf(0f, 0.18f, 0.5f, 0.82f, 1f), Shader.TileMode.CLAMP)
+        p.shader = LinearGradient(6f, 0f, 294f, 0f, bodyCols, floatArrayOf(0f, 0.18f, 0.5f, 0.82f, 1f), Shader.TileMode.CLAMP)
         canvas.drawPath(path, p)
-        p.shader = LinearGradient(0f, 0f, 0f, 676f, 0x00FFFFFF, 0x599FB0C8, Shader.TileMode.CLAMP); canvas.drawPath(path, p); p.shader = null
-        strokeP(0xFF8FA2BF.toInt(), 1.4f); canvas.drawPath(path, p)
-        strokeP(0x29, 1.3f); p.color = Color.argb(41, 30, 45, 80)
+        p.shader = LinearGradient(0f, 0f, 0f, 676f, if (lightPaint) 0x00FFFFFF else 0x00000000, if (lightPaint) 0x599FB0C8 else 0x44000000, Shader.TileMode.CLAMP); canvas.drawPath(path, p); p.shader = null
+        strokeP(if (paintIdx == 3) 0xFF8FA2BF.toInt() else adj(baseCol, -0.4f), 1.4f); canvas.drawPath(path, p)
+        strokeP(0x29, 1.3f); p.color = if (lightPaint) Color.argb(41, 30, 45, 80) else Color.argb(50, 255, 255, 255)
         path.reset(); path.moveTo(94f, 14f); path.cubicTo(92f, 54f, 88f, 90f, 86f, 120f); canvas.drawPath(path, p)
         path.reset(); path.moveTo(206f, 14f); path.cubicTo(208f, 54f, 212f, 90f, 214f, 120f); canvas.drawPath(path, p)
         fillP(0xFF0F1A30.toInt())
@@ -5356,12 +5405,19 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             else if (s.climLimited) text("Thermal functions limited", w / 2, fy + dp(10f), 11f, warm, true)
             else if (s.wheelHeat == null) text("Heated wheel status not received", w / 2, fy + dp(10f), 10f, Color.argb(120, 255, 255, 255))
         }
+        if (paintOpen) paintPopup()
     }
 
     private fun CanSnapshot.climWheelOn() = wheelHeat == true
 
     override fun onTouchEvent(e: android.view.MotionEvent): Boolean {
         if (e.action != android.view.MotionEvent.ACTION_UP) return true
+        if (paintOpen) {
+            val pi = paintRects.indexOfFirst { it.contains(e.x, e.y) }
+            if (pi >= 0) { paintIdx = pi; onPaint?.invoke(pi); paintOpen = false }
+            else if (!paintPanel.contains(e.x, e.y)) paintOpen = false
+            invalidate(); return true
+        }
         val slop = dp(10f)
         if (e.y > closeRect.top - slop && (e.x < closeRect.right + slop || e.x > closeRect2.left - slop)) { onClose?.invoke(); return true }
         if (!powerRect.isEmpty() && powerRect.contains(e.x, e.y) && System.currentTimeMillis() - lastFanTap > 800) {
@@ -5385,6 +5441,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             if (bi >= 0) { lastFanTap = System.currentTimeMillis(); onButton?.invoke(bi); return true }
         }
         if (fanControl && !wheelRect.isEmpty() && wheelRect.contains(e.x, e.y) && System.currentTimeMillis() - lastFanTap > 600) { lastFanTap = System.currentTimeMillis(); onWheel?.invoke(); return true }
+        if (!carRect.isEmpty() && carRect.contains(e.x, e.y)) { paintOpen = true; invalidate(); return true }
         return true
     }
 }
