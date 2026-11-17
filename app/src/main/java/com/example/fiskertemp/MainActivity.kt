@@ -5121,8 +5121,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     // ---- paint colour: tap the car to pick one of Fisker's paints
     private val paints = listOf(
         "Big Sur Blue" to 0xFF1A2130.toInt(), "Black Pearl" to 0xFF17181D.toInt(), "Blue Planet" to 0xFF2A4163.toInt(), "Great White" to 0xFFE6E8EA.toInt(),
-        "Horizon Grey" to 0xFF2F3038.toInt(), "Mariana" to 0xFF2A303B.toInt(), "Marine Layer" to 0xFFE0E1DA.toInt(), "Night Drive" to 0xFF1A1A1A.toInt(),
-        "Red Planet" to 0xFF7F1510.toInt(), "Sea Grass" to 0xFF222B27.toInt(), "Silver Lining" to 0xFF767A84.toInt(), "Solar Orange" to 0xFFC4502A.toInt(),
+        "Horizon Grey" to 0xFF2F3038.toInt(), "Mariana" to 0xFF1D4F7E.toInt(), "Marine Layer" to 0xFFE0E1DA.toInt(), "Night Drive" to 0xFF1A1A1A.toInt(),
+        "Red Planet" to 0xFF7F1510.toInt(), "Sea Grass" to 0xFF222B27.toInt(), "Silver Lining" to 0xFF9DB1C9.toInt(), "Solar Orange" to 0xFFC4502A.toInt(),
         "Stealth Green" to 0xFF161F1B.toInt(), "Sun Soaked" to 0xFFC9B0A3.toInt())
     var paintIdx = 3
         set(v) { field = v.coerceIn(0, 13); invalidate() }
