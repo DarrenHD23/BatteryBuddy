@@ -5041,7 +5041,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     /** The car from above (white body, glass, dash, seats) with the air streams, coloured by the set temperatures. Drawn in a 320 x 716 box, squeezed to 88% in height. */
     private fun overheadCar(cx: Float, top: Float, areaW: Float, carH: Float, s: CanSnapshot, flow: Boolean, mode: Int) {
         val sy = 0.88f
-        val k = minOf(carH / (716f * sy), areaW / 320f)
+        val k = minOf(carH / (676f * sy), areaW / 320f)
         val now = android.os.SystemClock.uptimeMillis()
         val ph = (now % 1600L) / 1600f
         val pulse = (0.65f + 0.35f * Math.sin(ph * 2.0 * Math.PI)).toFloat()
@@ -5082,26 +5082,26 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         }
 
         canvas.save()
-        canvas.translate(cx - 150f * k, top + (carH - 716f * sy * k) / 2f)
+        canvas.translate(cx - 150f * k, top + (carH - 676f * sy * k) / 2f)
         canvas.scale(k, k * sy)
 
         // ---- exterior: body, hood, cowl, lights, mirrors, rear panel
         path.reset()
         path.moveTo(79f, 8f); path.cubicTo(118f, 1f, 182f, 1f, 221f, 8f); path.cubicTo(252f, 15f, 271f, 44f, 279f, 90f)
-        path.cubicTo(285f, 122f, 290f, 152f, 292f, 200f); path.lineTo(294f, 390f); path.lineTo(292f, 640f)
-        path.cubicTo(292f, 676f, 270f, 702f, 216f, 706f); path.cubicTo(184f, 710f, 116f, 710f, 84f, 706f)
-        path.cubicTo(30f, 702f, 8f, 676f, 8f, 640f); path.lineTo(6f, 390f); path.lineTo(8f, 200f)
+        path.cubicTo(285f, 122f, 290f, 152f, 292f, 200f); path.lineTo(294f, 354f); path.lineTo(292f, 604f)
+        path.cubicTo(292f, 640f, 270f, 666f, 216f, 670f); path.cubicTo(184f, 674f, 116f, 674f, 84f, 670f)
+        path.cubicTo(30f, 666f, 8f, 640f, 8f, 604f); path.lineTo(6f, 354f); path.lineTo(8f, 200f)
         path.cubicTo(10f, 152f, 15f, 122f, 21f, 90f); path.cubicTo(29f, 44f, 48f, 15f, 79f, 8f); path.close()
         p.style = Paint.Style.FILL
         p.shader = LinearGradient(6f, 0f, 294f, 0f, intArrayOf(0xFFC9D3E2.toInt(), 0xFFF6F9FD.toInt(), 0xFFFFFFFF.toInt(), 0xFFF6F9FD.toInt(), 0xFFC9D3E2.toInt()), floatArrayOf(0f, 0.18f, 0.5f, 0.82f, 1f), Shader.TileMode.CLAMP)
         canvas.drawPath(path, p)
-        p.shader = LinearGradient(0f, 0f, 0f, 716f, 0x00FFFFFF, 0x599FB0C8, Shader.TileMode.CLAMP); canvas.drawPath(path, p); p.shader = null
+        p.shader = LinearGradient(0f, 0f, 0f, 676f, 0x00FFFFFF, 0x599FB0C8, Shader.TileMode.CLAMP); canvas.drawPath(path, p); p.shader = null
         strokeP(0xFF8FA2BF.toInt(), 1.4f); canvas.drawPath(path, p)
         strokeP(0x29, 1.3f); p.color = Color.argb(41, 30, 45, 80)
-        path.reset(); path.moveTo(94f, 14f); path.cubicTo(92f, 50f, 88f, 80f, 86f, 108f); canvas.drawPath(path, p)
-        path.reset(); path.moveTo(206f, 14f); path.cubicTo(208f, 50f, 212f, 80f, 214f, 108f); canvas.drawPath(path, p)
+        path.reset(); path.moveTo(94f, 14f); path.cubicTo(92f, 54f, 88f, 90f, 86f, 120f); canvas.drawPath(path, p)
+        path.reset(); path.moveTo(206f, 14f); path.cubicTo(208f, 54f, 212f, 90f, 214f, 120f); canvas.drawPath(path, p)
         fillP(0xFF0F1A30.toInt())
-        path.reset(); path.moveTo(16f, 162f); path.cubicTo(20f, 120f, 68f, 100f, 150f, 100f); path.cubicTo(232f, 100f, 280f, 120f, 284f, 162f); path.close(); canvas.drawPath(path, p)
+        path.reset(); path.moveTo(16f, 174f); path.cubicTo(20f, 132f, 68f, 112f, 150f, 112f); path.cubicTo(232f, 112f, 280f, 132f, 284f, 174f); path.close(); canvas.drawPath(path, p)
         fun badge() {
             fillP(0xFF161D30.toInt()); circ(150f, 20f, 10f); strokeP(0xFFC9D3E2.toInt(), 1.2f); circ(150f, 20f, 10f)
             tmpR.set(143f, 13f, 157f, 27f)
@@ -5109,33 +5109,33 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             fillP(0xFFFF9A2E.toInt()); canvas.drawArc(tmpR, 20f, 130f, true, p)
         }
         badge()
-        canvas.save(); canvas.translate(0f, 673f); badge(); canvas.restore()
+        canvas.save(); canvas.translate(0f, 637f); badge(); canvas.restore()
         strokeP(0xFF161D30.toInt(), 5f)
         path.reset(); path.moveTo(38f, 72f); path.quadTo(42f, 52f, 62f, 38f); canvas.drawPath(path, p)
         path.reset(); path.moveTo(262f, 72f); path.quadTo(258f, 52f, 238f, 38f); canvas.drawPath(path, p)
-        mirror()
-        canvas.save(); canvas.translate(300f, 0f); canvas.scale(-1f, 1f); mirror(); canvas.restore()
+        canvas.save(); canvas.translate(0f, 12f); mirror()
+        canvas.save(); canvas.translate(300f, 0f); canvas.scale(-1f, 1f); mirror(); canvas.restore(); canvas.restore()
         fillP(0xFF0D121C.toInt())
-        path.reset(); path.moveTo(28f, 646f); path.lineTo(272f, 646f); path.cubicTo(270f, 664f, 256f, 676f, 220f, 680f); path.lineTo(80f, 680f); path.cubicTo(44f, 676f, 30f, 664f, 28f, 646f); path.close(); canvas.drawPath(path, p)
+        path.reset(); path.moveTo(28f, 610f); path.lineTo(272f, 610f); path.cubicTo(270f, 628f, 256f, 640f, 220f, 644f); path.lineTo(80f, 644f); path.cubicTo(44f, 640f, 30f, 628f, 28f, 610f); path.close(); canvas.drawPath(path, p)
         strokeP(0xFFE0323C.toInt(), 4.5f)
-        path.reset(); path.moveTo(38f, 674f); path.cubicTo(54f, 692f, 92f, 702f, 126f, 703f); canvas.drawPath(path, p)
-        path.reset(); path.moveTo(262f, 674f); path.cubicTo(246f, 692f, 208f, 702f, 174f, 703f); canvas.drawPath(path, p)
-        fillP(0xFFFF9A2E.toInt()); rr(8f, 616f, 4f, 14f, 2f); rr(288f, 616f, 4f, 14f, 2f)
+        path.reset(); path.moveTo(38f, 638f); path.cubicTo(54f, 656f, 92f, 666f, 126f, 667f); canvas.drawPath(path, p)
+        path.reset(); path.moveTo(262f, 638f); path.cubicTo(246f, 656f, 208f, 666f, 174f, 667f); canvas.drawPath(path, p)
+        fillP(0xFFFF9A2E.toInt()); rr(8f, 580f, 4f, 14f, 2f); rr(288f, 580f, 4f, 14f, 2f)
 
         // ---- cabin (everything below sits 130 lower)
-        canvas.translate(0f, 130f)
+        canvas.translate(0f, 142f)
         path.reset()
-        path.moveTo(52f, 12f); path.lineTo(248f, 12f); path.quadTo(280f, 12f, 280f, 50f); path.lineTo(280f, 470f); path.quadTo(280f, 508f, 248f, 508f)
-        path.lineTo(52f, 508f); path.quadTo(20f, 508f, 20f, 470f); path.lineTo(20f, 50f); path.quadTo(20f, 12f, 52f, 12f); path.close()
-        p.style = Paint.Style.FILL; p.shader = LinearGradient(0f, 12f, 0f, 508f, 0xFF14213B.toInt(), 0xFF0B1426.toInt(), Shader.TileMode.CLAMP); canvas.drawPath(path, p); p.shader = null
+        path.moveTo(52f, 12f); path.lineTo(248f, 12f); path.quadTo(280f, 12f, 280f, 50f); path.lineTo(280f, 422f); path.quadTo(280f, 460f, 248f, 460f)
+        path.lineTo(52f, 460f); path.quadTo(20f, 460f, 20f, 422f); path.lineTo(20f, 50f); path.quadTo(20f, 12f, 52f, 12f); path.close()
+        p.style = Paint.Style.FILL; p.shader = LinearGradient(0f, 12f, 0f, 460f, 0xFF14213B.toInt(), 0xFF0B1426.toInt(), Shader.TileMode.CLAMP); canvas.drawPath(path, p); p.shader = null
         strokeP(0xFF1B2540.toInt(), 3f); canvas.drawPath(path, p)
         val wsPath = Path()
         wsPath.moveTo(36f, 63f); wsPath.cubicTo(38f, 42f, 50f, 24f, 84f, 19f); wsPath.quadTo(150f, 11f, 216f, 19f); wsPath.cubicTo(250f, 24f, 262f, 42f, 264f, 63f); wsPath.close()
         fillP(Color.argb(26, 120, 180, 255)); canvas.drawPath(wsPath, p); strokeP(Color.argb(90, 160, 200, 255), 1.2f); canvas.drawPath(wsPath, p)
-        path.reset(); path.moveTo(44f, 498f); path.lineTo(256f, 498f); path.lineTo(264f, 478f); path.lineTo(36f, 478f); path.close()
+        path.reset(); path.moveTo(44f, 450f); path.lineTo(256f, 450f); path.lineTo(264f, 430f); path.lineTo(36f, 430f); path.close()
         fillP(Color.argb(20, 120, 180, 255)); canvas.drawPath(path, p); strokeP(Color.argb(76, 160, 200, 255), 1.2f); canvas.drawPath(path, p)
-        both(46f, 150f, 208f, 282f, 16f, Color.argb(10, 120, 180, 255), Color.argb(50, 160, 200, 255), 1f)
-        both(24f, 80f, 12f, 392f, 5f, 0xFF18264A.toInt(), 0xFF2F4270.toInt(), 1f); both(264f, 80f, 12f, 392f, 5f, 0xFF18264A.toInt(), 0xFF2F4270.toInt(), 1f)
+        both(46f, 150f, 208f, 234f, 16f, Color.argb(10, 120, 180, 255), Color.argb(50, 160, 200, 255), 1f)
+        both(24f, 80f, 12f, 344f, 5f, 0xFF18264A.toInt(), 0xFF2F4270.toInt(), 1f); both(264f, 80f, 12f, 344f, 5f, 0xFF18264A.toInt(), 0xFF2F4270.toInt(), 1f)
         // dash
         path.reset(); path.moveTo(38f, 64f); path.lineTo(262f, 64f); path.lineTo(262f, 122f); path.quadTo(150f, 136f, 38f, 122f); path.close()
         p.style = Paint.Style.FILL; p.shader = LinearGradient(0f, 64f, 0f, 134f, 0xFF26375A.toInt(), 0xFF121D35.toInt(), Shader.TileMode.CLAMP); canvas.drawPath(path, p); p.shader = null
@@ -5146,40 +5146,40 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         fillP(0xFF3D5280.toInt()); circ(86f, 116f, 5f)
         both(135f, 83f, 30f, 47f, 5f, 0xFF0A1220.toInt(), 0xFF8AA0C6.toInt(), 1.4f)
         // console
-        both(132f, 138f, 36f, 190f, 10f, 0xFF16233D.toInt(), 0xFF3D5280.toInt(), 1.2f)
+        both(132f, 138f, 36f, 166f, 10f, 0xFF16233D.toInt(), 0xFF3D5280.toInt(), 1.2f)
         fillP(0xFF0E182C.toInt()); rr(136f, 144f, 13f, 34f, 3f); rr(151f, 144f, 13f, 34f, 3f)
-        fillP(0xFF0A1220.toInt()); circ(143f, 196f, 8.5f); circ(157f, 196f, 8.5f); strokeP(0xFF4A6190.toInt(), 1f); circ(143f, 196f, 8.5f); circ(157f, 196f, 8.5f)
-        both(133f, 262f, 34f, 62f, 10f, 0xFF22335A.toInt(), 0xFF44597F.toInt(), 1.2f)
+        fillP(0xFF0A1220.toInt()); circ(143f, 172f, 8.5f); circ(157f, 172f, 8.5f); strokeP(0xFF4A6190.toInt(), 1f); circ(143f, 172f, 8.5f); circ(157f, 172f, 8.5f)
+        both(133f, 238f, 34f, 62f, 10f, 0xFF22335A.toInt(), 0xFF44597F.toInt(), 1.2f)
         // seats
         fun seat(x0: Float, y0: Float, w: Float, hh: Float, r: Float) {
             p.style = Paint.Style.FILL; p.shader = LinearGradient(x0, y0, x0 + w, y0 + hh, 0xFF2F4268.toInt(), 0xFF1A2744.toInt(), Shader.TileMode.CLAMP); rr(x0, y0, w, hh, r); p.shader = null
             strokeP(0xFF44597F.toInt(), 1.2f); rr(x0, y0, w, hh, r)
         }
-        for (x0 in floatArrayOf(54f, 178f)) { seat(x0, 196f, 68f, 62f, 14f); seat(x0 + 2f, 258f, 64f, 30f, 12f); seat(x0 + 18f, 288f, 32f, 14f, 6f) }
-        strokeP(Color.argb(140, 159, 184, 200), 2f); canvas.drawLine(88f, 200f, 88f, 296f, p); canvas.drawLine(212f, 200f, 212f, 296f, p)
+        for (x0 in floatArrayOf(54f, 178f)) { seat(x0, 172f, 68f, 62f, 14f); seat(x0 + 2f, 234f, 64f, 30f, 12f); seat(x0 + 18f, 264f, 32f, 14f, 6f) }
+        strokeP(Color.argb(140, 159, 184, 200), 2f); canvas.drawLine(88f, 176f, 88f, 272f, p); canvas.drawLine(212f, 176f, 212f, 272f, p)
         fillP(Color.argb(235, 74, 95, 138))
-        for (hx in floatArrayOf(88f, 212f)) { tmpR.set(hx - 28f, 262f, hx + 28f, 282f); canvas.drawOval(tmpR, p); circ(hx, 292f, 11f) }
-        seat(46f, 372f, 68f, 66f, 12f); seat(116f, 372f, 68f, 66f, 8f); seat(186f, 372f, 68f, 66f, 12f)
-        seat(46f, 438f, 68f, 30f, 10f); seat(116f, 438f, 68f, 30f, 8f); seat(186f, 438f, 68f, 30f, 10f)
-        seat(64f, 468f, 32f, 13f, 6f); seat(134f, 468f, 32f, 13f, 6f); seat(204f, 468f, 32f, 13f, 6f)
-        strokeP(Color.argb(128, 159, 184, 200), 2f); canvas.drawLine(80f, 376f, 80f, 466f, p); canvas.drawLine(220f, 376f, 220f, 466f, p)
+        for (hx in floatArrayOf(88f, 212f)) { tmpR.set(hx - 28f, 238f, hx + 28f, 258f); canvas.drawOval(tmpR, p); circ(hx, 268f, 11f) }
+        seat(46f, 324f, 68f, 66f, 12f); seat(116f, 324f, 68f, 66f, 8f); seat(186f, 324f, 68f, 66f, 12f)
+        seat(46f, 390f, 68f, 30f, 10f); seat(116f, 390f, 68f, 30f, 8f); seat(186f, 390f, 68f, 30f, 10f)
+        seat(64f, 420f, 32f, 13f, 6f); seat(134f, 420f, 32f, 13f, 6f); seat(204f, 420f, 32f, 13f, 6f)
+        strokeP(Color.argb(128, 159, 184, 200), 2f); canvas.drawLine(80f, 328f, 80f, 418f, p); canvas.drawLine(220f, 328f, 220f, 418f, p)
         fillP(Color.argb(235, 74, 95, 138))
-        for (hx in floatArrayOf(80f, 220f)) { tmpR.set(hx - 24f, 443f, hx + 24f, 461f); canvas.drawOval(tmpR, p); circ(hx, 474f, 10f) }
-        fillP(0xFF6F86AD.toInt()); rr(74f, 250f, 28f, 5f, 2f); rr(198f, 250f, 28f, 5f, 2f)
+        for (hx in floatArrayOf(80f, 220f)) { tmpR.set(hx - 24f, 395f, hx + 24f, 413f); canvas.drawOval(tmpR, p); circ(hx, 426f, 10f) }
+        fillP(0xFF6F86AD.toInt()); rr(74f, 226f, 28f, 5f, 2f); rr(198f, 226f, 28f, 5f, 2f)
 
         // ---- air streams
         if (flow) {
             val faceOn = mode in 0..2; val feetOn = mode in 2..4; val winOn = mode == 4 || mode == 5
             if (faceOn) {
                 for (x in floatArrayOf(50f, 124f, 176f, 250f)) { glow(x, 78f, 14f, sideCol(x)); wedge(x, 80f, x, 134f, 10f, 44f, flowShader(sideCol(x), false)) }
-                glow(150f, 330f, 12f, cC)
-                wedge(146f, 334f, 114f, 374f, 10f, 38f, flowShader(cC, false)); wedge(154f, 334f, 186f, 374f, 10f, 38f, flowShader(cC, false))
+                glow(150f, 306f, 12f, cC)
+                wedge(146f, 310f, 114f, 350f, 10f, 38f, flowShader(cC, false)); wedge(154f, 310f, 186f, 350f, 10f, 38f, flowShader(cC, false))
             }
             if (feetOn) {
                 glow(86f, 126f, 16f, cL); glow(214f, 126f, 16f, cR)
-                wedge(86f, 130f, 86f, 178f, 14f, 50f, flowShader(cL, false)); wedge(214f, 130f, 214f, 178f, 14f, 50f, flowShader(cR, false))
-                glow(88f, 300f, 14f, cL); glow(212f, 300f, 14f, cR)
-                wedge(88f, 304f, 88f, 350f, 14f, 48f, flowShader(cL, false)); wedge(212f, 304f, 212f, 350f, 14f, 48f, flowShader(cR, false))
+                wedge(86f, 130f, 86f, 168f, 14f, 46f, flowShader(cL, false)); wedge(214f, 130f, 214f, 168f, 14f, 46f, flowShader(cR, false))
+                glow(88f, 276f, 14f, cL); glow(212f, 276f, 14f, cR)
+                wedge(88f, 280f, 88f, 326f, 14f, 48f, flowShader(cL, false)); wedge(212f, 280f, 212f, 326f, 14f, 48f, flowShader(cR, false))
             }
             if (winOn) {
                 glow(150f, 64f, 22f, cC)
