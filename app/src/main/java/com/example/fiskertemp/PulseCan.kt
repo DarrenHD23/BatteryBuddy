@@ -389,7 +389,7 @@ class PulseCan(
     }
 
     /**
-     * Test: press one of the A/C buttons: 0 = A/C, 1 = max defrost, 2 = recirculation / fresh air. The frame is the car screen's own
+     * Test: press one of the A/C buttons: 0 = A/C, 1 = max defrost, 2 = recirculation / fresh air, 3 = sync, 4 = auto. The frame is the car screen's own
      * last 0x530 with every request cleared, the fan and temperature requests 'inactive', and only that one button request set.
      * These are press requests (each one toggles), so a single frame is sent.
      */
@@ -407,6 +407,8 @@ class PulseCan(
             0 -> d[2] = d[2] or 0x20               // ICC_ACSwtReq
             1 -> d[3] = d[3] or 0x40               // ICC_MaxFrntDefrstSet
             2 -> d[3] = d[3] or 0x10               // ICC_ECCIntExtCircReq
+            3 -> d[2] = d[2] or 0x10               // ICC_DrvrSYNCReq
+            4 -> d[2] = d[2] or 0x08               // ICC_ECCAUTOReq
             else -> return "Unknown button"
         }
         val iface = if (bus == 1) ifs.first else ifs.second
@@ -416,7 +418,7 @@ class PulseCan(
                 try { out.write(line.toByteArray()); out.flush() } catch (e: Exception) { onStatus("Climate TX failed: ${e.message}") }
             }
         }.start()
-        return "${listOf("A/C", "Defrost", "Recirculation")[kind]} request sent on IBUS$bus"
+        return "${listOf("A/C", "Defrost", "Recirculation", "Sync", "Auto")[kind]} request sent on IBUS$bus"
     }
 
     /** The bus the car screen is on: where its steady 0x528 turns up, else IBUS1 (the DBC puts the screen's frames there). */
