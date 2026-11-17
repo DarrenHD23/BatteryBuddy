@@ -5094,7 +5094,9 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         path.reset(); path.moveTo(206f, 14f); path.cubicTo(208f, 50f, 212f, 80f, 214f, 108f); canvas.drawPath(path, p)
         fillP(0xFF0F1A30.toInt())
         path.reset(); path.moveTo(16f, 162f); path.cubicTo(20f, 120f, 68f, 100f, 150f, 100f); path.cubicTo(232f, 100f, 280f, 120f, 284f, 162f); path.close(); canvas.drawPath(path, p)
-        strokeP(0xFF2A3652.toInt(), 3f); canvas.drawLine(130f, 16f, 170f, 16f, p)
+        fillP(0xFF161D30.toInt()); circ(150f, 20f, 10f); strokeP(0xFFC9D3E2.toInt(), 1.2f); circ(150f, 20f, 10f)
+        strokeP(0xFF4DB8FF.toInt(), 1.3f); tmpR.set(143f, 13f, 157f, 27f); canvas.drawArc(tmpR, 200f, 130f, false, p)
+        strokeP(0xFFFF9A2E.toInt(), 1.3f); tmpR.set(144.5f, 14.5f, 155.5f, 25.5f); canvas.drawArc(tmpR, 20f, 130f, false, p)
         strokeP(0xFF161D30.toInt(), 5f)
         path.reset(); path.moveTo(38f, 72f); path.quadTo(42f, 52f, 62f, 38f); canvas.drawPath(path, p)
         path.reset(); path.moveTo(262f, 72f); path.quadTo(258f, 52f, 238f, 38f); canvas.drawPath(path, p)
@@ -5161,9 +5163,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
                 wedge(146f, 334f, 114f, 374f, 10f, 38f, flowShader(cC, false)); wedge(154f, 334f, 186f, 374f, 10f, 38f, flowShader(cC, false))
             }
             if (feetOn) {
-                glow(86f, 126f, 16f, cL); glow(214f, 126f, 16f, cR); glow(150f, 342f, 12f, cC)
+                glow(86f, 126f, 16f, cL); glow(214f, 126f, 16f, cR)
                 wedge(86f, 130f, 86f, 178f, 14f, 50f, flowShader(cL, false)); wedge(214f, 130f, 214f, 178f, 14f, 50f, flowShader(cR, false))
-                wedge(144f, 344f, 108f, 362f, 10f, 36f, flowShader(cC, false)); wedge(156f, 344f, 192f, 362f, 10f, 36f, flowShader(cC, false))
                 glow(88f, 300f, 14f, cL); glow(212f, 300f, 14f, cR)
                 wedge(88f, 304f, 88f, 350f, 14f, 48f, flowShader(cL, false)); wedge(212f, 304f, 212f, 350f, 14f, 48f, flowShader(cR, false))
             }
