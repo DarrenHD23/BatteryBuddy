@@ -1863,7 +1863,7 @@ class MainActivity : Activity() {
             for (i in 0 until maxSlots) {
                 addView(TextView(context).apply {
                     textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
-                    minHeight = dp(42); minWidth = dp(44); setPadding(dp(6), 0, dp(6), 0)
+                    minHeight = dp(38); minWidth = dp(44); setPadding(dp(6), 0, dp(6), 0)
                     maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
                     setOnClickListener { if (slotPkg(i).isEmpty()) pickLowerApp(i) else openLower(i) }
                     setOnLongClickListener { pickLowerApp(i); true }
@@ -1875,7 +1875,7 @@ class MainActivity : Activity() {
             background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(18).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
             addView(lowerTabs, FrameLayout.LayoutParams(-2, -2))
             // the buttons scroll inside the border: clipped to the padding box and to the rounded outline
-            setPadding(dp(3), dp(3), dp(3), dp(3)); clipToPadding = true
+            setPadding(dp(8), dp(5), dp(8), dp(5)); clipToPadding = true      // room so square icons never touch the outline
             outlineProvider = object : android.view.ViewOutlineProvider() {
                 override fun getOutline(v: View, o: android.graphics.Outline) { o.setRoundRect(0, 0, v.width, v.height, dp(18).toFloat()) }
             }
@@ -2619,7 +2619,7 @@ class MainActivity : Activity() {
         }
         if (::lowerScroll.isInitialized && avail != Int.MAX_VALUE) {
             lowerTabs.measure(un, un)
-            val w = minOf(lowerTabs.measuredWidth + dp(6), avail).coerceAtLeast(dp(44))   // + the strip's own padding
+            val w = minOf(lowerTabs.measuredWidth + dp(16), avail).coerceAtLeast(dp(44))   // + the strip's own padding
             val lp = lowerScroll.layoutParams
             if (lp != null && lp.width != w) { lp.width = w; lowerScroll.layoutParams = lp }
         }
