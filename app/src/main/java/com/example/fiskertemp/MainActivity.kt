@@ -1034,17 +1034,17 @@ class MainActivity : Activity() {
             }
         }
         picRow.addView(tile(0))
-        for (n in 1..bgCount) if (bgResId(n) != 0) picRow.addView(tile(n))
-        // the user's own picture: the saved one (if any), then a tile to choose a new one
-        if (customBgFile().exists()) picRow.addView(tile(CUSTOM_BG))
+        // second after None: the tile to choose your own picture, then the saved one (if any)
         picRow.addView(FrameLayout(this).apply {
             setPadding(dp(3), dp(3), dp(3), dp(3))
             addView(TextView(this@MainActivity).apply {
-                text = "+\nMy\npicture"; gravity = Gravity.CENTER; textSize = 13f; setTextColor(Color.DKGRAY)
+                text = "+\nUse my\nown Image"; gravity = Gravity.CENTER; textSize = 13f; setTextColor(Color.DKGRAY)
                 background = GradientDrawable().apply { setColor(Color.parseColor("#EEEEEE")); cornerRadius = dp(8).toFloat() }
                 setOnClickListener { dialog.dismiss(); startCustomBgPick() }
             }, FrameLayout.LayoutParams(dp(68), dp(120)))
         })
+        if (customBgFile().exists()) picRow.addView(tile(CUSTOM_BG))
+        for (n in 1..bgCount) if (bgResId(n) != 0) picRow.addView(tile(n))
         box.add(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(picRow) }, 8)
         if (customBgFile().exists()) box.add(Button(this).apply {
             text = "Remove my picture"; isAllCaps = false
