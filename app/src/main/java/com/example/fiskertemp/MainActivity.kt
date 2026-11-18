@@ -46,6 +46,8 @@ import android.content.ClipDescription
 import android.content.Context
 import android.net.Uri
 import android.content.Intent
+import android.content.IntentFilter
+import java.io.File
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
@@ -1025,6 +1027,10 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("iconBtns", on).apply(); refreshLowerLabels(); paintLowerTabs() }
         }, 4)
         box.add(Button(this).apply {
+            text = "Check for updates (this is build ${Updater.installedBuild(this@MainActivity)})"; isAllCaps = false
+            setOnClickListener { checkForUpdate(true) }
+        }, 8)
+        box.add(Button(this).apply {
             text = "Clear an app button"; isAllCaps = false
             setOnClickListener {
                 val names = Array(slotCount) { i -> "Button ${i + 1}: " + (if (slotPkg(i).isEmpty()) "(no app)" else appLabelOf(slotPkg(i))) }
@@ -1353,6 +1359,15 @@ class MainActivity : Activity() {
     private lateinit var dashSlot: FrameLayout
     private lateinit var chargeBar: ChargeBarView
     private lateinit var dashClock: DashClockView
+    private lateinit var updateBtn: TextView
+    private var pendingUpdate: Updater.Release? = null
+    private var lastUpdateCheck = 0L
+    private var updateDialog: AlertDialog? = null
+    private var updateBusy = false
+    private var updPt: TextView? = null
+    private var updBar: android.widget.ProgressBar? = null
+    private var updPos: Button? = null
+    private var updNeg: Button? = null
     private lateinit var dashTop: LinearLayout
     private var tripMidRows = 0
     private var statusMode: String? = null
@@ -1649,6 +1664,13 @@ class MainActivity : Activity() {
         f.addView(dashTop, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(6), dp(8), 0) })
         dashClock = DashClockView(this).apply { visibility = View.GONE }
         f.addView(dashClock, FrameLayout.LayoutParams(dp(150), dp(80), Gravity.TOP or Gravity.START).apply { setMargins(dp(14), dp(8), 0, 0) })
+        updateBtn = TextView(this).apply {
+            text = "Update Available"; textSize = 11f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+            setPadding(dp(12), 0, dp(12), 0); visibility = View.GONE
+            background = GradientDrawable().apply { setColor(Color.parseColor("#E8761F")); cornerRadius = dp(15).toFloat(); setStroke(dp(1), Color.argb(170, 255, 255, 255)) }
+            setOnClickListener { pendingUpdate?.let { showUpdateDialog(it) } }
+        }
+        f.addView(updateBtn, FrameLayout.LayoutParams(-2, dp(30), Gravity.TOP or Gravity.START).apply { setMargins(dp(160), dp(10), 0, 0) })
         return f
     }
 
@@ -2343,6 +2365,134 @@ class MainActivity : Activity() {
         if (::dashRow.isInitialized) dashRow.invalidate()
     }
 
+    // ---------------------------------------------------------------- updates
+
+    /** The Update Available button shows beside the clock after "Update later". */
+    private fun refreshUpdateBtn() {
+        if (!::updateBtn.isInitialized) return
+        val u = pendingUpdate
+        val show = u != null && prefs().getInt("updDeferred", 0) == u.build && updateDialog?.isShowing != true
+        updateBtn.visibility = if (show) View.VISIBLE else View.GONE
+        if (show) placeUpdateBtn()
+    }
+
+    private fun placeUpdateBtn() {
+        if (!::updateBtn.isInitialized || updateBtn.visibility != View.VISIBLE) return
+        val lp = updateBtn.layoutParams as FrameLayout.LayoutParams
+        val clp = dashClock.layoutParams as FrameLayout.LayoutParams
+        val clockOn = dashClock.visibility == View.VISIBLE
+        val rhd = prefs().getBoolean("rhd", false)
+        val side = (if (rhd) clp.rightMargin else clp.leftMargin) + (if (clockOn) dashClock.textW.toInt() + dp(12) else dp(0))
+        val top = clp.topMargin + (if (clockOn && clp.height >= dp(52)) dp(12) else 0)
+        val grav = Gravity.TOP or (if (rhd) Gravity.END else Gravity.START)
+        if (lp.gravity != grav || lp.topMargin != top || (if (rhd) lp.rightMargin else lp.leftMargin) != side) {
+            lp.gravity = grav; lp.topMargin = top
+            if (rhd) { lp.rightMargin = side; lp.leftMargin = 0 } else { lp.leftMargin = side; lp.rightMargin = 0 }
+            updateBtn.layoutParams = lp
+        }
+    }
+
+    /** Looks at the newest GitHub release; a newer build than this one brings up the update window (once per build). */
+    private fun checkForUpdate(manual: Boolean) {
+        val now = System.currentTimeMillis()
+        if (!manual && (now - lastUpdateCheck < 30 * 60 * 1000L || updateBusy)) return
+        lastUpdateCheck = now
+        Thread {
+            val r = Updater.latest()
+            val have = Updater.installedBuild(this)
+            ui.post {
+                if (r != null && r.build > have) {
+                    pendingUpdate = r
+                    if (manual || prefs().getInt("updDeferred", 0) != r.build) showUpdateDialog(r) else refreshUpdateBtn()
+                } else {
+                    pendingUpdate = null; refreshUpdateBtn()
+                    if (manual) toast(if (r == null) "Could not check for updates (is the internet connected?)" else "You have the latest version (build $have)")
+                }
+            }
+        }.start()
+    }
+
+    private val installReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) {
+            val st = i.getIntExtra(android.content.pm.PackageInstaller.EXTRA_STATUS, -1)
+            if (st == android.content.pm.PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                @Suppress("DEPRECATION") val confirm = i.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
+                if (confirm != null) startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } else if (st != android.content.pm.PackageInstaller.STATUS_SUCCESS) {
+                updateFailed(i.getStringExtra(android.content.pm.PackageInstaller.EXTRA_STATUS_MESSAGE) ?: "install failed")
+            }
+        }
+    }
+    private var installReceiverOn = false
+
+    private fun updateFailed(msg: String) {
+        updateBusy = false
+        EventLog.add("update failed: $msg")
+        updPt?.text = "Update failed: $msg"
+        updBar?.visibility = View.GONE
+        updPos?.apply { isEnabled = true; text = "Try again" }
+        updNeg?.isEnabled = true
+        updateDialog?.setCancelable(true)
+    }
+
+    private fun showUpdateDialog(r: Updater.Release) {
+        if (updateDialog?.isShowing == true) return
+        val light = Color.parseColor("#F0F3F8")
+        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(6), dp(22), dp(4)) }
+        body.addView(TextView(this).apply {
+            text = "${r.title} is ready (you have build ${Updater.installedBuild(this@MainActivity)})."; textSize = 15f; setTextColor(light)
+        })
+        body.addView(TextView(this).apply { text = "RELEASE NOTES"; textSize = 11f; setTextColor(Color.parseColor("#9AA6B4")); letterSpacing = 0.1f; setPadding(0, dp(14), 0, dp(4)) })
+        val sv = ScrollView(this)
+        sv.addView(TextView(this).apply { text = r.notes; textSize = 14f; setTextColor(light); setLineSpacing(0f, 1.1f) })
+        body.addView(sv, LinearLayout.LayoutParams(-1, dp(200)))
+        val pt = TextView(this).apply { textSize = 13f; setTextColor(light); setPadding(0, dp(12), 0, dp(4)); visibility = View.GONE }
+        val bar = android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 100; visibility = View.GONE }
+        body.addView(pt); body.addView(bar, LinearLayout.LayoutParams(-1, -2))
+        val d = darkDialog().setTitle("Update available").setView(body)
+            .setPositiveButton("Update Now?", null).setNegativeButton("Update later", null).create()
+        updateDialog = d; updPt = pt; updBar = bar
+        d.setOnDismissListener {
+            updateDialog = null
+            if (!updateBusy) { prefs().edit().putInt("updDeferred", r.build).apply(); refreshUpdateBtn() }
+        }
+        d.show(); styleDark(d)
+        updPos = d.getButton(AlertDialog.BUTTON_POSITIVE); updNeg = d.getButton(AlertDialog.BUTTON_NEGATIVE)
+        updPos?.setOnClickListener { startUpdate(r, d, pt, bar) }
+        updNeg?.setOnClickListener { d.dismiss() }     // "Update later": the dismiss listener leaves the button beside the clock
+        refreshUpdateBtn()
+    }
+
+    private fun startUpdate(r: Updater.Release, d: AlertDialog, pt: TextView, bar: android.widget.ProgressBar) {
+        updateBusy = true
+        d.setCancelable(false)
+        updPos?.apply { isEnabled = false; text = "Updating\u2026" }
+        updNeg?.isEnabled = false
+        pt.visibility = View.VISIBLE; bar.visibility = View.VISIBLE; bar.progress = 0; pt.text = "Downloading\u2026 0%"
+        Thread {
+            try {
+                val dir = File(cacheDir, "update"); dir.deleteRecursively()
+                val apk = File(dir, "FiskerBattery-build${r.build}.apk")
+                Updater.download(r, apk) { p -> ui.post { bar.progress = p; pt.text = "Downloading\u2026 $p%" } }
+                ui.post { pt.text = "Installing\u2026 the app restarts by itself and keeps your settings"; bar.isIndeterminate = true }
+                if (Updater.rootAvailable()) {
+                    prefs().edit().commit()
+                    if (!Updater.installRoot(this, apk)) throw RuntimeException("could not start the installer")
+                } else {
+                    ui.post {
+                        if (!installReceiverOn) {
+                            val f = IntentFilter(Updater.ACTION_STATUS)
+                            if (Build.VERSION.SDK_INT >= 33) registerReceiver(installReceiver, f, Context.RECEIVER_NOT_EXPORTED) else registerReceiver(installReceiver, f)
+                            installReceiverOn = true
+                        }
+                    }
+                    Thread.sleep(300)
+                    Updater.installSession(this, apk)
+                }
+            } catch (e: Exception) { ui.post { bar.isIndeterminate = false; updateFailed(e.message ?: "unknown error") } }
+        }.start()
+    }
+
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
 
     /** Run a command as root; returns what it printed ("" if there is no root or it failed). */
@@ -2561,6 +2711,7 @@ class MainActivity : Activity() {
             updateDashTheme(true)
             refreshScreenSize()
             offerClosePulse()
+            checkForUpdate(false)
             // full screen: the Climate panel comes back with the dashboard
             if (fullOrderNow) edgeBox.post { if (dashShown && climateView.visibility != View.VISIBLE) openClimate() }
             if (!introDone) {
@@ -2614,6 +2765,8 @@ class MainActivity : Activity() {
         dashPowerGauge.bottomValue = s.socUsable?.let { "$it %" } ?: "--"
         chargeBar.frac = s.socUsable?.let { it / 100f }
         if (dashClock.visibility == View.VISIBLE) dashClock.tick()
+        placeUpdateBtn()
+        checkForUpdate(false)
         dashPowerGauge.refresh()
 
         dashBrake.visibility = if (s.brakeBcm ?: s.brakeVcu ?: false) View.VISIBLE else View.INVISIBLE
@@ -4493,6 +4646,7 @@ class ChargeBarView(ctx: Context) : View(ctx) {
 class DashClockView(ctx: Context) : View(ctx) {
     var day = false
     var alignRight = false
+    var textW = 0f                                    // how wide the time text is drawn (the Update Available button sits beside it)
     private val is24 = android.text.format.DateFormat.is24HourFormat(ctx)
     private val tf = java.text.SimpleDateFormat(if (is24) "HH:mm:ss" else "h:mm:ss", java.util.Locale.getDefault())
     private val af = java.text.SimpleDateFormat("a", java.util.Locale.getDefault())
@@ -4529,6 +4683,7 @@ class DashClockView(ctx: Context) : View(ctx) {
         val total = tw + (if (is24) 0f else apGap + aw)
         if (total > w) { size *= w / total; tp.textSize = size; tw = tp.measureText(timeStr); aw = if (is24) 0f else tp.measureText(ap) * 0.38f }
         val base = timeH * 0.80f
+        textW = tw + (if (is24) 0f else size * 0.12f + aw)
         val tx = if (alignRight) w - (tw + (if (is24) 0f else size * 0.12f + aw)) else 0f
         c.drawText(timeStr, tx, base, tp)
         if (!is24) {
