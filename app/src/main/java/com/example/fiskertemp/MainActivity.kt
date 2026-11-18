@@ -1022,10 +1022,20 @@ class MainActivity : Activity() {
             text = "Hide the trip information"; isChecked = prefs().getBoolean("hideTrip", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideTrip", on).apply(); relayout() }
         }, 4)
+        val moreCb = CheckBox(this).apply {
+            text = "Show more app buttons (6 instead of 4)"; isChecked = prefs().getBoolean("moreBtns", false)
+            visibility = if (prefs().getBoolean("iconBtns", false)) View.VISIBLE else View.GONE
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("moreBtns", on).apply(); relayoutDash(); refreshLowerLabels(); paintLowerTabs() }
+        }
         box.add(CheckBox(this).apply {
             text = "Show icons instead of names on the app buttons"; isChecked = prefs().getBoolean("iconBtns", false)
-            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("iconBtns", on).apply(); refreshLowerLabels(); paintLowerTabs() }
+            setOnCheckedChangeListener { _, on ->
+                prefs().edit().putBoolean("iconBtns", on).apply()
+                moreCb.visibility = if (on) View.VISIBLE else View.GONE
+                relayoutDash(); refreshLowerLabels(); paintLowerTabs()
+            }
         }, 4)
+        box.add(moreCb, 4)
         box.add(Button(this).apply {
             text = "Speedometer Adjustment"; isAllCaps = false
             setOnClickListener { showSpeedAdjust() }
@@ -1406,7 +1416,9 @@ class MainActivity : Activity() {
         resBtn.text = if (screenH == 0) "Screen size" else if (resCompact) "\u21C5 $screenH" else "Screen: 1080 \u00D7 $screenH  \u21C5"
     }
     private var screenH = 0       // 1920 or 1784 once known
-    private val slotCount = 4
+    private val maxSlots = 6
+    /** Four app buttons, or six when icons are shown and "more buttons" is on. */
+    private val slotCount get() = if (prefs().getBoolean("iconBtns", false) && prefs().getBoolean("moreBtns", false)) maxSlots else 4
     /** The app a lower button opens (a package name); empty until the user picks one. */
     private fun slotPkg(i: Int): String = prefs().getString("slotPkg$i", "") ?: ""
     private fun appLabelOf(pkg: String): String = try {
@@ -1651,7 +1663,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(18).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
             setPadding(dp(3), dp(3), dp(3), dp(3))
-            for (i in 0 until slotCount) {
+            for (i in 0 until maxSlots) {
                 addView(TextView(context).apply {
                     textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
                     minHeight = dp(42); minWidth = dp(44); setPadding(dp(6), 0, dp(6), 0)
@@ -2123,7 +2135,7 @@ class MainActivity : Activity() {
         val band = rowHdp / 2f - minOf(gaugeWdp, rowHdp) / 2f * 0.92f - 6f - up
         val clockH = if (band >= 30f) band.toInt().coerceAtMost(110) else if (third) 24 else 0
         val rhd = prefs().getBoolean("rhd", false)
-        val key = "$hDp/$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$edgeL/$edgeR/$up/$rhd/$hideBar/$hideTrip/${prefs().getBoolean("fullMedia", true)}/${prefs().getBoolean("iconBtns", false)}"
+        val key = "$hDp/$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$edgeL/$edgeR/$up/$rhd/$hideBar/$hideTrip/${prefs().getBoolean("fullMedia", true)}/${prefs().getBoolean("iconBtns", false)}/${prefs().getBoolean("moreBtns", false)}"
         if (key == layoutKey) return
         layoutKey = key
         EventLog.add("layout ${wDp}x${hDp}dp tier=$ti trip=$midRows third=$third half=$half tall=$tall")
@@ -2355,8 +2367,10 @@ class MainActivity : Activity() {
             val room = totalW - dp(8 + 20 + 16) - others - btnBar.measuredWidth - dp(6 + 6 * slotCount)
             per = (room / slotCount).coerceIn(dp(44), dp(120))
         }
+        if (lowerIdx >= slotCount) lowerIdx = 0
         for (i in 0 until lowerTabs.childCount) {
             val v = lowerTabs.getChildAt(i) as? TextView ?: continue
+            v.visibility = if (i < slotCount) View.VISIBLE else View.GONE
             val pkg = slotPkg(i)
             val icons = prefs().getBoolean("iconBtns", false) && pkg.isNotEmpty()
             val ic = if (icons) try { packageManager.getApplicationIcon(pkg) } catch (e: Exception) { null } else null
