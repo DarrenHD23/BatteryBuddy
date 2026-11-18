@@ -5049,15 +5049,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val x = left + cc * (tw + gp); val y = top + rr * (h + gp)
         val r = RectF(x, y, x + tw, y + h)
         val cr = dp(if (small) 14f else 20f)
-        p.shader = null
-        if (lit) {
-            // a soft glow in the tile's colour
-            stroke(Color.argb(40, Color.red(col), Color.green(col), Color.blue(col)), 8f); canvas.drawRoundRect(r, cr, cr, p)
-            stroke(Color.argb(70, Color.red(col), Color.green(col), Color.blue(col)), 4f); canvas.drawRoundRect(r, cr, cr, p)
-        }
-        p.style = Paint.Style.FILL; p.color = if (lit) Color.argb(46, Color.red(col), Color.green(col), Color.blue(col)) else Color.argb(14, 255, 255, 255)
-        canvas.drawRoundRect(r, cr, cr, p)
-        stroke(if (lit) col else Color.argb(30, 255, 255, 255), if (lit) 1.8f else 1f); canvas.drawRoundRect(r, cr, cr, p)
+        drawLiquidGlass(canvas, p, r, cr, dp(1f), if (lit) col else null)
         icon(r.centerX(), r.top + h * 0.39f, h * 0.21f, if (lit) Color.WHITE else Color.argb(150, 255, 255, 255))
         fitText(label, r.centerX(), r.bottom - h * 0.19f, (h / d * 0.17f).coerceIn(10f, 14f), if (lit) Color.WHITE else Color.argb(160, 255, 255, 255), true, tw - dp(8f))
     }
@@ -5069,11 +5061,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     /** A glass rounded-square button with a - or + on it (sym 0 = minus, 1 = plus). */
     private fun glassBtn(r: RectF, sym: Int) {
         val cr = r.width() * 0.28f
-        p.shader = null; p.style = Paint.Style.FILL; p.color = Color.argb(70, 0, 0, 0)
-        canvas.drawRoundRect(RectF(r.left, r.top + dp(3f), r.right, r.bottom + dp(3f)), cr, cr, p)
-        p.shader = LinearGradient(0f, r.top, 0f, r.bottom, Color.argb(66, 255, 255, 255), Color.argb(14, 255, 255, 255), Shader.TileMode.CLAMP)
-        canvas.drawRoundRect(r, cr, cr, p); p.shader = null
-        stroke(Color.argb(100, 255, 255, 255), 1.4f); canvas.drawRoundRect(r, cr, cr, p)
+        drawLiquidGlass(canvas, p, r, cr, dp(1f), null)
         val l = r.width() * 0.22f
         stroke(Color.WHITE, 2.8f)
         line(r.centerX() - l, r.centerY(), r.centerX() + l, r.centerY())
@@ -5459,11 +5447,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
                 val rr = RectF(m + i * (cw + cg), chipsTop, m + i * (cw + cg) + cw, chipsTop + chipH)
                 val lit = s.climSeen && s.climDrvMode == i + 1
                 val cr = chipH * 0.32f
-                p.style = Paint.Style.FILL
-                if (lit) { p.color = Color.argb(40, Color.red(on), Color.green(on), Color.blue(on)); c.drawRoundRect(RectF(rr.left - dp(2f), rr.top - dp(2f), rr.right + dp(2f), rr.bottom + dp(2f)), cr, cr, p) }
-                p.color = if (lit) Color.argb(46, Color.red(on), Color.green(on), Color.blue(on)) else Color.argb(14, 255, 255, 255)
-                c.drawRoundRect(rr, cr, cr, p)
-                stroke(if (lit) on else Color.argb(34, 255, 255, 255), if (lit) 1.8f else 1f); c.drawRoundRect(rr, cr, cr, p)
+                drawLiquidGlass(c, p, rr, cr, dp(1f), if (lit) on else null)
                 modeIcon(rr.left + chipH * 0.78f, rr.centerY(), chipH * 0.30f, i + 1, if (lit) Color.WHITE else Color.argb(150, 255, 255, 255))
                 val tx0 = rr.left + chipH * 1.18f
                 fitText(names[i], (tx0 + rr.right - dp(4f)) / 2f, rr.centerY(), if (small) 11f else 12f, if (lit) Color.WHITE else Color.argb(170, 255, 255, 255), true, rr.right - dp(6f) - tx0)
@@ -5786,23 +5770,7 @@ class MediaCardView(ctx: Context) : View(ctx) {
     }
 
     /** A transparent round glass button: soft drop shadow, a lit curved face, a bright top gloss and a rim lit from above. */
-    private fun glass(c: Canvas, r: RectF) {
-        val cx = r.centerX(); val cy = r.centerY(); val rad = r.width() / 2
-        // drop shadow
-        p.style = Paint.Style.FILL; p.shader = null; p.color = Color.argb(70, 0, 0, 0)
-        c.drawCircle(cx, cy + dp(3f), rad, p)
-        // face: lit from the upper left, see-through
-        p.shader = RadialGradient(cx - rad * 0.35f, cy - rad * 0.4f, rad * 1.5f,
-            intArrayOf(Color.argb(120, 255, 255, 255), Color.argb(46, 255, 255, 255), Color.argb(70, 0, 0, 0)), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
-        c.drawCircle(cx, cy, rad, p); p.shader = null
-        // gloss on the top half
-        p.shader = LinearGradient(0f, cy - rad, 0f, cy, Color.argb(110, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP)
-        c.drawOval(RectF(cx - rad * 0.72f, cy - rad * 0.94f, cx + rad * 0.72f, cy - rad * 0.08f), p); p.shader = null
-        // rim: bright on top, dark underneath
-        p.style = Paint.Style.STROKE; p.strokeWidth = dp(1.6f)
-        p.shader = LinearGradient(0f, cy - rad, 0f, cy + rad, Color.argb(200, 255, 255, 255), Color.argb(50, 255, 255, 255), Shader.TileMode.CLAMP)
-        c.drawCircle(cx, cy, rad - dp(0.8f), p); p.shader = null
-    }
+    private fun glass(c: Canvas, r: RectF) { drawLiquidGlass(c, p, r, r.width() / 2f, dp(1f), null) }
 
     /** kind: 0 previous, 1 next, 2 play, 3 pause. All four fit the same box, so the three buttons look the same size. */
     private fun icon(c: Canvas, r: RectF, kind: Int) {
@@ -5837,4 +5805,33 @@ class MediaCardView(ctx: Context) : View(ctx) {
         }
         return true
     }
+}
+
+
+/** Liquid-glass button: soft drop shadow, a frosted translucent fill (tinted when [tint] is given, with a glow), a bright
+ *  specular highlight across the top and a rim that is brightest at the upper left and lower right. [u] is one dp in pixels. */
+fun drawLiquidGlass(c: Canvas, p: Paint, r: RectF, cr: Float, u: Float, tint: Int?) {
+    p.shader = null; p.style = Paint.Style.FILL; p.pathEffect = null
+    p.color = Color.argb(70, 0, 0, 0)
+    c.drawRoundRect(RectF(r.left, r.top + 3f * u, r.right, r.bottom + 3f * u), cr, cr, p)
+    if (tint != null) {
+        val tr = Color.red(tint); val tg = Color.green(tint); val tb = Color.blue(tint)
+        p.color = Color.argb(34, tr, tg, tb); c.drawRoundRect(RectF(r.left - 5f * u, r.top - 5f * u, r.right + 5f * u, r.bottom + 5f * u), cr + 4f * u, cr + 4f * u, p)
+        p.color = Color.argb(50, tr, tg, tb); c.drawRoundRect(RectF(r.left - 2f * u, r.top - 2f * u, r.right + 2f * u, r.bottom + 2f * u), cr + 2f * u, cr + 2f * u, p)
+    }
+    val cols = if (tint != null) intArrayOf(Color.argb(150, Color.red(tint), Color.green(tint), Color.blue(tint)), Color.argb(70, Color.red(tint), Color.green(tint), Color.blue(tint)), Color.argb(105, Color.red(tint), Color.green(tint), Color.blue(tint)))
+        else intArrayOf(Color.argb(78, 255, 255, 255), Color.argb(20, 255, 255, 255), Color.argb(42, 255, 255, 255))
+    p.shader = LinearGradient(r.left, r.top, r.right, r.bottom, cols, floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
+    c.drawRoundRect(r, cr, cr, p); p.shader = null
+    // specular highlight across the top
+    val hl = RectF(r.left + r.width() * 0.09f, r.top + 1.6f * u, r.right - r.width() * 0.09f, r.top + r.height() * 0.46f)
+    p.shader = LinearGradient(0f, hl.top, 0f, hl.bottom, Color.argb(120, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP)
+    c.drawRoundRect(hl, cr * 0.8f, cr * 0.8f, p); p.shader = null
+    // rim
+    p.style = Paint.Style.STROKE; p.strokeWidth = 1.3f * u
+    p.shader = LinearGradient(r.left, r.top, r.right, r.bottom,
+        intArrayOf(Color.argb(235, 255, 255, 255), Color.argb(26, 255, 255, 255), Color.argb(26, 255, 255, 255), Color.argb(170, 255, 255, 255)),
+        floatArrayOf(0f, 0.4f, 0.6f, 1f), Shader.TileMode.CLAMP)
+    c.drawRoundRect(RectF(r.left + 0.65f * u, r.top + 0.65f * u, r.right - 0.65f * u, r.bottom - 0.65f * u), cr, cr, p)
+    p.shader = null; p.style = Paint.Style.FILL
 }
