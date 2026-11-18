@@ -1665,7 +1665,7 @@ class MainActivity : Activity() {
                     placeMediaPopup()
                     mediaPopup.bringToFront(); mediaPopup.visibility = View.VISIBLE
                     // the button bars stay on top of the card
-                    lowerBox.bringToFront(); btnBar.bringToFront()
+                    lowerBox.bringToFront(); btnBar.bringToFront(); if (::cautionView.isInitialized && cautionView.visibility == View.VISIBLE) cautionView.bringToFront()
                     ui.removeCallbacks(hideMediaPopup)
                 }
             }
@@ -1975,6 +1975,7 @@ class MainActivity : Activity() {
                 climateView.fanControl = prefs().getBoolean("climateTx", false)
                 placeClimate()
                 climateView.bringToFront(); climateView.visibility = View.VISIBLE
+                if (::cautionView.isInitialized && cautionView.visibility == View.VISIBLE) cautionView.bringToFront()   // the beta notice stays on top
     }
 
     private fun placeClimate() {
@@ -2189,7 +2190,7 @@ class MainActivity : Activity() {
                     ensureMediaWatcher(); mediaWatcher?.start()
                     placeMediaPopup()
                     mediaPopup.bringToFront(); mediaPopup.visibility = View.VISIBLE
-                    lowerBox.bringToFront(); btnBar.bringToFront()
+                    lowerBox.bringToFront(); btnBar.bringToFront(); if (::cautionView.isInitialized && cautionView.visibility == View.VISIBLE) cautionView.bringToFront()
                     ui.removeCallbacks(hideMediaPopup)
                 }
             }
