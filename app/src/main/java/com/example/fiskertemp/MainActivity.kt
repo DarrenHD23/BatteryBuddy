@@ -6412,9 +6412,9 @@ class MediaCardView(ctx: Context) : View(ctx) {
         if (wide) {
             val bs = dp(26f)
             if (vz) {
-                // the on / off button sits just left of the visualizer window, centred on it
-                if (rhd) { vizBtn.set(dp(12f), h / 2 - bs / 2, dp(12f) + bs, h / 2 + bs / 2); vizRect.set(vizBtn.right + dp(8f), dp(12f), colX - dp(14f), h - dp(12f)) }
-                else { vizBtn.set(colX + colW + dp(10f), h / 2 - bs / 2, colX + colW + dp(10f) + bs, h / 2 + bs / 2); vizRect.set(vizBtn.right + dp(8f), dp(12f), w - dp(12f), h - dp(12f)) }
+                // the on / off button sits inside the visualizer, in its top left corner
+                if (rhd) vizRect.set(dp(12f), dp(12f), colX - dp(14f), h - dp(12f)) else vizRect.set(colX + colW + dp(14f), dp(12f), w - dp(12f), h - dp(12f))
+                vizBtn.set(vizRect.left + dp(6f), vizRect.top + dp(6f), vizRect.left + dp(6f) + bs, vizRect.top + dp(6f) + bs)
                 // real audio when the device allows it and sound is actually coming through, otherwise a simulated beat
                 var bands: FloatArray? = null
                 if (playing && AudioViz.start(context)) { vizLive = true; if (AudioViz.hasSignal()) bands = AudioViz.bands } else { vizLive = false; if (!playing) AudioViz.stop() }
