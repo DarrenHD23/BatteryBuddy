@@ -1948,16 +1948,18 @@ class MainActivity : Activity() {
             val l = (0.299f * Color.red(ac) + 0.587f * Color.green(ac) + 0.114f * Color.blue(ac)) / 255f
             climateView.accent = if (l > 0.7f) Color.rgb((Color.red(ac) * 0.55f + 108 * 0.45f).toInt(), (Color.green(ac) * 0.55f + 122 * 0.45f).toInt(), (Color.blue(ac) * 0.55f + 140 * 0.45f).toInt()) else ac
         }
-        // a solid colour from the dashboard's current background (the screen's inks are light, so a bright background is darkened)
+        // the background is the skin's colour: a deep shade of the accent at night, a soft tint of it over light grey in Day mode
         run {
-            val base = if (dashDay) Color.parseColor("#E6ECF4") else (Skins.look.bgBottom or (0xFF shl 24))
-            val lum = (0.299f * Color.red(base) + 0.587f * Color.green(base) + 0.114f * Color.blue(base)) / 255f
-            val k = if (lum > 0.35f) 0.28f else 1f
-            climateView.bgColor = Color.rgb((Color.red(base) * k).toInt(), (Color.green(base) * k).toInt(), (Color.blue(base) * k).toInt())
-            val top = if (dashDay) Color.parseColor("#F2F6FB") else (Skins.look.bgTop or (0xFF shl 24))
-            climateView.bgTopColor = Color.rgb((Color.red(top) * k).toInt(), (Color.green(top) * k).toInt(), (Color.blue(top) * k).toInt())
-            // Day mode: a lighter grey gradient (the screen's inks stay light, so it is not made too pale)
-            if (dashDay) { climateView.bgTopColor = Color.parseColor("#B4BBC4"); climateView.bgColor = Color.parseColor("#8C95A1") }
+            val ac = climateView.accent
+            fun sc(c: Int, k: Float) = Color.rgb((Color.red(c) * k).toInt(), (Color.green(c) * k).toInt(), (Color.blue(c) * k).toInt())
+            fun mx(a: Int, b: Int, t: Float) = Color.rgb((Color.red(a) + (Color.red(b) - Color.red(a)) * t).toInt(), (Color.green(a) + (Color.green(b) - Color.green(a)) * t).toInt(), (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * t).toInt())
+            if (dashDay) {
+                climateView.bgTopColor = mx(Color.parseColor("#B4BBC4"), ac, 0.35f)
+                climateView.bgColor = mx(Color.parseColor("#8C95A1"), ac, 0.35f)
+            } else {
+                climateView.bgTopColor = sc(ac, 0.46f)
+                climateView.bgColor = sc(ac, 0.22f)
+            }
         }
         climateView.invalidate()
     }
