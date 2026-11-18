@@ -1874,6 +1874,8 @@ class MainActivity : Activity() {
                     climateView.bgColor = Color.rgb((Color.red(base) * k).toInt(), (Color.green(base) * k).toInt(), (Color.blue(base) * k).toInt())
                     val top = if (dashDay) Color.parseColor("#F2F6FB") else (Skins.look.bgTop or (0xFF shl 24))
                     climateView.bgTopColor = Color.rgb((Color.red(top) * k).toInt(), (Color.green(top) * k).toInt(), (Color.blue(top) * k).toInt())
+                    // Day mode: a lighter grey gradient (the screen's inks stay light, so it is not made too pale)
+                    if (dashDay) { climateView.bgTopColor = Color.parseColor("#8A929D"); climateView.bgColor = Color.parseColor("#5B6370") }
                 }
                 climateView.fanControl = prefs().getBoolean("climateTx", false)
                 placeClimate()
