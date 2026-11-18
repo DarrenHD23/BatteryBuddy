@@ -1850,7 +1850,14 @@ class MainActivity : Activity() {
             isHorizontalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; isFillViewport = false
             background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(18).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
             addView(lowerTabs, FrameLayout.LayoutParams(-2, -2))
+            // the buttons scroll inside the border: clipped to the padding box and to the rounded outline
+            setPadding(dp(3), dp(3), dp(3), dp(3)); clipToPadding = true
+            outlineProvider = object : android.view.ViewOutlineProvider() {
+                override fun getOutline(v: View, o: android.graphics.Outline) { o.setRoundRect(0, 0, v.width, v.height, dp(18).toFloat()) }
+            }
+            clipToOutline = true
         }
+        lowerTabs.setPadding(0, 0, 0, 0)
         lowerAdd = TextView(this).apply {
             text = "+"; textSize = 20f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
             minHeight = dp(42); minWidth = dp(42); setPadding(dp(6), 0, dp(6), 0)
