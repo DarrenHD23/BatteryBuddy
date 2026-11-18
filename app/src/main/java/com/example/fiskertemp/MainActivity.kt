@@ -1674,6 +1674,7 @@ class MainActivity : Activity() {
         if (want != dashDay && (force || now - dayPendingSince > 1500 || prefs().getString("dispTheme", "night") != "auto")) {
             dashDay = want
             applyDashTheme(want)
+            if (::climateView.isInitialized && climateView.visibility == View.VISIBLE) applyClimateColors()
         }
     }
 
@@ -1863,20 +1864,26 @@ class MainActivity : Activity() {
         }
     }
 
+    /** The Climate screen's background follows the dashboard theme (re-applied whenever the theme changes). */
+    private fun applyClimateColors() {
+        // a solid colour from the dashboard's current background (the screen's inks are light, so a bright background is darkened)
+        run {
+            val base = if (dashDay) Color.parseColor("#E6ECF4") else (Skins.look.bgBottom or (0xFF shl 24))
+            val lum = (0.299f * Color.red(base) + 0.587f * Color.green(base) + 0.114f * Color.blue(base)) / 255f
+            val k = if (lum > 0.35f) 0.28f else 1f
+            climateView.bgColor = Color.rgb((Color.red(base) * k).toInt(), (Color.green(base) * k).toInt(), (Color.blue(base) * k).toInt())
+            val top = if (dashDay) Color.parseColor("#F2F6FB") else (Skins.look.bgTop or (0xFF shl 24))
+            climateView.bgTopColor = Color.rgb((Color.red(top) * k).toInt(), (Color.green(top) * k).toInt(), (Color.blue(top) * k).toInt())
+            // Day mode: a lighter grey gradient (the screen's inks stay light, so it is not made too pale)
+            if (dashDay) { climateView.bgTopColor = Color.parseColor("#8A929D"); climateView.bgColor = Color.parseColor("#5B6370") }
+        }
+        climateView.invalidate()
+    }
+
     /** Show the Climate screen (from its button, or automatically when the window becomes full screen). */
     private fun openClimate() {
                 climateView.snap = canSnap; climateView.fahrenheit = useFahrenheit
-                // a solid colour from the dashboard's current background (the screen's inks are light, so a bright background is darkened)
-                run {
-                    val base = if (dashDay) Color.parseColor("#E6ECF4") else (Skins.look.bgBottom or (0xFF shl 24))
-                    val lum = (0.299f * Color.red(base) + 0.587f * Color.green(base) + 0.114f * Color.blue(base)) / 255f
-                    val k = if (lum > 0.35f) 0.28f else 1f
-                    climateView.bgColor = Color.rgb((Color.red(base) * k).toInt(), (Color.green(base) * k).toInt(), (Color.blue(base) * k).toInt())
-                    val top = if (dashDay) Color.parseColor("#F2F6FB") else (Skins.look.bgTop or (0xFF shl 24))
-                    climateView.bgTopColor = Color.rgb((Color.red(top) * k).toInt(), (Color.green(top) * k).toInt(), (Color.blue(top) * k).toInt())
-                    // Day mode: a lighter grey gradient (the screen's inks stay light, so it is not made too pale)
-                    if (dashDay) { climateView.bgTopColor = Color.parseColor("#8A929D"); climateView.bgColor = Color.parseColor("#5B6370") }
-                }
+                applyClimateColors()
                 climateView.fanControl = prefs().getBoolean("climateTx", false)
                 placeClimate()
                 climateView.bringToFront(); climateView.visibility = View.VISIBLE
