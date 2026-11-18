@@ -1191,6 +1191,16 @@ class MainActivity : Activity() {
             setOnClickListener { showSpeedAdjust() }
         }, 8)
         box.add(Button(this).apply {
+            text = "Visualizer colours (media card)"; isAllCaps = false
+            setOnClickListener {
+                val cur = prefs().getInt("vizPal", 0).coerceIn(0, VizInfo.palettes.size - 1)
+                darkDialog().setTitle("Visualizer colours").setSingleChoiceItems(VizInfo.palettes.toTypedArray(), cur) { dlg, i ->
+                    prefs().edit().putInt("vizPal", i).apply(); dlg.dismiss()
+                    if (::mediaPopup.isInitialized) mediaPopup.invalidate(); if (::mediaCard.isInitialized) mediaCard.invalidate()
+                }.setNegativeButton("Close", null).showDark()
+            }
+        }, 8)
+        box.add(Button(this).apply {
             text = "Join the Beta"; isAllCaps = false
             setOnClickListener { showBetaGate() }
         }, 8)
@@ -1641,6 +1651,20 @@ class MainActivity : Activity() {
     private fun speedAdjFor(v: Double, mph: Boolean): Int = adjTable(mph)[(v / 10).toInt().coerceIn(0, 15)]
 
     /** "Join the Beta": a password first, then the tick box that lets this app see pre-release builds. */
+    private var audioPermAsked = false
+    /** The visualizer listens to the audio output. Grant that permission as root when possible, otherwise ask once. */
+    private fun ensureAudioPermission() {
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED || audioPermAsked) return
+        audioPermAsked = true
+        Thread {
+            try { if (Updater.rootAvailable()) Root.exec("pm grant $packageName android.permission.RECORD_AUDIO", 10) } catch (e: Throwable) {}
+            ui.post {
+                if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED && prefs().getBoolean("vizOn", true))
+                    try { requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 4712) } catch (e: Throwable) {}
+            }
+        }.start()
+    }
+
     private fun showBetaGate() {
         val pw = EditText(this).apply {
             hint = "Password"; setTextColor(Color.WHITE); setHintTextColor(Color.parseColor("#8893A3"))
@@ -3360,6 +3384,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        ensureAudioPermission()
         EventLog.add("resumed")
         // another app took over the screen in full screen and the user came back: put the split screen and the lower app back as they were
         if (splitWhenLeft && !isInMultiWindowMode) {
@@ -6297,6 +6322,21 @@ class MediaCardView(ctx: Context) : View(ctx) {
     private val path = Path()
     private val rPrev = RectF(); private val rPlay = RectF(); private val rNext = RectF()
 
+    // ---- visualizer (wide card only): on the right, tap it for the next style; the small button turns it on / off
+    private val vizRect = RectF(); private val vizBtn = RectF()
+    private val painter = VizPainter(ctx.resources.displayMetrics.density)
+    private val sp = ctx.getSharedPreferences("prefs", Context.MODE_PRIVATE)
+    private var vizOn = true; private var vizStyle = 0; private var vizPal = 0; private var vizRead = 0L
+    private var vizLive = false
+    private fun readViz() {
+        val now = System.currentTimeMillis()
+        if (now - vizRead < 500) return
+        vizRead = now
+        vizOn = sp.getBoolean("vizOn", true); vizStyle = sp.getInt("vizStyle", 0).coerceIn(0, VizInfo.styles.size - 1); vizPal = sp.getInt("vizPal", 0).coerceIn(0, VizInfo.palettes.size - 1)
+    }
+    override fun onDetachedFromWindow() { super.onDetachedFromWindow(); AudioViz.stop() }
+    override fun onVisibilityChanged(v: View, vis: Int) { super.onVisibilityChanged(v, vis); if (vis != View.VISIBLE) AudioViz.stop() }
+
     fun update(t: String?, a: String?, b: Bitmap?, pl: Boolean, has: Boolean) {
         title = t; artist = a; art = b; playing = pl; hasSession = has; invalidate()
     }
@@ -6339,11 +6379,16 @@ class MediaCardView(ctx: Context) : View(ctx) {
 
         // controls on the driver's side: previous, play / pause, next, three identical round glass buttons
         val small = w < dp(380f)                       // a narrow card: the text on top, the three buttons in a row underneath
-        val gap = dp(if (small) 10f else 16f)
-        val bsz = if (small) minOf(h * 0.40f, (w - dp(28f) - 2 * gap) / 3) else h * 0.58f
-        val cy = if (small) h - dp(8f) - bsz / 2 else h / 2
+        readViz()
+        val wide = w >= dp(520f) && !small
+        val vz = wide && vizOn                         // wide card with the visualizer: text and small buttons on one side, the visualizer on the other
+        val colW = minOf(dp(250f), w * 0.38f)
+        val colX = if (rhd) w - dp(16f) - colW else dp(16f)
+        val gap = dp(if (small) 10f else if (vz) 8f else 16f)
+        val bsz = if (small) minOf(h * 0.40f, (w - dp(28f) - 2 * gap) / 3) else if (vz) minOf(h * 0.30f, dp(34f)) else h * 0.58f
+        val cy = if (small) h - dp(8f) - bsz / 2 else if (vz) h * 0.74f else h / 2
         val total = bsz * 3 + gap * 2
-        val left = if (small) (w - total) / 2 else if (rhd) w - dp(20f) - total else dp(20f)
+        val left = if (small) (w - total) / 2 else if (vz) colX else if (rhd) w - dp(20f) - total else dp(20f)
         rPrev.set(left, cy - bsz / 2, left + bsz, cy + bsz / 2)
         rPlay.set(rPrev.right + gap, cy - bsz / 2, rPrev.right + gap + bsz, cy + bsz / 2)
         rNext.set(rPlay.right + gap, cy - bsz / 2, rPlay.right + gap + bsz, cy + bsz / 2)
@@ -6351,16 +6396,40 @@ class MediaCardView(ctx: Context) : View(ctx) {
         icon(c, rPrev, 0); icon(c, rPlay, if (playing) 3 else 2); icon(c, rNext, 1)
 
         // title and artist on the other side
-        val tx = if (small) dp(14f) else if (rhd) dp(20f) else rNext.right + dp(24f)
-        val maxW = if (small) w - dp(28f) else if (rhd) rPrev.left - tx - dp(24f) else w - tx - dp(20f)
-        val y1 = if (small) h * 0.17f else h * 0.38f; val y2 = if (small) h * 0.35f else h * 0.64f
-        val s1 = if (small) 15f else 20f; val s2 = if (small) 12f else 14f
+        val tx = if (small) dp(14f) else if (vz) colX else if (rhd) dp(20f) else rNext.right + dp(24f)
+        val maxW = if (small) w - dp(28f) else if (vz) colW else if (rhd) rPrev.left - tx - dp(24f) else w - tx - dp(20f)
+        val y1 = if (small) h * 0.17f else if (vz) h * 0.25f else h * 0.38f; val y2 = if (small) h * 0.35f else if (vz) h * 0.45f else h * 0.64f
+        val s1 = if (small) 15f else if (vz) 17f else 20f; val s2 = if (small) 12f else if (vz) 13f else 14f
         if (hasSession && !title.isNullOrEmpty()) {
             fitText(title!!, tx, y1, s1, Color.WHITE, true, maxW)
             if (!artist.isNullOrEmpty()) fitText(artist!!, tx, y2, s2, Color.argb(210, 255, 255, 255), false, maxW)
         } else {
             fitText("Nothing playing", tx, y1, if (small) 14f else 18f, Color.argb(220, 255, 255, 255), true, maxW)
             fitText(if (small) "Bluetooth music shows here" else "Music from the phone over Bluetooth shows here", tx, y2, 12f, Color.argb(150, 255, 255, 255), false, maxW)
+        }
+
+        vizRect.setEmpty(); vizBtn.setEmpty()
+        if (wide) {
+            val bs = dp(26f)
+            if (vz) {
+                if (rhd) vizRect.set(dp(12f), dp(12f), colX - dp(14f), h - dp(12f)) else vizRect.set(colX + colW + dp(14f), dp(12f), w - dp(12f), h - dp(12f))
+                vizBtn.set(vizRect.right - dp(6f) - bs, vizRect.top + dp(6f), vizRect.right - dp(6f), vizRect.top + dp(6f) + bs)
+                // real audio when the device allows it and sound is actually coming through, otherwise a simulated beat
+                var bands: FloatArray? = null
+                if (playing && AudioViz.start(context)) { vizLive = true; if (AudioViz.hasSignal()) bands = AudioViz.bands } else { vizLive = false; if (!playing) AudioViz.stop() }
+                val animating = painter.step(System.currentTimeMillis(), playing, bands)
+                painter.draw(c, vizRect, vizStyle, vizPal, Skins.look.accent)
+                if (animating) postInvalidateDelayed(33)
+            } else {
+                vizBtn.set(w - dp(12f) - bs, dp(10f), w - dp(12f), dp(10f) + bs)
+            }
+            // the on / off button: three little equalizer bars on a glass circle
+            drawLiquidGlass(c, p, vizBtn, bs / 2, dp(1f), if (vz) Skins.look.accent else null)
+            p.style = Paint.Style.FILL; p.shader = null; p.color = Color.WHITE; p.alpha = if (vz) 255 else 170
+            val bw = bs * 0.12f; val bx = vizBtn.centerX() - bw * 2.1f; val bb = vizBtn.centerY() + bs * 0.2f
+            val hs = floatArrayOf(0.34f, 0.5f, 0.26f)
+            for (i in 0..2) c.drawRoundRect(RectF(bx + i * bw * 2.1f, bb - bs * hs[i], bx + i * bw * 2.1f + bw, bb), bw / 2, bw / 2, p)
+            p.alpha = 255
         }
     }
 
@@ -6396,7 +6465,12 @@ class MediaCardView(ctx: Context) : View(ctx) {
         if (e.action == android.view.MotionEvent.ACTION_UP) {
             val s = dp(8f)
             fun hit(r: RectF) = e.x >= r.left - s && e.x <= r.right + s && e.y >= r.top - s && e.y <= r.bottom + s
-            when { hit(rPlay) -> onToggle?.invoke(); hit(rPrev) -> onPrev?.invoke(); hit(rNext) -> onNext?.invoke(); else -> onTap?.invoke() }
+            when {
+                hit(rPlay) -> onToggle?.invoke(); hit(rPrev) -> onPrev?.invoke(); hit(rNext) -> onNext?.invoke()
+                !vizBtn.isEmpty && hit(vizBtn) -> { vizOn = !vizOn; sp.edit().putBoolean("vizOn", vizOn).apply(); if (!vizOn) AudioViz.stop(); invalidate() }
+                !vizRect.isEmpty && vizRect.contains(e.x, e.y) -> { vizStyle = (vizStyle + 1) % VizInfo.styles.size; sp.edit().putInt("vizStyle", vizStyle).apply(); invalidate() }
+                else -> onTap?.invoke()
+            }
         }
         return true
     }
