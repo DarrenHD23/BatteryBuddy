@@ -1022,8 +1022,9 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideTrip", on).apply(); relayout() }
         }, 4)
         val moreCb = CheckBox(this).apply {
-            text = "Show more app buttons (6 instead of 4)"; isChecked = prefs().getBoolean("moreBtns", false)
+            text = "Show more app buttons (6 instead of 4; not while the Skin button is shown)"; isChecked = prefs().getBoolean("moreBtns", false)
             visibility = if (prefs().getBoolean("iconBtns", false)) View.VISIBLE else View.GONE
+            isEnabled = !showSkinBtn()
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("moreBtns", on).apply(); relayoutDash(); refreshLowerLabels(); paintLowerTabs() }
         }
         box.add(CheckBox(this).apply {
@@ -1035,6 +1036,14 @@ class MainActivity : Activity() {
             }
         }, 4)
         box.add(moreCb, 4)
+        box.add(CheckBox(this).apply {
+            text = "Show the Skin button on the dashboard"; isChecked = showSkinBtn()
+            setOnCheckedChangeListener { _, on ->
+                prefs().edit().putBoolean("showSkin", on).apply()
+                moreCb.isEnabled = !on
+                relayoutDash(); refreshLowerLabels(); paintLowerTabs()
+            }
+        }, 4)
         box.add(Button(this).apply {
             text = "Speedometer Adjustment"; isAllCaps = false
             setOnClickListener { showSpeedAdjust() }
@@ -1370,6 +1379,8 @@ class MainActivity : Activity() {
     private var poolKey = ""
     private lateinit var dashGaugeRow: LinearLayout
     private lateinit var lowerTabs: LinearLayout
+    private lateinit var lowerScroll: HorizontalScrollView      // the app buttons scroll sideways when they do not all fit
+    private fun showSkinBtn() = prefs().getBoolean("showSkin", false)
     private lateinit var lowerBox: LinearLayout
     private lateinit var tripPanel: TripPanelView
     private lateinit var tripBtn: TextView
@@ -1417,7 +1428,7 @@ class MainActivity : Activity() {
     private var screenH = 0       // 1920 or 1784 once known
     private val maxSlots = 6
     /** Four app buttons, or six when icons are shown and "more buttons" is on. */
-    private val slotCount get() = if (prefs().getBoolean("iconBtns", false) && prefs().getBoolean("moreBtns", false)) maxSlots else 4
+    private val slotCount get() = if (!showSkinBtn() && prefs().getBoolean("iconBtns", false) && prefs().getBoolean("moreBtns", false)) maxSlots else 4
     /** The app a lower button opens (a package name); empty until the user picks one. */
     private fun slotPkg(i: Int): String = prefs().getString("slotPkg$i", "") ?: ""
     private fun appLabelOf(pkg: String): String = try {
@@ -1660,7 +1671,6 @@ class MainActivity : Activity() {
         }
         lowerTabs = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(18).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
             setPadding(dp(3), dp(3), dp(3), dp(3))
             for (i in 0 until maxSlots) {
                 addView(TextView(context).apply {
@@ -1671,6 +1681,11 @@ class MainActivity : Activity() {
                     setOnLongClickListener { pickLowerApp(i); true }
                 })
             }
+        }
+        lowerScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; isFillViewport = false
+            background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(18).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
+            addView(lowerTabs, FrameLayout.LayoutParams(-2, -2))
         }
         lowerIdx = prefs().getInt("lowerApp", 0).coerceIn(0, slotCount - 1)
         refreshLowerLabels()
@@ -1718,7 +1733,7 @@ class MainActivity : Activity() {
             addView(climateBtn, LinearLayout.LayoutParams(-2, dp(42)).apply { rightMargin = dp(6) })
             addView(resBtn, LinearLayout.LayoutParams(-2, dp(42)))
             addView(tripBtn, LinearLayout.LayoutParams(-2, dp(42)).apply { rightMargin = dp(6) })
-            addView(lowerTabs, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) })
+            addView(lowerScroll, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) })
         }
         f.addView(lowerBox, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(10), 0, 0, dp(190)) })
         flyBtn = TextView(this).apply {
@@ -2134,7 +2149,7 @@ class MainActivity : Activity() {
         val band = rowHdp / 2f - minOf(gaugeWdp, rowHdp) / 2f * 0.92f - 6f - up
         val clockH = if (band >= 30f) band.toInt().coerceAtMost(110) else if (third) 24 else 0
         val rhd = prefs().getBoolean("rhd", false)
-        val key = "$hDp/$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$edgeL/$edgeR/$up/$rhd/$hideBar/$hideTrip/${prefs().getBoolean("fullMedia", true)}/${prefs().getBoolean("iconBtns", false)}/${prefs().getBoolean("moreBtns", false)}"
+        val key = "$hDp/$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$edgeL/$edgeR/$up/$rhd/$hideBar/$hideTrip/${prefs().getBoolean("fullMedia", true)}/${prefs().getBoolean("iconBtns", false)}/${prefs().getBoolean("moreBtns", false)}/${showSkinBtn()}"
         if (key == layoutKey) return
         layoutKey = key
         EventLog.add("layout ${wDp}x${hDp}dp tier=$ti trip=$midRows third=$third half=$half tall=$tall")
@@ -2264,7 +2279,7 @@ class MainActivity : Activity() {
         lowerBox.orientation = LinearLayout.HORIZONTAL
         lowerBox.gravity = Gravity.CENTER_VERTICAL
         (resBtn.layoutParams as LinearLayout.LayoutParams).apply { rightMargin = dp(6) }
-        (lowerTabs.layoutParams as LinearLayout.LayoutParams).apply { topMargin = 0 }
+        (lowerScroll.layoutParams as LinearLayout.LayoutParams).apply { topMargin = 0 }
         resBtn.visibility = View.VISIBLE
         lowerBox.background = null
         lowerBox.setPadding(0, 0, 0, 0)
@@ -2281,7 +2296,7 @@ class MainActivity : Activity() {
             if (rhd) setMargins(0, 0, dp(8), dp(lowerBoxBottomM)) else setMargins(edgeOff, 0, 0, dp(lowerBoxBottomM))
         }
         // children in mirrored order for right-hand drive
-        val lowerKids = listOf(climateBtn, mediaBtn, resBtn, tripBtn, lowerTabs)
+        val lowerKids = listOf(climateBtn, mediaBtn, resBtn, tripBtn, lowerScroll)
         lowerBox.removeAllViews()
         for (v in if (rhd) lowerKids.reversed() else lowerKids) lowerBox.addView(v)
         (mediaBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
@@ -2292,11 +2307,12 @@ class MainActivity : Activity() {
             gravity = Gravity.BOTTOM or (if (rhd) Gravity.START else Gravity.END)
             if (rhd) setMargins(edgeOff, 0, 0, dp(16)) else setMargins(0, 0, dp(8), dp(16))
         }
-        val barKids = listOf(settingsBtn, dashBtn, exitBtn)
+        val barKids = if (showSkinBtn()) listOf(skinBtn, settingsBtn, dashBtn, exitBtn) else listOf(settingsBtn, dashBtn, exitBtn)
         btnBar.removeAllViews()
         for ((i, v) in (if (rhd) barKids.reversed() else barKids).withIndex()) {
             btnBar.addView(v, LinearLayout.LayoutParams(-2, dp(36)).apply { if (i < barKids.size - 1) rightMargin = dp(8) })
         }
+        if (showSkinBtn()) skinBtn.visibility = if (dashShown) View.VISIBLE else View.GONE
         btnBar.requestLayout(); lowerBox.requestLayout()
         refreshLowerLabels()
         (poolBar.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), 0, dp(8), dp(lowerBottomM)) }
@@ -2358,6 +2374,7 @@ class MainActivity : Activity() {
         val un = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
         val ready = ::btnBar.isInitialized && ::tripBtn.isInitialized && ::climateBtn.isInitialized && ::mediaBtn.isInitialized && ::resBtn.isInitialized
         var per = dp(120)
+        var avail = Int.MAX_VALUE
         if (ready) {
             var others = 0
             for (b in listOf(climateBtn, mediaBtn, resBtn, tripBtn)) if (b.visibility != View.GONE) { b.measure(un, un); others += b.measuredWidth + dp(6) }
@@ -2365,6 +2382,7 @@ class MainActivity : Activity() {
             val totalW = if (::dashRoot.isInitialized && dashRoot.width > 0) dashRoot.width else resources.displayMetrics.widthPixels
             val room = totalW - dp(8 + 20 + 16) - others - btnBar.measuredWidth - dp(6 + 6 * slotCount)
             per = (room / slotCount).coerceIn(dp(44), dp(120))
+            avail = totalW - dp(8 + 20 + 16) - others - btnBar.measuredWidth - dp(6)   // the scrolling area ends before the Skin / Settings / Hide / Exit buttons
         }
         if (lowerIdx >= slotCount) lowerIdx = 0
         for (i in 0 until lowerTabs.childCount) {
@@ -2384,6 +2402,12 @@ class MainActivity : Activity() {
                 v.maxWidth = per
             }
             v.alpha = if (pkg.isEmpty()) 0.55f else 1f
+        }
+        if (::lowerScroll.isInitialized && avail != Int.MAX_VALUE) {
+            lowerTabs.measure(un, un)
+            val w = minOf(lowerTabs.measuredWidth, avail).coerceAtLeast(dp(44))
+            val lp = lowerScroll.layoutParams
+            if (lp != null && lp.width != w) { lp.width = w; lowerScroll.layoutParams = lp }
         }
     }
 
@@ -2462,7 +2486,7 @@ class MainActivity : Activity() {
         if (::climateBtn.isInitialized) climateBtn.background = chipBg(12)
         if (::mediaBtn.isInitialized) mediaBtn.background = chipBg(12)
         if (::tripBtn.isInitialized) tripBtn.background = chipBg(12)
-        if (::lowerTabs.isInitialized) { lowerTabs.background = chipBg(18); paintLowerTabs() }
+        if (::lowerScroll.isInitialized) { lowerScroll.background = chipBg(18); paintLowerTabs() }
         if (::climateView.isInitialized) applyClimateColors()
         if (::poolBar.isInitialized) poolBar.background = GradientDrawable().apply {
             setColor(Color.argb(245, 10, 14, 28)); cornerRadius = dp(22).toFloat()
