@@ -2150,7 +2150,7 @@ class MainActivity : Activity() {
             if (rhd) setMargins(0, 0, dp(8), dp(lowerBoxBottomM)) else setMargins(edgeOff, 0, 0, dp(lowerBoxBottomM))
         }
         // children in mirrored order for right-hand drive
-        val lowerKids = listOf(resBtn, climateBtn, mediaBtn, tripBtn, lowerTabs)
+        val lowerKids = listOf(climateBtn, mediaBtn, resBtn, tripBtn, lowerTabs)
         lowerBox.removeAllViews()
         for (v in if (rhd) lowerKids.reversed() else lowerKids) lowerBox.addView(v)
         (mediaBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
@@ -4879,6 +4879,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     var onButton: ((Int) -> Unit)? = null            // 0 A/C, 1 defrost, 2 recirculation, 3 sync, 4 auto
     private val btnRects = ArrayList<RectF>()          // the function tiles that are buttons: A/C (0), defrost (2), recirculation (4), sync (5), auto (6)
     private val modeRects = ArrayList<RectF>()
+    private val modeOrder = intArrayOf(5, 1, 2, 3, 4)      // left to right: Screen first, then Face, Face + Feet, Feet, Feet + Screen
     private val tempBtnInfo = ArrayList<Pair<Boolean, Int>>()
     var floating = false                              // full-screen mode: a rounded panel instead of the whole window
         set(v) { field = v; invalidate() }
@@ -5458,12 +5459,13 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             val cw = (w - 2 * m - 4 * cg) / 5f
             for (i in 0 until 5) {
                 val rr = RectF(m + i * (cw + cg), chipsTop, m + i * (cw + cg) + cw, chipsTop + chipH)
-                val lit = s.climSeen && s.climDrvMode == i + 1
+                val md = modeOrder[i]
+                val lit = s.climSeen && s.climDrvMode == md
                 val cr = chipH * 0.32f
                 drawLiquidGlass(c, p, rr, cr, dp(1f), if (lit) on else null)
-                modeIcon(rr.left + chipH * 0.78f, rr.centerY(), chipH * 0.30f, i + 1, if (lit) Color.WHITE else Color.argb(150, 255, 255, 255))
+                modeIcon(rr.left + chipH * 0.78f, rr.centerY(), chipH * 0.30f, md, if (lit) Color.WHITE else Color.argb(150, 255, 255, 255))
                 val tx0 = rr.left + chipH * 1.18f
-                fitText(names[i], (tx0 + rr.right - dp(4f)) / 2f, rr.centerY(), if (small) 11f else 12f, if (lit) Color.WHITE else Color.argb(170, 255, 255, 255), true, rr.right - dp(6f) - tx0)
+                fitText(names[md - 1], (tx0 + rr.right - dp(4f)) / 2f, rr.centerY(), if (small) 11f else 12f, if (lit) Color.WHITE else Color.argb(170, 255, 255, 255), true, rr.right - dp(6f) - tx0)
                 modeRects.add(rr)
             }
         }
@@ -5539,7 +5541,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         }
         if (fanControl && System.currentTimeMillis() - lastFanTap > 400) {
             val mi = modeRects.indexOfFirst { it.contains(e.x, e.y) }
-            if (mi >= 0) { lastFanTap = System.currentTimeMillis(); onMode?.invoke(mi + 1); return true }
+            if (mi >= 0) { lastFanTap = System.currentTimeMillis(); onMode?.invoke(modeOrder[mi]); return true }
         }
         if (fanControl && btnRects.size == 5 && System.currentTimeMillis() - lastFanTap > 600) {
             val bi = btnRects.indexOfFirst { it.contains(e.x, e.y) }
