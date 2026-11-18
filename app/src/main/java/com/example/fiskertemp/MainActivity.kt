@@ -435,6 +435,8 @@ class MainActivity : Activity() {
     private var tempPending: Double? = null
     private var tempPendingAt = 0L
     private var wasFullOrder = false                    // the last layout was the full-screen order (to open Climate when entering it)
+    private var fullOrderNow = false                     // the window is in the full-screen order (media card + Climate panel)
+    private fun relayoutDash() { layoutKey = ""; if (::dashRoot.isInitialized && dashRoot.width > 0) { val dn = resources.displayMetrics.density; adaptDashLayout((dashRoot.width / dn).toInt(), (dashRoot.height / dn).toInt()) } }
     private var climateHDp = 0                           // ... and how tall it is
     private lateinit var climateBtn: TextView
     private lateinit var mediaBtn: TextView
@@ -1574,13 +1576,21 @@ class MainActivity : Activity() {
             text = "Climate"; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
             setPadding(dp(9), 0, dp(9), 0)
             background = chipBg(12)
-            setOnClickListener { openClimate() }
+            setOnClickListener {
+                if (climateView.visibility == View.VISIBLE) climateView.visibility = View.GONE else openClimate()
+            }
         }
         mediaBtn = TextView(this).apply {
             text = "Media"; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
             setPadding(dp(9), 0, dp(9), 0)
             background = chipBg(12)
             setOnClickListener {
+                if (fullOrderNow) {
+                    // full screen: the media card and the Climate panel toggle independently and never overlap
+                    prefs().edit().putBoolean("fullMedia", !prefs().getBoolean("fullMedia", true)).apply()
+                    relayoutDash()
+                    return@setOnClickListener
+                }
                 if (mediaPopup.visibility == View.VISIBLE) { ui.removeCallbacks(hideMediaPopup); mediaPopup.visibility = View.GONE }
                 else {
                     ensureMediaWatcher(); mediaWatcher?.start()
@@ -1984,7 +1994,7 @@ class MainActivity : Activity() {
         val band = rowHdp / 2f - minOf(gaugeWdp, rowHdp) / 2f * 0.92f - 6f - up
         val clockH = if (band >= 30f) band.toInt().coerceAtMost(110) else if (third) 24 else 0
         val rhd = prefs().getBoolean("rhd", false)
-        val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$edgeL/$edgeR/$up/$rhd/$hideBar/$hideTrip/${prefs().getBoolean("iconBtns", false)}"
+        val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$edgeL/$edgeR/$up/$rhd/$hideBar/$hideTrip/${prefs().getBoolean("fullMedia", true)}/${prefs().getBoolean("iconBtns", false)}"
         if (key == layoutKey) return
         layoutKey = key
         EventLog.add("layout ${wDp}x${hDp}dp tier=$ti trip=$midRows third=$third half=$half tall=$tall")
@@ -2076,17 +2086,21 @@ class MainActivity : Activity() {
         val stripBottomM = if (showMedia) hDp - stripBottomY else stripBottom
         val lowerBoxBottomM = if (showMedia) hDp - lowerBoxBottomY else 10
         val lowerBottomM = if (showMedia) hDp - rowTopY else lowerBottom
-        climateTopDp = if (showMedia) mediaEndY + 8 else 0
-        climateHDp = if (showMedia) climH else 0
+        fullOrderNow = showMedia
+        val mediaOn = showMedia && prefs().getBoolean("fullMedia", true)
+        // the Climate panel starts under the media card, or directly under the buttons when the card is off
+        val climTop = if (mediaOn) mediaEndY + 8 else mediaTopY
+        climateTopDp = if (showMedia) climTop else 0
+        climateHDp = if (showMedia) hDp - 66 - climTop else 0
         if (climateView.visibility == View.VISIBLE) edgeBox.post { placeClimate() }
         else if (showMedia && !wasFullOrder && dashShown) edgeBox.post { if (dashShown) openClimate() }   // entering full screen: the Climate section comes up by itself
         if (dashShown) wasFullOrder = showMedia
         (mediaCard.layoutParams as FrameLayout.LayoutParams).apply { height = dp(mediaH); gravity = Gravity.BOTTOM; setMargins(dp(8), 0, dp(8), dp(maxOf(hDp - mediaEndY, 0))) }
         mediaCard.rhd = prefs().getBoolean("rhd", false); mediaPopup.rhd = mediaCard.rhd; mediaCard.invalidate(); mediaPopup.invalidate()
-        mediaCard.visibility = if (showMedia) View.VISIBLE else View.GONE
-        mediaBtn.visibility = if (showMedia) View.GONE else View.VISIBLE
+        mediaCard.visibility = if (mediaOn) View.VISIBLE else View.GONE
+        mediaBtn.visibility = View.VISIBLE
         if (showMedia) mediaPopup.visibility = View.GONE
-        if (showMedia) {
+        if (mediaOn) {
             ensureMediaWatcher()
             mediaWatcher?.start()
         }
@@ -5091,7 +5105,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         }
         val dpD = dd / d
         text(name, cx, cy - dd * 0.20f, (dpD * 0.062f).coerceIn(9f, 13f), Color.argb(190, 255, 255, 255), true)
-        fitText(temp(t), cx, cy + dd * 0.06f, (dpD * 0.28f).coerceIn(24f, 56f), if (t == null) off else Color.WHITE, true, dd * 0.62f)
+        fitText(temp(t), cx, cy + dd * 0.06f, (dpD * 0.22f).coerceIn(20f, 44f), if (t == null) off else Color.WHITE, true, dd * 0.50f)
         // - and + at the two ends of the ring
         val by = top + dd * 0.827f + dp(5f) + bs / 2f
         val minus = RectF(cx - r * 0.7071f - bs / 2, by - bs / 2, cx - r * 0.7071f + bs / 2, by + bs / 2)
