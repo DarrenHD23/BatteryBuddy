@@ -1942,6 +1942,12 @@ class MainActivity : Activity() {
 
     /** The Climate screen's background follows the dashboard theme (re-applied whenever the theme changes). */
     private fun applyClimateColors() {
+        run {
+            // the skin's accent drives the lit buttons, fan level and power button; a very pale accent is toned down so white text stays readable
+            val ac = Skins.look.accent
+            val l = (0.299f * Color.red(ac) + 0.587f * Color.green(ac) + 0.114f * Color.blue(ac)) / 255f
+            climateView.accent = if (l > 0.7f) Color.rgb((Color.red(ac) * 0.55f + 108 * 0.45f).toInt(), (Color.green(ac) * 0.55f + 122 * 0.45f).toInt(), (Color.blue(ac) * 0.55f + 140 * 0.45f).toInt()) else ac
+        }
         // a solid colour from the dashboard's current background (the screen's inks are light, so a bright background is darkened)
         run {
             val base = if (dashDay) Color.parseColor("#E6ECF4") else (Skins.look.bgBottom or (0xFF shl 24))
@@ -2406,6 +2412,7 @@ class MainActivity : Activity() {
         if (::mediaBtn.isInitialized) mediaBtn.background = chipBg(12)
         if (::tripBtn.isInitialized) tripBtn.background = chipBg(12)
         if (::lowerTabs.isInitialized) { lowerTabs.background = chipBg(18); paintLowerTabs() }
+        if (::climateView.isInitialized) applyClimateColors()
         if (::poolBar.isInitialized) poolBar.background = GradientDrawable().apply {
             setColor(Color.argb(245, 10, 14, 28)); cornerRadius = dp(22).toFloat()
             setStroke(dp(2), Color.argb(230, Color.red(lk.accent), Color.green(lk.accent), Color.blue(lk.accent)))
@@ -5104,7 +5111,9 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     private val d = ctx.resources.displayMetrics.density
     private fun dp(v: Float) = v * d
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val on = Color.parseColor("#3B9DFF")
+    var accent = Color.parseColor("#3B9DFF")                         // the selected skin's accent: lit buttons, fan level, power button
+    private val on get() = accent
+    private val glassBase get() = mixC(Color.WHITE, accent, 0.28f)    // unlit glass buttons pick up a little of the skin colour
     private val warm = Color.parseColor("#FF8A3D")
     private val cool = Color.parseColor("#4DA3FF")
     private val off = Color.argb(120, 255, 255, 255)
@@ -5275,7 +5284,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val x = left + cc * (tw + gp); val y = top + rr * (h + gp)
         val r = RectF(x, y, x + tw, y + h)
         val cr = dp(if (small) 14f else 20f)
-        drawLiquidGlass(canvas, p, r, cr, dp(1f), if (lit) col else null)
+        drawLiquidGlass(canvas, p, r, cr, dp(1f), if (lit) col else null, glassBase)
         icon(r.centerX(), r.top + h * 0.39f, h * 0.21f, if (lit) Color.WHITE else Color.argb(150, 255, 255, 255))
         fitText(label, r.centerX(), r.bottom - h * 0.19f, (h / d * 0.17f).coerceIn(10f, 14f), if (lit) Color.WHITE else Color.argb(160, 255, 255, 255), true, tw - dp(8f))
     }
@@ -5287,7 +5296,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     /** A glass rounded-square button with a - or + on it (sym 0 = minus, 1 = plus). */
     private fun glassBtn(r: RectF, sym: Int) {
         val cr = r.width() * 0.28f
-        drawLiquidGlass(canvas, p, r, cr, dp(1f), null)
+        drawLiquidGlass(canvas, p, r, cr, dp(1f), null, glassBase)
         val l = r.width() * 0.22f
         stroke(Color.WHITE, 2.8f)
         line(r.centerX() - l, r.centerY(), r.centerX() + l, r.centerY())
@@ -5674,7 +5683,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
                 val md = modeOrder[i]
                 val lit = s.climSeen && s.climDrvMode == md
                 val cr = chipH * 0.32f
-                drawLiquidGlass(c, p, rr, cr, dp(1f), if (lit) on else null)
+                drawLiquidGlass(c, p, rr, cr, dp(1f), if (lit) on else null, glassBase)
                 modeIcon(rr.left + chipH * 0.78f, rr.centerY(), chipH * 0.30f, md, if (lit) Color.WHITE else Color.argb(150, 255, 255, 255))
                 val tx0 = rr.left + chipH * 1.18f
                 fitText(names[md - 1], (tx0 + rr.right - dp(4f)) / 2f, rr.centerY(), if (small) 11f else 12f, if (lit) Color.WHITE else Color.argb(170, 255, 255, 255), true, rr.right - dp(6f) - tx0)
@@ -6037,7 +6046,7 @@ class MediaCardView(ctx: Context) : View(ctx) {
 
 /** Liquid-glass button: soft drop shadow, a frosted translucent fill (tinted when [tint] is given, with a glow), a bright
  *  specular highlight across the top and a rim that is brightest at the upper left and lower right. [u] is one dp in pixels. */
-fun drawLiquidGlass(c: Canvas, p: Paint, r: RectF, cr: Float, u: Float, tint: Int?) {
+fun drawLiquidGlass(c: Canvas, p: Paint, r: RectF, cr: Float, u: Float, tint: Int?, base: Int = Color.WHITE) {
     p.shader = null; p.style = Paint.Style.FILL; p.pathEffect = null
     p.color = Color.argb(70, 0, 0, 0)
     c.drawRoundRect(RectF(r.left, r.top + 3f * u, r.right, r.bottom + 3f * u), cr, cr, p)
@@ -6047,7 +6056,7 @@ fun drawLiquidGlass(c: Canvas, p: Paint, r: RectF, cr: Float, u: Float, tint: In
         p.color = Color.argb(50, tr, tg, tb); c.drawRoundRect(RectF(r.left - 2f * u, r.top - 2f * u, r.right + 2f * u, r.bottom + 2f * u), cr + 2f * u, cr + 2f * u, p)
     }
     val cols = if (tint != null) intArrayOf(Color.argb(150, Color.red(tint), Color.green(tint), Color.blue(tint)), Color.argb(70, Color.red(tint), Color.green(tint), Color.blue(tint)), Color.argb(105, Color.red(tint), Color.green(tint), Color.blue(tint)))
-        else intArrayOf(Color.argb(78, 255, 255, 255), Color.argb(20, 255, 255, 255), Color.argb(42, 255, 255, 255))
+        else intArrayOf(Color.argb(78, Color.red(base), Color.green(base), Color.blue(base)), Color.argb(20, Color.red(base), Color.green(base), Color.blue(base)), Color.argb(42, Color.red(base), Color.green(base), Color.blue(base)))
     p.shader = LinearGradient(r.left, r.top, r.right, r.bottom, cols, floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
     c.drawRoundRect(r, cr, cr, p); p.shader = null
     // specular highlight across the top
