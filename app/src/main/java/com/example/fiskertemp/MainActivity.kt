@@ -5798,7 +5798,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         }
         if (fanControl && !wheelRect.isEmpty() && wheelRect.contains(e.x, e.y) && System.currentTimeMillis() - lastFanTap > 600) { lastFanTap = System.currentTimeMillis(); onWheel?.invoke(); return true }
         if (!fanRect.isEmpty() && fanRect.contains(e.x, e.y)) { showNotice("Please use the button bar below the screen to adjust fan speed"); return true }
-        if (!rearRect.isEmpty() && rearRect.contains(e.x, e.y)) { showNotice("Rear Defrost"); return true }
+        if (!rearRect.isEmpty() && rearRect.contains(e.x, e.y)) { showNotice("Please use the button bar below the screen to adjust Rear Defrost"); return true }
         if (!carRect.isEmpty() && carRect.contains(e.x, e.y)) { paintOpen = true; invalidate(); return true }
         return true
     }
