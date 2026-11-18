@@ -2595,7 +2595,7 @@ class MainActivity : Activity() {
         }
         if (::lowerScroll.isInitialized && avail != Int.MAX_VALUE) {
             lowerTabs.measure(un, un)
-            val w = minOf(lowerTabs.measuredWidth, avail).coerceAtLeast(dp(44))
+            val w = minOf(lowerTabs.measuredWidth + dp(6), avail).coerceAtLeast(dp(44))   // + the strip's own padding
             val lp = lowerScroll.layoutParams
             if (lp != null && lp.width != w) { lp.width = w; lowerScroll.layoutParams = lp }
         }
