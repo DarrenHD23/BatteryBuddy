@@ -1064,7 +1064,7 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("canSafe", on).apply(); pulse?.safeMode = on; toast("Takes effect the next time the app starts") }
         }, 4)
         box.add(CheckBox(this).apply {
-            text = "TEST: let the Climate screen change the fan speed and the heated wheel. This SENDS frames onto the car's CAN bus (all else stays read-only). Takes effect after the app restarts"
+            text = "TEST: let the Climate screen control the car: power, temperature, fan speed, air direction, A/C, defrost, recirc, sync, auto and the heated wheel. This SENDS commands onto the car's CAN bus (everything else in the app stays read-only). Takes effect after the app restarts"
             isChecked = prefs().getBoolean("climateTx", false)
             setOnCheckedChangeListener { _, on ->
                 prefs().edit().putBoolean("climateTx", on).apply()
