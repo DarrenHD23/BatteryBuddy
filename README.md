@@ -1,6 +1,6 @@
-# Fisker Battery (vLinker FD+)
+#Fisker Battery Buddy + Dashboard
 
-This is a small application that reads battery information and other data using the VLinker OBD dongle) for the Fisker Ocean. 
+This is a small application that reads battery information and other data using the VLinker OBD dongle for the Fisker Ocean. 
 
 There is also a Dashboard that Pulse users can use that displays lots of information and has different skins you can pick from.
 
