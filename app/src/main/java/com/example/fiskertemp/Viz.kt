@@ -44,8 +44,9 @@ object AudioViz {
                     val re = fft[2 * k].toInt().toFloat(); val im = fft[2 * k + 1].toInt().toFloat()
                     m = max(m, hypot(re, im))
                 }
-                val x = (ln(1f + m) / ln(1f + 70f)) * (0.75f + 0.75f * i / N)
-                out[i] = x.coerceIn(0f, 1f)
+                // bass-heavy: the low bands are boosted and the highs eased down, so kick drums and bass lines drive the picture
+                val x = (ln(1f + m) / ln(1f + 60f)) * (1.85f - 1.3f * i / N)
+                out[i] = x.coerceIn(0f, 1f).pow(1.1f)
                 peak = max(peak, out[i])
             }
             bands = out
@@ -123,8 +124,8 @@ class VizPainter(private val d: Float) {
         for (i in 0 until N) {
             val f = i.toFloat() / N; val b = exp(-f * 3.2f)
             val tg = if (!playing) 0f else if (bands != null) bands[i] else
-                min(1f, (0.18f + 0.75f * synthHit) * b + 0.35f * off * (1 - b) * (0.5f + 0.5f * sin(t * 3 + i * 1.7f)) + 0.12f * abs(sin(t * 5.1f + i * 0.9f)) * (1 - f * 0.5f))
-            lv[i] += (tg - lv[i]) * (if (tg > lv[i]) 0.6f else 0.14f)
+                min(1f, (0.14f + 1.0f * synthHit) * b + 0.35f * off * (1 - b) * (0.5f + 0.5f * sin(t * 3 + i * 1.7f)) + 0.12f * abs(sin(t * 5.1f + i * 0.9f)) * (1 - f * 0.5f))
+            lv[i] += (tg - lv[i]) * (if (tg > lv[i]) (if (i < 8) 0.8f else 0.6f) else (if (i < 8) 0.18f else 0.14f))
             if (lv[i] >= pk[i]) { pk[i] = lv[i]; pv[i] = 0f } else { pv[i] += 0.0009f; pk[i] = max(lv[i], pk[i] - pv[i]) }
         }
         var b = 0f; var m = 0f; var h = 0f
