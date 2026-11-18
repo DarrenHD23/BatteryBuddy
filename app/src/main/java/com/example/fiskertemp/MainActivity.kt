@@ -2536,6 +2536,8 @@ class MainActivity : Activity() {
             updateDashTheme(true)
             refreshScreenSize()
             offerClosePulse()
+            // full screen: the Climate panel comes back with the dashboard
+            if (fullOrderNow) edgeBox.post { if (dashShown && climateView.visibility != View.VISIBLE) openClimate() }
             if (!introDone) {
                 introDone = true
                 ui.postDelayed({ dashPowerGauge.intro(); dashSpeedGauge.intro() }, 400)
@@ -2545,6 +2547,9 @@ class MainActivity : Activity() {
             actionBar?.show()
             @Suppress("DEPRECATION")
             window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+            // hiding the dashboard closes the Climate screen and the media card with it
+            if (::climateView.isInitialized) climateView.visibility = View.GONE
+            if (::mediaPopup.isInitialized) mediaPopup.visibility = View.GONE
         }
     }
 
