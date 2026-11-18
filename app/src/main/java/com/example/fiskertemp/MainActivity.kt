@@ -1191,6 +1191,10 @@ class MainActivity : Activity() {
             setOnClickListener { showSpeedAdjust() }
         }, 8)
         box.add(Button(this).apply {
+            text = "Pulse hardware health"; isAllCaps = false
+            setOnClickListener { showHealth() }
+        }, 8)
+        box.add(Button(this).apply {
             text = "Visualizer colours (media card)"; isAllCaps = false
             setOnClickListener {
                 val cur = prefs().getInt("vizPal", 0).coerceIn(0, VizInfo.palettes.size - 1)
@@ -1651,6 +1655,81 @@ class MainActivity : Activity() {
     private fun speedAdjFor(v: Double, mph: Boolean): Int = adjTable(mph)[(v / 10).toInt().coerceIn(0, 15)]
 
     /** "Join the Beta": a password first, then the tick box that lets this app see pre-release builds. */
+    /** Pulse hardware health: temperatures, CPU, memory, fan and storage of the head unit, refreshed every 2 s while open. */
+    private fun showHealth() {
+        val green = Color.parseColor("#4CD964"); val amber = Color.parseColor("#FFB300"); val red = Color.parseColor("#FF5A4F"); val ink = Color.parseColor("#F0F3F8"); val mute = Color.parseColor("#9AA6B6")
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(6), dp(20), dp(6)) }
+        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        box.addView(body)
+        val sv = ScrollView(this).apply { addView(box) }
+        val d = darkDialog().setTitle("Pulse hardware health").setView(sv).setNegativeButton("Close", null).showDark()
+        fun head(t: String) = body.addView(TextView(this).apply { text = t; textSize = 12f; setTextColor(mute); setPadding(0, dp(12), 0, dp(2)); letterSpacing = 0.06f })
+        fun row(label: String, value: String, col: Int = ink) {
+            body.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(2), 0, dp(2))
+                addView(TextView(context).apply { text = label; textSize = 14f; setTextColor(ink) }, LinearLayout.LayoutParams(0, -2, 1f))
+                addView(TextView(context).apply { text = value; textSize = 14f; setTextColor(col); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.END }, LinearLayout.LayoutParams(-2, -2))
+            })
+        }
+        fun bar(frac: Float, col: Int) {
+            body.addView(object : View(this) {
+                val pp = Paint(Paint.ANTI_ALIAS_FLAG)
+                override fun onDraw(c: Canvas) {
+                    val w = width.toFloat(); val h = height.toFloat()
+                    pp.color = Color.argb(40, 255, 255, 255); c.drawRoundRect(0f, 0f, w, h, h / 2, h / 2, pp)
+                    pp.color = col; c.drawRoundRect(0f, 0f, maxOf(h, w * frac.coerceIn(0f, 1f)), h, h / 2, h / 2, pp)
+                }
+            }, LinearLayout.LayoutParams(-1, dp(6)).apply { bottomMargin = dp(4) })
+        }
+        fun tempCol(t: Float) = if (t >= 85f) red else if (t >= 72f) amber else green
+        fun gb(kb: Long) = String.format("%.1f GB", kb / 1048576.0)
+        fun render(h: Health.Snap) {
+            body.removeAllViews()
+            if (h.board.isNotBlank()) row("Board", h.board.take(40), mute)
+            row("Uptime", h.uptimeSec.let { "${it / 3600} h ${(it % 3600) / 60} min" })
+            head("TEMPERATURE")
+            if (h.temps.isEmpty()) row("Temperature sensors", "not readable", mute)
+            val hottest = h.temps.maxByOrNull { it.second }
+            h.temps.forEach { (n, t) -> row(n.replace("-thermal", "").replace("_", " ").ifBlank { "zone" }, String.format("%.0f \u00B0C", t), tempCol(t)) }
+            if (hottest != null) { bar(hottest.second / 100f, tempCol(hottest.second)) }
+            head("PROCESSOR")
+            if (h.loadPct != null) { row("CPU load", String.format("%.0f %%", h.loadPct), if (h.loadPct > 90) amber else ink); bar(h.loadPct / 100f, if (h.loadPct > 90) amber else green) }
+            else row("CPU load", "measuring...", mute)
+            if (h.cores.isNotEmpty()) {
+                val groups = h.cores.groupBy { it.third }          // cores that share a top speed: the little and the big cores
+                groups.values.forEach { g ->
+                    val cur = g.map { it.second }; val mx = g.first().third
+                    val throttled = cur.any { it < mx * 0.5 } && false
+                    row("Cores ${g.first().first.removePrefix("cpu")}-${g.last().first.removePrefix("cpu")}", cur.joinToString(" / ") + " MHz  (max $mx)", if (throttled) amber else ink)
+                }
+            }
+            if (h.gpu != null) row("GPU", h.gpu)
+            head("MEMORY")
+            if (h.memTotalKb > 0) {
+                val used = h.memTotalKb - h.memAvailKb; val f = used.toFloat() / h.memTotalKb
+                row("RAM used", "${gb(used)} of ${gb(h.memTotalKb)}", if (f > 0.9f) red else if (f > 0.8f) amber else ink); bar(f, if (f > 0.9f) red else if (f > 0.8f) amber else green)
+                row("RAM free", gb(h.memAvailKb))
+                if (h.swapTotalKb > 0) row("Swap used", "${gb(h.swapTotalKb - h.swapFreeKb)} of ${gb(h.swapTotalKb)}")
+            } else row("Memory", "not readable", mute)
+            head("STORAGE")
+            if (h.storageTotal > 0) { val f = h.storageUsed.toFloat() / h.storageTotal; row("Free space", gb(h.storageTotal - h.storageUsed) + " of " + gb(h.storageTotal), if (f > 0.92f) red else if (f > 0.85f) amber else ink); bar(f, if (f > 0.92f) red else if (f > 0.85f) amber else green) }
+            else row("Storage", "not readable", mute)
+            head("FAN")
+            if (h.fans.isEmpty()) row("Fan", "no readout on this board", mute) else h.fans.forEach { row("Fan", it) }
+            if (!h.rootUsed) body.addView(TextView(this).apply { text = "Root is not available, so some readings may be missing."; textSize = 12f; setTextColor(mute); setPadding(0, dp(10), 0, 0) })
+        }
+        var alive = true
+        d.setOnDismissListener { alive = false }
+        body.addView(TextView(this).apply { text = "Reading..."; textSize = 14f; setTextColor(mute) })
+        Thread {
+            while (alive) {
+                val h = try { Health.read() } catch (e: Throwable) { null }
+                if (h != null) ui.post { if (alive) render(h) }
+                try { Thread.sleep(2000) } catch (e: InterruptedException) { break }
+            }
+        }.start()
+    }
+
     private var audioPermAsked = false
     /** The visualizer listens to the audio output. Grant that permission as root when possible, otherwise ask once. */
     private fun ensureAudioPermission() {
