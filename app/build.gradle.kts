@@ -17,9 +17,16 @@ android {
         versionName = if (bn > 0) "build $bn" else "1.1"
     }
     signingConfigs {
-        // one fixed key for every build, so a new build installs over the old one and keeps its settings
-        getByName("debug") {
-            storeFile = file("debug.keystore"); storePassword = "android"; keyAlias = "androiddebugkey"; keyPassword = "android"
+        // one fixed key for every build, so a new build installs over the old one and keeps its settings.
+        // The key lives in GitHub secrets (the workflow decodes it and sets these variables); without it the usual debug key is used.
+        val ksFile = System.getenv("SIGNING_KEYSTORE_FILE")
+        if (ksFile != null && file(ksFile).exists()) {
+            getByName("debug") {
+                storeFile = file(ksFile)
+                storePassword = System.getenv("SIGNING_STORE_PASSWORD")
+                keyAlias = System.getenv("SIGNING_KEY_ALIAS")
+                keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+            }
         }
     }
     compileOptions {
