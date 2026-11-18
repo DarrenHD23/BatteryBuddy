@@ -4892,7 +4892,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     private val d = ctx.resources.displayMetrics.density
     private fun dp(v: Float) = v * d
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val on = Color.parseColor("#2DD4BF")
+    private val on = Color.parseColor("#3B9DFF")
     private val warm = Color.parseColor("#FF8A3D")
     private val cool = Color.parseColor("#4DA3FF")
     private val off = Color.argb(120, 255, 255, 255)
