@@ -2,7 +2,7 @@
 
 This is a small application that reads battery information and other data using the VLinker OBD dongle for the Fisker Ocean. 
 
-There is also a Dashboard that OceanLink Pulse owners can optionally enable that displays lots of information and has different skins you can pick from.
+There is also a Dashboard that OceanLink Pulse owners can optionally enable that displays lots of information and has different skins and background images you can pick from.
 
 Build the APK:
 - GitHub: push this folder to a new repo -> Actions tab -> "Build APK" -> download the artifact
