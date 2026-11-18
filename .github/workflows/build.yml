@@ -1,5 +1,7 @@
 name: Build APK
 on: [push, workflow_dispatch]
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -27,3 +29,13 @@ jobs:
         with:
           name: FiskerBattery-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+      - name: Attach the APK to a GitHub release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          NAME="FiskerBattery-build${{ github.run_number }}.apk"
+          cp "$APK" "$NAME"
+          MSG=$(git log -1 --pretty=%B | head -c 1500)
+          gh release create "build-${{ github.run_number }}" "$NAME" --target "${{ github.sha }}" --title "Build ${{ github.run_number }}" --notes "$MSG" --prerelease
