@@ -1674,6 +1674,7 @@ class MainActivity : Activity() {
         if (want != dashDay && (force || now - dayPendingSince > 1500 || prefs().getString("dispTheme", "night") != "auto")) {
             dashDay = want
             applyDashTheme(want)
+            applySkinChrome()
             if (::climateView.isInitialized && climateView.visibility == View.VISIBLE) applyClimateColors()
         }
     }
@@ -2313,7 +2314,9 @@ class MainActivity : Activity() {
 
     private fun chipBg(radiusDp: Int) = GradientDrawable().apply {
         val lk = Skins.look
-        setColor(lk.chip); cornerRadius = dp(radiusDp).toFloat(); setStroke(dp(1), lk.chipStroke)
+        if (dashDay) { setColor(Color.parseColor("#98A1AD")); setStroke(dp(1), Color.argb(150, 255, 255, 255)) }   // Day mode: lighter grey buttons
+        else { setColor(lk.chip); setStroke(dp(1), lk.chipStroke) }
+        cornerRadius = dp(radiusDp).toFloat()
     }
 
     /** Give the dashboard's buttons, tabs and bars the skin's colours. */
