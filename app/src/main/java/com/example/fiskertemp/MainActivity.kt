@@ -5114,6 +5114,24 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     var onPower: ((Boolean) -> Unit)? = null        // true = turn the climate system on, false = shut it down
     private val powerRect = RectF()
     private var lastFanTap = 0L
+    private val fanRect = RectF(); private val rearRect = RectF()
+    private var noticeText = ""; private var noticeAt = 0L
+
+    /** A short message that stays 3 s, then fades out. */
+    private fun showNotice(t: String) { noticeText = t; noticeAt = System.currentTimeMillis(); invalidate() }
+    private fun drawNotice(cx: Float, cy: Float, maxW: Float) {
+        if (noticeText.isEmpty()) return
+        val age = System.currentTimeMillis() - noticeAt
+        if (age > 3500) { noticeText = ""; return }
+        val a = if (age < 3000) 1f else 1f - (age - 3000) / 500f
+        p.typeface = Typeface.DEFAULT_BOLD; p.textSize = dp(14f)
+        val tw = minOf(p.measureText(noticeText), maxW - dp(40f))
+        val r = RectF(cx - tw / 2 - dp(18f), cy - dp(22f), cx + tw / 2 + dp(18f), cy + dp(22f))
+        p.style = Paint.Style.FILL; p.color = Color.argb((235 * a).toInt(), 18, 22, 34); canvas.drawRoundRect(r, dp(22f), dp(22f), p)
+        stroke(Color.argb((200 * a).toInt(), Color.red(on), Color.green(on), Color.blue(on)), 1.5f); canvas.drawRoundRect(r, dp(22f), dp(22f), p)
+        fitText(noticeText, cx, cy, 14f, Color.argb((255 * a).toInt(), 255, 255, 255), true, tw)
+        postInvalidateOnAnimation()
+    }
 
     private val d = ctx.resources.displayMetrics.density
     private fun dp(v: Float) = v * d
@@ -5290,6 +5308,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val tw = (w - gp * (cols - 1)) / cols
         val x = left + cc * (tw + gp); val y = top + rr * (h + gp)
         val r = RectF(x, y, x + tw, y + h)
+        if (i == 3) rearRect.set(r)
         val cr = dp(if (small) 14f else 20f)
         drawLiquidGlass(canvas, p, r, cr, dp(1f), if (lit) col else null, glassBase)
         icon(r.centerX(), r.top + h * 0.39f, h * 0.21f, if (lit) Color.WHITE else Color.argb(150, 255, 255, 255))
@@ -5610,6 +5629,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         p.textSize = dp(if (small) 13f else 15f); p.typeface = Typeface.DEFAULT_BOLD
         val tw0 = p.measureText(label)
         val ly = bt + barsH + labH * 0.55f
+        fanRect.set(x0 - dp(24f), bt - dp(6f), x0 + 7 * bw + 6 * bg + dp(24f), ly + dp(16f))
         fan(cx - tw0 / 2 - dp(14f), ly, dp(if (small) 7f else 9f), Color.argb(190, 255, 255, 255))
         text(label, cx + dp(8f), ly, if (small) 13f else 15f, Color.WHITE, true)
     }
@@ -5740,6 +5760,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             else if (s.climLimited) text("Thermal functions limited", w / 2, fy + dp(10f), 11f, warm, true)
             else if (s.wheelHeat == null) text("Heated wheel status not received", w / 2, fy + dp(10f), 10f, Color.argb(120, 255, 255, 255))
         }
+        drawNotice(w / 2, tilesTop - dp(26f), w - 2 * m)
         if (paintOpen) paintPopup()
     }
 
@@ -5776,6 +5797,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             if (bi >= 0) { lastFanTap = System.currentTimeMillis(); onButton?.invoke(bi); return true }
         }
         if (fanControl && !wheelRect.isEmpty() && wheelRect.contains(e.x, e.y) && System.currentTimeMillis() - lastFanTap > 600) { lastFanTap = System.currentTimeMillis(); onWheel?.invoke(); return true }
+        if (!fanRect.isEmpty() && fanRect.contains(e.x, e.y)) { showNotice("Please use the button bar below the screen to adjust fan speed"); return true }
+        if (!rearRect.isEmpty() && rearRect.contains(e.x, e.y)) { showNotice("Rear Defrost"); return true }
         if (!carRect.isEmpty() && carRect.contains(e.x, e.y)) { paintOpen = true; invalidate(); return true }
         return true
     }
