@@ -856,13 +856,50 @@ class MainActivity : Activity() {
     private fun startCustomBgPick() {
         darkDialog().setTitle("Use your own picture")
             .setMessage("For the best result, use a portrait picture that is 1080 x 1920. If yours is a different size it will be cropped to fit (nothing is stretched), and you can move and zoom it to choose which part shows. The edges outside the frame will be cut off.")
-            .setPositiveButton("Choose a picture") { _, _ ->
-                try {
-                    startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*"), REQ_PICK_BG)
-                } catch (e: Exception) {
-                    toast("This device has no file picker app, so a picture can't be chosen here.")
-                }
-            }.setNegativeButton("Cancel", null).showDark()
+            .setPositiveButton("Choose a picture") { _, _ -> chooseImageFile() }.setNegativeButton("Cancel", null).showDark()
+    }
+
+    private fun openSystemPicker() {
+        try {
+            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*"), REQ_PICK_BG)
+        } catch (e: Exception) {
+            toast("This device has no file picker app, so a picture can't be chosen here.")
+        }
+    }
+
+    /** Lists the pictures on the device inside the app (so the app is never sent to the background); without root it uses Android's file picker. */
+    private fun chooseImageFile() {
+        toast("Looking for pictures...")
+        Thread {
+            val found = ArrayList<String>()
+            if (Updater.rootAvailable()) {
+                val r = Root.exec("find /storage -maxdepth 6 -type f \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \\) ! -path '*/Android/*' ! -path '*/.*' -size +20k 2>/dev/null | head -400", 25)
+                for (l in r.out.lines()) { val t = l.trim(); if (t.startsWith("/") && found.none { it.substringAfterLast('/') == t.substringAfterLast('/') && it.length == t.length }) found.add(t) }
+            }
+            ui.post {
+                if (found.isEmpty()) { openSystemPicker(); return@post }
+                found.sortBy { it.substringAfterLast('/').lowercase() }
+                val labels = Array(found.size) { i -> found[i].substringAfterLast('/') + "\n" + found[i].substringBeforeLast('/').removePrefix("/storage/") }
+                darkDialog().setTitle("Choose a picture").setItems(labels) { _, i -> loadFromPath(found[i]) }
+                    .setNeutralButton("Other...") { _, _ -> openSystemPicker() }.setNegativeButton("Cancel", null).showDark()
+            }
+        }.start()
+    }
+
+    /** Copies the chosen file where the app can read it (as root), then opens it for cropping. */
+    private fun loadFromPath(path: String) {
+        toast("Opening the picture...")
+        Thread {
+            val tmp = java.io.File(cacheDir, "pick.tmp")
+            val q = "'" + path.replace("'", "'\\''") + "'"
+            Root.exec("cp $q ${tmp.path} && chmod 666 ${tmp.path}", 20)
+            val bmp = try { loadPickedBitmap { if (tmp.exists()) java.io.FileInputStream(tmp) else null } } catch (e: Throwable) { null }
+            tmp.delete()
+            ui.post {
+                if (bmp == null) { toast("That picture could not be opened."); return@post }
+                if (bmp.width == 1080 && bmp.height == 1920) saveCustomBg(bmp) else showCropDialog(bmp)
+            }
+        }.start()
     }
 
     @Suppress("OVERRIDE_DEPRECATION")
@@ -871,7 +908,7 @@ class MainActivity : Activity() {
         if (requestCode != REQ_PICK_BG || resultCode != RESULT_OK) return
         val uri = data?.data ?: return
         Thread {
-            val bmp = try { loadPickedBitmap(uri) } catch (e: Throwable) { null }
+            val bmp = try { loadPickedBitmap { contentResolver.openInputStream(uri) } } catch (e: Throwable) { null }
             ui.post {
                 if (bmp == null) { toast("That picture could not be opened."); return@post }
                 if (bmp.width == 1080 && bmp.height == 1920) saveCustomBg(bmp) else showCropDialog(bmp)
@@ -880,17 +917,17 @@ class MainActivity : Activity() {
     }
 
     /** Reads the picture (shrunk if huge, turned upright by its EXIF rotation). */
-    private fun loadPickedBitmap(uri: Uri): Bitmap? {
+    private fun loadPickedBitmap(open: () -> java.io.InputStream?): Bitmap? {
         val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, o) }
+        open()?.use { android.graphics.BitmapFactory.decodeStream(it, null, o) }
         if (o.outWidth <= 0) return null
         var sample = 1
         while (maxOf(o.outWidth, o.outHeight) / sample > 3000) sample *= 2
-        var bmp = contentResolver.openInputStream(uri)?.use {
+        var bmp = open()?.use {
             android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
         } ?: return null
         val rot = try {
-            contentResolver.openInputStream(uri)?.use {
+            open()?.use {
                 when (android.media.ExifInterface(it).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1)) {
                     6 -> 90f; 3 -> 180f; 8 -> 270f; else -> 0f
                 }
@@ -1038,7 +1075,7 @@ class MainActivity : Activity() {
         picRow.addView(FrameLayout(this).apply {
             setPadding(dp(3), dp(3), dp(3), dp(3))
             addView(TextView(this@MainActivity).apply {
-                text = "+\nUse my\nown Image"; gravity = Gravity.CENTER; textSize = 13f; setTextColor(Color.DKGRAY)
+                text = "+\nUse my\nown Image"; tag = "keep"; gravity = Gravity.CENTER; textSize = 13f; setTextColor(Color.BLACK)
                 background = GradientDrawable().apply { setColor(Color.parseColor("#EEEEEE")); cornerRadius = dp(8).toFloat() }
                 setOnClickListener { dialog.dismiss(); startCustomBgPick() }
             }, FrameLayout.LayoutParams(dp(68), dp(120)))
