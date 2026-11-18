@@ -726,7 +726,6 @@ class MainActivity : Activity() {
         // both buttons sit together at the bottom right
         btnBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(skinBtn, LinearLayout.LayoutParams(-2, dp(36)).apply { rightMargin = dp(8) })
             addView(settingsBtn, LinearLayout.LayoutParams(-2, dp(36)).apply { rightMargin = dp(8) })
             addView(dashBtn, LinearLayout.LayoutParams(-2, dp(36)).apply { rightMargin = dp(8) })
             addView(exitBtn, LinearLayout.LayoutParams(-2, dp(36)))
@@ -2293,7 +2292,7 @@ class MainActivity : Activity() {
             gravity = Gravity.BOTTOM or (if (rhd) Gravity.START else Gravity.END)
             if (rhd) setMargins(edgeOff, 0, 0, dp(16)) else setMargins(0, 0, dp(8), dp(16))
         }
-        val barKids = listOf(skinBtn, settingsBtn, dashBtn, exitBtn)
+        val barKids = listOf(settingsBtn, dashBtn, exitBtn)
         btnBar.removeAllViews()
         for ((i, v) in (if (rhd) barKids.reversed() else barKids).withIndex()) {
             btnBar.addView(v, LinearLayout.LayoutParams(-2, dp(36)).apply { if (i < barKids.size - 1) rightMargin = dp(8) })
