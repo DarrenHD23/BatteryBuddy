@@ -1625,7 +1625,7 @@ class MainActivity : Activity() {
             onPrev = { mediaWatcher?.prev(); ui.removeCallbacks(hideMediaPopup) }
             onToggle = { mediaWatcher?.toggle(); ui.removeCallbacks(hideMediaPopup) }
             onNext = { mediaWatcher?.next(); ui.removeCallbacks(hideMediaPopup) }
-            onTap = { openMusicApp(true) }
+            onTap = { ui.removeCallbacks(hideMediaPopup); openMusicApp(false) }   // the card stays on screen
         }
         f.addView(mediaPopup, FrameLayout.LayoutParams(-1, dp(132), Gravity.BOTTOM).apply { setMargins(dp(8), 0, dp(8), dp(66)) })
         mediaCard = MediaCardView(this).apply {
@@ -2093,6 +2093,19 @@ class MainActivity : Activity() {
         val stripBottomM = stripBottom
         val lowerBoxBottomM = 10
         val lowerBottomM = lowerBottom
+        if (dashShown && wasFullOrder && !showMedia) {
+            // leaving full screen for split screen: the Climate panel closes, and the media card stays up as the floating card
+            climateView.visibility = View.GONE
+            if (prefs().getBoolean("fullMedia", true)) ui.post {
+                if (dashShown && !fullOrderNow) {
+                    ensureMediaWatcher(); mediaWatcher?.start()
+                    placeMediaPopup()
+                    mediaPopup.bringToFront(); mediaPopup.visibility = View.VISIBLE
+                    lowerBox.bringToFront(); btnBar.bringToFront()
+                    ui.removeCallbacks(hideMediaPopup)
+                }
+            }
+        }
         fullOrderNow = showMedia
         val mediaOn = showMedia && prefs().getBoolean("fullMedia", true)
         // the Climate panel starts under the media card, or directly under the buttons when the card is off
@@ -2137,7 +2150,7 @@ class MainActivity : Activity() {
             if (rhd) setMargins(0, 0, dp(8), dp(lowerBoxBottomM)) else setMargins(edgeOff, 0, 0, dp(lowerBoxBottomM))
         }
         // children in mirrored order for right-hand drive
-        val lowerKids = listOf(climateBtn, mediaBtn, resBtn, tripBtn, lowerTabs)
+        val lowerKids = listOf(resBtn, climateBtn, mediaBtn, tripBtn, lowerTabs)
         lowerBox.removeAllViews()
         for (v in if (rhd) lowerKids.reversed() else lowerKids) lowerBox.addView(v)
         (mediaBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
