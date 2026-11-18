@@ -12,7 +12,7 @@ import java.net.URL
 
 /** Finds the newest build on GitHub, downloads it and installs it (as root where possible, keeping the app's settings). */
 object Updater {
-    private const val API = "https://api.github.com/repos/DarrenHD23/BatteryBuddy/releases?per_page=10"
+    private const val API = "https://api.github.com/repos/DarrenHD23/BatteryBuddy/releases?per_page=100"
     const val ACTION_STATUS = "com.example.fiskertemp.INSTALL_STATUS"
 
     class Release(val build: Int, val title: String, val notes: String, val apkUrl: String, val size: Long)
@@ -31,7 +31,7 @@ object Updater {
     }
 
     /** The newest release (by build number) that has an APK attached, or null if none / offline. Call off the main thread. */
-    fun latest(): Release? = try {
+    fun latest(beta: Boolean = false): Release? = try {
         val c = open(API)
         if (c.responseCode != 200) null else {
             val arr = JSONArray(c.inputStream.bufferedReader().readText())
@@ -39,6 +39,7 @@ object Updater {
             for (i in 0 until arr.length()) {
                 val r = arr.getJSONObject(i)
                 if (r.optBoolean("draft")) continue
+                if (r.optBoolean("prerelease") && !beta) continue   // test builds are only for people who joined the beta
                 val tag = r.optString("tag_name")
                 val n = tag.removePrefix("build-").toIntOrNull() ?: continue
                 val assets = r.optJSONArray("assets") ?: continue

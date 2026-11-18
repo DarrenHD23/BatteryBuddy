@@ -1031,6 +1031,10 @@ class MainActivity : Activity() {
             setOnClickListener { showSpeedAdjust() }
         }, 8)
         box.add(Button(this).apply {
+            text = "Join the Beta"; isAllCaps = false
+            setOnClickListener { showBetaGate() }
+        }, 8)
+        box.add(Button(this).apply {
             text = "Check for updates (this is build ${Updater.installedBuild(this@MainActivity)})"; isAllCaps = false
             setOnClickListener { checkForUpdate(true) }
         }, 8)
@@ -1459,6 +1463,33 @@ class MainActivity : Activity() {
         return if (saved != null && saved.size == 16) saved.toIntArray() else adjDefaults(mph)
     }
     private fun speedAdjFor(v: Double, mph: Boolean): Int = adjTable(mph)[(v / 10).toInt().coerceIn(0, 15)]
+
+    /** "Join the Beta": a password first, then the tick box that lets this app see pre-release builds. */
+    private fun showBetaGate() {
+        val pw = EditText(this).apply {
+            hint = "Password"; setTextColor(Color.WHITE); setHintTextColor(Color.parseColor("#8893A3"))
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setSingleLine(true)
+        }
+        val holder = LinearLayout(this).apply { setPadding(dp(24), dp(8), dp(24), 0); addView(pw, LinearLayout.LayoutParams(-1, -2)) }
+        val d = darkDialog().setTitle("Join the Beta").setMessage("Enter the beta password.").setView(holder)
+            .setPositiveButton("OK", null).setNegativeButton("Cancel", null).showDark()
+        d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            if (pw.text.toString() == "Pulse!!!") { d.dismiss(); showBetaOptions() }
+            else { pw.setText(""); pw.error = "Wrong password" }
+        }
+    }
+
+    private fun showBetaOptions() {
+        val cb = CheckBox(this).apply {
+            text = "Get beta builds (test versions, before everyone else)"; setTextColor(Color.WHITE)
+            isChecked = prefs().getBoolean("betaOn", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("betaOn", on).apply(); EventLog.add("beta builds " + (if (on) "on" else "off")) }
+        }
+        val holder = LinearLayout(this).apply { setPadding(dp(24), dp(8), dp(24), 0); addView(cb) }
+        darkDialog().setTitle("Beta").setMessage("Beta builds may have bugs. Turn this off to get only the tested releases.").setView(holder)
+            .setPositiveButton("Done", null).setNeutralButton("Check now") { _, _ -> checkForUpdate(true) }.showDark()
+    }
 
     private fun showSpeedAdjust() {
         val mph = speedMph(); val u = if (mph) "mph" else "km/h"
@@ -2465,7 +2496,7 @@ class MainActivity : Activity() {
         if (!manual && (now - lastUpdateCheck < 30 * 60 * 1000L || updateBusy)) return
         lastUpdateCheck = now
         Thread {
-            val r = Updater.latest()
+            val r = Updater.latest(prefs().getBoolean("betaOn", false))
             val have = Updater.installedBuild(this)
             ui.post {
                 if (r != null && r.build > have) {
