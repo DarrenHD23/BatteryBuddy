@@ -2072,27 +2072,24 @@ class MainActivity : Activity() {
         val gaugeBottom = lowerBottom + 4
         val sideL = 8
         val sideR = 8
-        // full screen only: from the top: gauges, stat rows + button row, media card, then the Climate panel at the bottom
-        val rowTopY = topM + wantH.toInt() + 34
-        val rowBottomY = rowTopY + t.row
-        val stripBottomY = if (t.showStrip) rowBottomY + 4 + t.strip else rowBottomY
-        val lowerBoxBottomY = stripBottomY + 10 + 42
-        val mediaTopY = lowerBoxBottomY + 8
-        // the media card is 132 dp tall, or as little as 100 dp when the window is a bit short, so the Climate panel keeps at least 380 dp under it
-        val mediaH = (hDp - 66 - 8 - mediaTopY - 380).coerceIn(100, 132)
+        // full screen only, from the top: gauges and trip panel, media card, the Climate panel, then the stat rows and buttons at the bottom
+        val mediaTopY = topM + wantH.toInt() + 34
+        val climBottomY = hDp - lowerBottom - 8            // the Climate panel ends just above the stat rows
+        // the media card is 132 dp tall, or as little as 100 dp when the window is short, so the Climate panel keeps at least 380 dp under it
+        val mediaH = (climBottomY - 8 - mediaTopY - 380).coerceIn(100, 132)
         val mediaEndY = mediaTopY + mediaH
-        val climH = hDp - 66 - (mediaEndY + 8)
+        val climH = climBottomY - (mediaEndY + 8)
         val showMedia = tall && climH >= 380
-        val rowBottomM = if (showMedia) hDp - rowBottomY else rowBottom
-        val stripBottomM = if (showMedia) hDp - stripBottomY else stripBottom
-        val lowerBoxBottomM = if (showMedia) hDp - lowerBoxBottomY else 10
-        val lowerBottomM = if (showMedia) hDp - rowTopY else lowerBottom
+        val rowBottomM = rowBottom
+        val stripBottomM = stripBottom
+        val lowerBoxBottomM = 10
+        val lowerBottomM = lowerBottom
         fullOrderNow = showMedia
         val mediaOn = showMedia && prefs().getBoolean("fullMedia", true)
         // the Climate panel starts under the media card, or directly under the buttons when the card is off
         val climTop = if (mediaOn) mediaEndY + 8 else mediaTopY
         climateTopDp = if (showMedia) climTop else 0
-        climateHDp = if (showMedia) hDp - 66 - climTop else 0
+        climateHDp = if (showMedia) climBottomY - climTop else 0
         if (climateView.visibility == View.VISIBLE) edgeBox.post { placeClimate() }
         else if (showMedia && !wasFullOrder && dashShown) edgeBox.post { if (dashShown) openClimate() }   // entering full screen: the Climate section comes up by itself
         if (dashShown) wasFullOrder = showMedia
