@@ -815,6 +815,9 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------- Background pictures (res/drawable-nodpi/bg_01 .. bg_15)
     private val bgCount = 15
+    private val CUSTOM_BG = 99                      // bgPic value for the user's own picture
+    private val REQ_PICK_BG = 4711
+    private fun customBgFile() = java.io.File(filesDir, "custom_bg.jpg")
     private var bgBitmap: android.graphics.Bitmap? = null
     private var bgBitmapIdx = 0
 
@@ -823,11 +826,16 @@ class MainActivity : Activity() {
     /** The chosen picture (1..bgCount) or 0 for none, as a drawable that fills any window size without stretching. */
     private fun bgDrawable(scrim: Int): android.graphics.drawable.Drawable? {
         val n = prefs().getInt("bgPic", 0)
-        if (n !in 1..bgCount) return null
+        if (n != CUSTOM_BG && n !in 1..bgCount) return null
         if (bgBitmapIdx != n || bgBitmap == null) {
-            val id = bgResId(n)
-            if (id == 0) return null
-            bgBitmap = try { android.graphics.BitmapFactory.decodeResource(resources, id) } catch (e: Throwable) { null }
+            if (n == CUSTOM_BG) {
+                bgBitmap = try { android.graphics.BitmapFactory.decodeFile(customBgFile().path) } catch (e: Throwable) { null }
+                if (bgBitmap == null) return null
+            } else {
+                val id = bgResId(n)
+                if (id == 0) return null
+                bgBitmap = try { android.graphics.BitmapFactory.decodeResource(resources, id) } catch (e: Throwable) { null }
+            }
             bgBitmapIdx = n
         }
         val bmp = bgBitmap ?: return null
@@ -838,6 +846,94 @@ class MainActivity : Activity() {
         if (!::rootScroll.isInitialized) return
         bgDrawable(Color.argb(95, 0, 0, 0))?.let { rootScroll.background = it }
         if (::dashRoot.isInitialized) applyDashTheme(dashDay)
+    }
+
+    private fun customThumb(): android.graphics.Bitmap? = try {
+        android.graphics.BitmapFactory.decodeFile(customBgFile().path, android.graphics.BitmapFactory.Options().apply { inSampleSize = 8 })
+    } catch (e: Throwable) { null }
+
+    /** "My picture": a tip about the size first, then Android's own file picker. */
+    private fun startCustomBgPick() {
+        darkDialog().setTitle("Use your own picture")
+            .setMessage("For the best result, use a portrait picture that is 1080 x 1920. If yours is a different size it will be cropped to fit (nothing is stretched), and you can move and zoom it to choose which part shows. The edges outside the frame will be cut off.")
+            .setPositiveButton("Choose a picture") { _, _ ->
+                try {
+                    startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*"), REQ_PICK_BG)
+                } catch (e: Exception) {
+                    toast("This device has no file picker app, so a picture can't be chosen here.")
+                }
+            }.setNegativeButton("Cancel", null).showDark()
+    }
+
+    @Suppress("OVERRIDE_DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_PICK_BG || resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        Thread {
+            val bmp = try { loadPickedBitmap(uri) } catch (e: Throwable) { null }
+            ui.post {
+                if (bmp == null) { toast("That picture could not be opened."); return@post }
+                if (bmp.width == 1080 && bmp.height == 1920) saveCustomBg(bmp) else showCropDialog(bmp)
+            }
+        }.start()
+    }
+
+    /** Reads the picture (shrunk if huge, turned upright by its EXIF rotation). */
+    private fun loadPickedBitmap(uri: Uri): Bitmap? {
+        val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, o) }
+        if (o.outWidth <= 0) return null
+        var sample = 1
+        while (maxOf(o.outWidth, o.outHeight) / sample > 3000) sample *= 2
+        var bmp = contentResolver.openInputStream(uri)?.use {
+            android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
+        } ?: return null
+        val rot = try {
+            contentResolver.openInputStream(uri)?.use {
+                when (android.media.ExifInterface(it).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1)) {
+                    6 -> 90f; 3 -> 180f; 8 -> 270f; else -> 0f
+                }
+            } ?: 0f
+        } catch (e: Throwable) { 0f }
+        if (rot != 0f) {
+            val m = android.graphics.Matrix().apply { postRotate(rot) }
+            bmp = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
+        }
+        return bmp
+    }
+
+    private fun saveCustomBg(out: Bitmap) {
+        try {
+            customBgFile().outputStream().use { out.compress(Bitmap.CompressFormat.JPEG, 92, it) }
+            bgBitmap = null
+            prefs().edit().putInt("bgPic", CUSTOM_BG).apply()
+            applyTheme(themeIndex)
+            EventLog.add("custom background picture saved")
+            toast("Your picture is now the background.")
+        } catch (e: Throwable) { toast("The picture could not be saved.") }
+    }
+
+    /** Full-screen: drag to move, pinch to zoom, then "Use picture" saves exactly what is inside the frame as 1080 x 1920. */
+    private fun showCropDialog(bmp: Bitmap) {
+        val d = android.app.Dialog(this, android.R.style.Theme_DeviceDefault_NoActionBar_Fullscreen)
+        val crop = CropView(this, bmp)
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.parseColor("#101418")) }
+        col.addView(TextView(this).apply {
+            text = "This picture is ${bmp.width} x ${bmp.height}, not 1080 x 1920, so it will be cropped. Drag to move it, pinch to zoom. Anything outside the frame is cut off."
+            textSize = 13f; setTextColor(Color.WHITE); setPadding(dp(16), dp(10), dp(16), dp(6))
+        })
+        col.addView(crop, LinearLayout.LayoutParams(-1, 0, 1f))
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(dp(8), dp(8), dp(8), dp(10)) }
+        row.addView(Button(this).apply { text = "Cancel"; isAllCaps = false; setOnClickListener { d.dismiss() } }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { rightMargin = dp(8) })
+        row.addView(Button(this).apply { text = "Reset"; isAllCaps = false; setOnClickListener { crop.reset() } }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { rightMargin = dp(8) })
+        row.addView(Button(this).apply {
+            text = "Use picture"; isAllCaps = false
+            setOnClickListener { val o = crop.render(); d.dismiss(); saveCustomBg(o) }
+        }, LinearLayout.LayoutParams(0, dp(48), 1.3f))
+        col.addView(row)
+        d.setContentView(col)
+        d.show()
     }
 
     private fun bgThumb(n: Int): android.graphics.Bitmap? {
@@ -928,7 +1024,7 @@ class MainActivity : Activity() {
                 background = GradientDrawable().apply { setColor(Color.parseColor("#EEEEEE")); cornerRadius = dp(8).toFloat() }
             } else ImageView(this).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
-                bgThumb(n)?.let { setImageBitmap(it) } ?: setBackgroundColor(Color.LTGRAY)
+                (if (n == CUSTOM_BG) customThumb() else bgThumb(n))?.let { setImageBitmap(it) } ?: setBackgroundColor(Color.LTGRAY)
             }
             v.setOnClickListener { prefs().edit().putInt("bgPic", n).apply(); applyTheme(themeIndex); dialog.dismiss() }
             return FrameLayout(this).apply {
@@ -939,7 +1035,25 @@ class MainActivity : Activity() {
         }
         picRow.addView(tile(0))
         for (n in 1..bgCount) if (bgResId(n) != 0) picRow.addView(tile(n))
+        // the user's own picture: the saved one (if any), then a tile to choose a new one
+        if (customBgFile().exists()) picRow.addView(tile(CUSTOM_BG))
+        picRow.addView(FrameLayout(this).apply {
+            setPadding(dp(3), dp(3), dp(3), dp(3))
+            addView(TextView(this@MainActivity).apply {
+                text = "+\nMy\npicture"; gravity = Gravity.CENTER; textSize = 13f; setTextColor(Color.DKGRAY)
+                background = GradientDrawable().apply { setColor(Color.parseColor("#EEEEEE")); cornerRadius = dp(8).toFloat() }
+                setOnClickListener { dialog.dismiss(); startCustomBgPick() }
+            }, FrameLayout.LayoutParams(dp(68), dp(120)))
+        })
         box.add(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(picRow) }, 8)
+        if (customBgFile().exists()) box.add(Button(this).apply {
+            text = "Remove my picture"; isAllCaps = false
+            setOnClickListener {
+                customBgFile().delete(); bgBitmap = null
+                if (prefs().getInt("bgPic", 0) == CUSTOM_BG) prefs().edit().putInt("bgPic", 0).apply()
+                applyTheme(themeIndex); dialog.dismiss()
+            }
+        }, 8)
         box.add(TextView(this).apply { text = "Speed limit sign style"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
         val curSign = prefs().getString("signStyle", "us")
         val sus = RadioButton(this).apply { text = "USA / Canada (rectangle)"; id = View.generateViewId(); isChecked = curSign != "eu" }
@@ -5106,6 +5220,76 @@ class SpeedSignView(ctx: Context) : View(ctx) {
 }
 
 /** A picture drawn to fill its bounds (cropped, never stretched), with a dark layer on top so text stays readable. */
+/** Shows a picture under a fixed 9:16 frame; drag and pinch move it. [render] gives exactly the framed part as 1080 x 1920. */
+class CropView(ctx: Context, private val bmp: Bitmap) : View(ctx) {
+    private val frame = RectF()
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val dim = Paint().apply { color = Color.argb(170, 0, 0, 0) }
+    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Color.WHITE; strokeWidth = 3f }
+    private var minS = 1f; private var s = 1f; private var tx = 0f; private var ty = 0f
+    private var lx = 0f; private var ly = 0f; private var dragging = false
+    private val scaler = android.view.ScaleGestureDetector(ctx, object : android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        override fun onScale(d: android.view.ScaleGestureDetector): Boolean {
+            val ns = (s * d.scaleFactor).coerceIn(minS, minS * 6f)
+            val k = ns / s
+            tx = d.focusX - (d.focusX - tx) * k; ty = d.focusY - (d.focusY - ty) * k
+            s = ns; clamp(); invalidate(); return true
+        }
+    })
+
+    override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
+        val m = 16f * resources.displayMetrics.density
+        val aw = w - 2 * m; val ah = h - 2 * m
+        val fw: Float; val fh: Float
+        if (aw / ah > 1080f / 1920f) { fh = ah; fw = ah * 1080f / 1920f } else { fw = aw; fh = aw * 1920f / 1080f }
+        frame.set((w - fw) / 2f, (h - fh) / 2f, (w + fw) / 2f, (h + fh) / 2f)
+        minS = maxOf(frame.width() / bmp.width, frame.height() / bmp.height)
+        reset()
+    }
+
+    fun reset() {
+        s = minS
+        tx = frame.centerX() - bmp.width * s / 2f; ty = frame.centerY() - bmp.height * s / 2f
+        clamp(); invalidate()
+    }
+
+    private fun clamp() {
+        tx = tx.coerceIn(frame.right - bmp.width * s, frame.left)
+        ty = ty.coerceIn(frame.bottom - bmp.height * s, frame.top)
+    }
+
+    override fun onTouchEvent(e: android.view.MotionEvent): Boolean {
+        scaler.onTouchEvent(e)
+        when (e.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> { lx = e.x; ly = e.y; dragging = true }
+            android.view.MotionEvent.ACTION_POINTER_DOWN -> dragging = false
+            android.view.MotionEvent.ACTION_POINTER_UP -> { dragging = false }
+            android.view.MotionEvent.ACTION_MOVE -> if (dragging && e.pointerCount == 1 && !scaler.isInProgress) {
+                tx += e.x - lx; ty += e.y - ly; lx = e.x; ly = e.y; clamp(); invalidate()
+            } else if (e.pointerCount == 1 && !scaler.isInProgress) { lx = e.x; ly = e.y; dragging = true }
+            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> dragging = false
+        }
+        return true
+    }
+
+    override fun onDraw(c: Canvas) {
+        c.save(); c.translate(tx, ty); c.scale(s, s); c.drawBitmap(bmp, 0f, 0f, paint); c.restore()
+        val w = width.toFloat(); val h = height.toFloat()
+        c.drawRect(0f, 0f, w, frame.top, dim); c.drawRect(0f, frame.bottom, w, h, dim)
+        c.drawRect(0f, frame.top, frame.left, frame.bottom, dim); c.drawRect(frame.right, frame.top, w, frame.bottom, dim)
+        c.drawRect(frame, line)
+    }
+
+    fun render(): Bitmap {
+        val l = (frame.left - tx) / s; val t = (frame.top - ty) / s
+        val src = android.graphics.Rect(l.toInt().coerceAtLeast(0), t.toInt().coerceAtLeast(0),
+            (l + frame.width() / s).toInt().coerceAtMost(bmp.width), (t + frame.height() / s).toInt().coerceAtMost(bmp.height))
+        val out = Bitmap.createBitmap(1080, 1920, Bitmap.Config.ARGB_8888)
+        Canvas(out).drawBitmap(bmp, src, android.graphics.Rect(0, 0, 1080, 1920), paint)
+        return out
+    }
+}
+
 class CoverDrawable(private val bmp: android.graphics.Bitmap, private val scrim: Int) : android.graphics.drawable.Drawable() {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val src = android.graphics.Rect()
