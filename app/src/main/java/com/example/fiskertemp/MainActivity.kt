@@ -1027,6 +1027,10 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("iconBtns", on).apply(); refreshLowerLabels(); paintLowerTabs() }
         }, 4)
         box.add(Button(this).apply {
+            text = "Speedometer Adjustment"; isAllCaps = false
+            setOnClickListener { showSpeedAdjust() }
+        }, 8)
+        box.add(Button(this).apply {
             text = "Check for updates (this is build ${Updater.installedBuild(this@MainActivity)})"; isAllCaps = false
             setOnClickListener { checkForUpdate(true) }
         }, 8)
@@ -1444,6 +1448,55 @@ class MainActivity : Activity() {
 
     private fun prefs() = getSharedPreferences("prefs", MODE_PRIVATE)
     private fun speedMph() = prefs().getBoolean("mph", false)
+
+    // ---- speedometer adjustment: one correction per 10-unit band of speed (0-10 ... 150-160), in km/h or mph as chosen
+    private val adjKmDefault = intArrayOf(1, 1, 1, 2, 2, 3, 4, 4, 5, 6, 7, 7, 7, 8, 8, 9)
+    private fun adjDefaults(mph: Boolean): IntArray =
+        if (!mph) adjKmDefault.clone()
+        else IntArray(16) { i -> Math.round(adjKmDefault[((i * 10 + 5) * 1.609344 / 10).toInt().coerceIn(0, 15)] * 0.621371).toInt() }
+    private fun adjTable(mph: Boolean): IntArray {
+        val saved = prefs().getString(if (mph) "spdAdjMph" else "spdAdjKmh", null)?.split(",")?.mapNotNull { it.trim().toIntOrNull() }
+        return if (saved != null && saved.size == 16) saved.toIntArray() else adjDefaults(mph)
+    }
+    private fun speedAdjFor(v: Double, mph: Boolean): Int = adjTable(mph)[(v / 10).toInt().coerceIn(0, 15)]
+
+    private fun showSpeedAdjust() {
+        val mph = speedMph(); val u = if (mph) "mph" else "km/h"
+        val cur = adjTable(mph)
+        val light = Color.parseColor("#F0F3F8")
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(4), dp(20), dp(4)) }
+        box.addView(TextView(this).apply {
+            text = "Added to the speed shown on the speed gauge, in $u. Use a minus sign to subtract. A stopped car always shows 0."
+            textSize = 13f; setTextColor(Color.parseColor("#B8C2CF")); setPadding(0, 0, 0, dp(8))
+        })
+        val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        head.addView(TextView(this).apply { text = "Speed ($u)"; textSize = 12f; setTextColor(Color.parseColor("#9AA6B4")) }, LinearLayout.LayoutParams(0, -2, 1f))
+        head.addView(TextView(this).apply { text = "Adjustment"; textSize = 12f; setTextColor(Color.parseColor("#9AA6B4")); gravity = Gravity.END }, LinearLayout.LayoutParams(0, -2, 1f))
+        box.addView(head)
+        val fields = ArrayList<EditText>()
+        for (i in 0 until 16) {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            row.addView(TextView(this).apply { text = "${i * 10} \u2013 ${i * 10 + 10}"; textSize = 16f; setTextColor(light) }, LinearLayout.LayoutParams(0, -2, 1f))
+            val et = EditText(this).apply {
+                setText(cur[i].toString()); textSize = 16f; setTextColor(light); gravity = Gravity.END; setSelectAllOnFocus(true)
+                inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
+                setSingleLine(true); filters = arrayOf(android.text.InputFilter.LengthFilter(3))
+            }
+            fields.add(et)
+            row.addView(et, LinearLayout.LayoutParams(dp(90), -2))
+            box.addView(row)
+        }
+        val sv = ScrollView(this).apply { addView(box) }
+        val d = darkDialog().setTitle("Speedometer Adjustment").setView(sv)
+            .setPositiveButton("Save", null).setNegativeButton("Cancel", null).setNeutralButton("Reset", null).create()
+        d.show(); styleDark(d)
+        d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val vals = fields.map { it.text.toString().trim().toIntOrNull() ?: 0 }
+            prefs().edit().putString(if (mph) "spdAdjMph" else "spdAdjKmh", vals.joinToString(",")).apply()
+            d.dismiss()
+        }
+        d.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener { adjDefaults(mph).forEachIndexed { i, v -> fields[i].setText(v.toString()) } }
+    }
 
     private fun buildDashboard(): FrameLayout {
         Skins.current = prefs().getInt("skin", 7)
@@ -2732,7 +2785,8 @@ class MainActivity : Activity() {
     private fun renderDash() {
         val s = canSnap
         val mph = speedMph()
-        val spd = s.speedKmh?.let { if (mph) it * 0.621371 else it }
+        // the speedometer adjustment (Settings) is added to the speed shown, in the unit chosen; a stopped car stays at 0
+        val spd = s.speedKmh?.let { k -> (if (mph) k * 0.621371 else k).let { v -> if (v >= 1.0) maxOf(0.0, v + speedAdjFor(v, mph)) else v } }
         if (scaleMph != mph) { scaleMph = mph; dashSpeedGauge.scale = speedScale(mph); dashPowerGauge.scale = powerScale() }
         dashSpeedGauge.valueText = spd?.let { String.format("%.0f", it) } ?: "--"
         dashSpeedGauge.unit = if (mph) "mph" else "km/h"
