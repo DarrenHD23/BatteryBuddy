@@ -1021,26 +1021,17 @@ class MainActivity : Activity() {
             text = "Hide the trip information"; isChecked = prefs().getBoolean("hideTrip", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideTrip", on).apply(); relayout() }
         }, 4)
-        val moreCb = CheckBox(this).apply {
-            text = "Show more app buttons (6 instead of 4; not while the Skin button is shown)"; isChecked = prefs().getBoolean("moreBtns", false)
-            visibility = if (prefs().getBoolean("iconBtns", false)) View.VISIBLE else View.GONE
-            isEnabled = !showSkinBtn()
-            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("moreBtns", on).apply(); relayoutDash(); refreshLowerLabels(); paintLowerTabs() }
-        }
         box.add(CheckBox(this).apply {
             text = "Show icons instead of names on the app buttons"; isChecked = prefs().getBoolean("iconBtns", false)
             setOnCheckedChangeListener { _, on ->
                 prefs().edit().putBoolean("iconBtns", on).apply()
-                moreCb.visibility = if (on) View.VISIBLE else View.GONE
                 relayoutDash(); refreshLowerLabels(); paintLowerTabs()
             }
         }, 4)
-        box.add(moreCb, 4)
         box.add(CheckBox(this).apply {
             text = "Show the Skin button on the dashboard"; isChecked = showSkinBtn()
             setOnCheckedChangeListener { _, on ->
                 prefs().edit().putBoolean("showSkin", on).apply()
-                moreCb.isEnabled = !on
                 relayoutDash(); refreshLowerLabels(); paintLowerTabs()
             }
         }, 4)
@@ -1061,7 +1052,7 @@ class MainActivity : Activity() {
             setOnClickListener {
                 val names = Array(slotCount) { i -> "Button ${i + 1}: " + (if (slotPkg(i).isEmpty()) "(no app)" else appLabelOf(slotPkg(i))) }
                 darkDialog().setTitle("Clear which button?").setItems(names) { _, i ->
-                    prefs().edit().remove("slotPkg$i").apply(); refreshLowerLabels()
+                    clearSlot(i)
                     EventLog.add("lower button ${i + 1} cleared")
                 }.setNegativeButton("Cancel", null).showDark()
             }
@@ -1379,6 +1370,7 @@ class MainActivity : Activity() {
     private var poolKey = ""
     private lateinit var dashGaugeRow: LinearLayout
     private lateinit var lowerTabs: LinearLayout
+    private lateinit var lowerAdd: TextView                     // the + just outside the scrolling strip: adds an app button
     private lateinit var lowerScroll: HorizontalScrollView      // the app buttons scroll sideways when they do not all fit
     private fun showSkinBtn() = prefs().getBoolean("showSkin", false)
     private lateinit var lowerBox: LinearLayout
@@ -1426,9 +1418,20 @@ class MainActivity : Activity() {
         resBtn.text = if (screenH == 0) "Screen size" else if (resCompact) "\u21C5 $screenH" else "Screen: 1080 \u00D7 $screenH  \u21C5"
     }
     private var screenH = 0       // 1920 or 1784 once known
-    private val maxSlots = 6
-    /** Four app buttons, or six when icons are shown and "more buttons" is on. */
-    private val slotCount get() = if (!showSkinBtn() && prefs().getBoolean("iconBtns", false) && prefs().getBoolean("moreBtns", false)) maxSlots else 4
+    private val maxSlots = 25
+    /** Four app buttons with names; with icons the user can add more with the + beside the scrolling strip (up to 25). */
+    private val slotCount get() = if (prefs().getBoolean("iconBtns", false)) prefs().getInt("slotN", if (prefs().getBoolean("moreBtns", false)) 6 else 4).coerceIn(4, maxSlots) else 4
+    /** Empties a button; in icon mode an extra button (5 and up) is removed and the ones after it move up. */
+    private fun clearSlot(i: Int) {
+        val n = slotCount
+        val e = prefs().edit()
+        if (prefs().getBoolean("iconBtns", false) && i >= 4 && n > 4) {
+            for (j in i until n - 1) e.putString("slotPkg$j", slotPkg(j + 1))
+            e.remove("slotPkg${n - 1}").putInt("slotN", n - 1)
+        } else e.remove("slotPkg$i")
+        e.apply()
+        refreshLowerLabels(); paintLowerTabs()
+    }
     /** The app a lower button opens (a package name); empty until the user picks one. */
     private fun slotPkg(i: Int): String = prefs().getString("slotPkg$i", "") ?: ""
     private fun appLabelOf(pkg: String): String = try {
@@ -1686,6 +1689,21 @@ class MainActivity : Activity() {
             isHorizontalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; isFillViewport = false
             background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(18).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
             addView(lowerTabs, FrameLayout.LayoutParams(-2, -2))
+        }
+        lowerAdd = TextView(this).apply {
+            text = "+"; textSize = 20f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+            minHeight = dp(42); minWidth = dp(42); setPadding(dp(6), 0, dp(6), 0)
+            background = chipBg(18)
+            visibility = View.GONE
+            setOnClickListener {
+                val n = slotCount
+                if (n < maxSlots) {
+                    prefs().edit().putInt("slotN", n + 1).apply()
+                    refreshLowerLabels(); paintLowerTabs()
+                    lowerScroll.post { lowerScroll.fullScroll(View.FOCUS_RIGHT) }
+                    pickLowerApp(n)
+                }
+            }
         }
         lowerIdx = prefs().getInt("lowerApp", 0).coerceIn(0, slotCount - 1)
         refreshLowerLabels()
@@ -2296,13 +2314,14 @@ class MainActivity : Activity() {
             if (rhd) setMargins(0, 0, dp(8), dp(lowerBoxBottomM)) else setMargins(edgeOff, 0, 0, dp(lowerBoxBottomM))
         }
         // children in mirrored order for right-hand drive
-        val lowerKids = listOf(climateBtn, mediaBtn, resBtn, tripBtn, lowerScroll)
+        val lowerKids = listOf(climateBtn, mediaBtn, resBtn, tripBtn, lowerScroll, lowerAdd)
         lowerBox.removeAllViews()
         for (v in if (rhd) lowerKids.reversed() else lowerKids) lowerBox.addView(v)
         (mediaBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
         (climateBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
         (resBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
         (tripBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
+        (lowerAdd.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) 0 else dp(6); rightMargin = if (rhd) dp(6) else 0; height = dp(42); topMargin = 0 }
         (btnBar.layoutParams as FrameLayout.LayoutParams).apply {
             gravity = Gravity.BOTTOM or (if (rhd) Gravity.START else Gravity.END)
             if (rhd) setMargins(edgeOff, 0, 0, dp(16)) else setMargins(0, 0, dp(8), dp(16))
@@ -2377,7 +2396,10 @@ class MainActivity : Activity() {
         var avail = Int.MAX_VALUE
         if (ready) {
             var others = 0
+            val addOn = ::lowerAdd.isInitialized && prefs().getBoolean("iconBtns", false) && slotCount < maxSlots
+            if (::lowerAdd.isInitialized) lowerAdd.visibility = if (addOn) View.VISIBLE else View.GONE
             for (b in listOf(climateBtn, mediaBtn, resBtn, tripBtn)) if (b.visibility != View.GONE) { b.measure(un, un); others += b.measuredWidth + dp(6) }
+            if (addOn) { lowerAdd.measure(un, un); others += lowerAdd.measuredWidth + dp(6) }
             btnBar.measure(un, un)
             val totalW = if (::dashRoot.isInitialized && dashRoot.width > 0) dashRoot.width else resources.displayMetrics.widthPixels
             val room = totalW - dp(8 + 20 + 16) - others - btnBar.measuredWidth - dp(6 + 6 * slotCount)
@@ -2450,7 +2472,7 @@ class MainActivity : Activity() {
                 }
                 val b = darkDialog().setTitle("Choose the app for this button").setView(list).setNegativeButton("Cancel", null)
                 if (slotPkg(slot).isNotEmpty()) b.setNeutralButton("Clear button") { _, _ ->
-                    prefs().edit().remove("slotPkg$slot").apply(); refreshLowerLabels()
+                    clearSlot(slot)
                 }
                 dlg = b.showDark()
             }
@@ -2483,6 +2505,7 @@ class MainActivity : Activity() {
         if (::settingsBtn.isInitialized) settingsBtn.background = chipBg(22)
         if (::exitBtn.isInitialized) exitBtn.background = chipBg(22)
         if (::resBtn.isInitialized) resBtn.background = chipBg(12)
+        if (::lowerAdd.isInitialized) lowerAdd.background = chipBg(18)
         if (::climateBtn.isInitialized) climateBtn.background = chipBg(12)
         if (::mediaBtn.isInitialized) mediaBtn.background = chipBg(12)
         if (::tripBtn.isInitialized) tripBtn.background = chipBg(12)
