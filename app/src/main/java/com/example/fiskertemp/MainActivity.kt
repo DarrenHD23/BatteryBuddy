@@ -1845,6 +1845,9 @@ class MainActivity : Activity() {
             .apply { topLabel = "CLIMATE"; title = "POWER"; unit = "kW"; bottomLabel = "HV BATTERY" }
         dashSpeedGauge = ArcGaugeView(this, true, 0f) { t -> Skins.grad(t) }
             .apply { topLabel = "BATTERY TEMP"; title = "SPEED"; unit = "km/h"; bottomLabel = "BATTERY HEATING/COOLING" }
+        // tap either gauge for the Pulse hardware health window
+        dashPowerGauge.setOnClickListener { showHealth() }
+        dashSpeedGauge.setOnClickListener { showHealth() }
         val light = Typeface.create("sans-serif-light", Typeface.NORMAL)
         dashSign = SpeedSignView(this).apply { alpha = 0f }
         dashLight = TrafficLightView(this).apply { alpha = 0f }
