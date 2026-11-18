@@ -1757,7 +1757,7 @@ class MainActivity : Activity() {
     private fun applyDashTheme(day: Boolean) {
         paintEdges()
         dashRoot.background = if (day)
-            GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#FFFFFF"), Color.parseColor("#E6ECF4")))
+            bgDrawable(Color.argb(125, 255, 255, 255)) ?: GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#FFFFFF"), Color.parseColor("#E6ECF4")))
         else bgDrawable(Color.argb(120, 0, 0, 0)) ?: GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Skins.look.bgTop, Skins.look.bgBottom))
         dashSpeedGauge.day = day; dashPowerGauge.day = day; dashStrip.day = day; dashStrip.invalidate()
         if (::tripPanel.isInitialized) { tripPanel.day = day; tripPanel.invalidate() }
