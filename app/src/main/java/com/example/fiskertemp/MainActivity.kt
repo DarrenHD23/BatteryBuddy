@@ -1500,7 +1500,17 @@ class MainActivity : Activity() {
         val d = darkDialog().setTitle("Join the Beta").setMessage("Enter the beta password.").setView(holder)
             .setPositiveButton("OK", null).setNegativeButton("Cancel", null).showDark()
         d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-            if (pw.text.toString() == "Pulse!!!") { d.dismiss(); showBetaOptions() }
+            if (pw.text.toString() == "Pulse!!!") {
+                d.dismiss()
+                if (prefs().getBoolean("betaOn", false)) showBetaOptions()      // already in the beta: the screen with the opt-out tick box
+                else {
+                    // joining: remember it, then offer the newest beta build straight away
+                    prefs().edit().putBoolean("betaOn", true).putInt("updDeferred", 0).apply()
+                    EventLog.add("beta builds on (joined with the password)")
+                    toast("You joined the beta. Checking for the latest beta build...")
+                    checkForUpdate(true)
+                }
+            }
             else { pw.setText(""); pw.error = "Wrong password" }
         }
     }
@@ -1512,7 +1522,7 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("betaOn", on).apply(); EventLog.add("beta builds " + (if (on) "on" else "off")) }
         }
         val holder = LinearLayout(this).apply { setPadding(dp(24), dp(8), dp(24), 0); addView(cb) }
-        darkDialog().setTitle("Beta").setMessage("Beta builds may have bugs. Turn this off to get only the tested releases.").setView(holder)
+        darkDialog().setTitle("Beta").setMessage("Beta builds may have bugs. Untick this to get only the tested releases again.").setView(holder)
             .setPositiveButton("Done", null).setNeutralButton("Check now") { _, _ -> checkForUpdate(true) }.showDark()
     }
 
