@@ -6385,8 +6385,8 @@ class MediaCardView(ctx: Context) : View(ctx) {
         val colW = minOf(dp(250f), w * 0.38f)
         val colX = if (rhd) w - dp(16f) - colW else dp(16f)
         val gap = dp(if (small) 10f else if (vz) 8f else 16f)
-        val bsz = if (small) minOf(h * 0.40f, (w - dp(28f) - 2 * gap) / 3) else if (vz) minOf(h * 0.30f, dp(34f)) else h * 0.58f
-        val cy = if (small) h - dp(8f) - bsz / 2 else if (vz) h * 0.74f else h / 2
+        val bsz = if (small) minOf(h * 0.40f, (w - dp(28f) - 2 * gap) / 3) else if (vz) minOf(h * 0.34f, dp(40f)) else h * 0.58f
+        val cy = if (small) h - dp(8f) - bsz / 2 else if (vz) h * 0.76f else h / 2
         val total = bsz * 3 + gap * 2
         val left = if (small) (w - total) / 2 else if (vz) colX else if (rhd) w - dp(20f) - total else dp(20f)
         rPrev.set(left, cy - bsz / 2, left + bsz, cy + bsz / 2)
@@ -6412,8 +6412,9 @@ class MediaCardView(ctx: Context) : View(ctx) {
         if (wide) {
             val bs = dp(26f)
             if (vz) {
-                if (rhd) vizRect.set(dp(12f), dp(12f), colX - dp(14f), h - dp(12f)) else vizRect.set(colX + colW + dp(14f), dp(12f), w - dp(12f), h - dp(12f))
-                vizBtn.set(vizRect.right - dp(6f) - bs, vizRect.top + dp(6f), vizRect.right - dp(6f), vizRect.top + dp(6f) + bs)
+                // the on / off button sits just left of the visualizer window, centred on it
+                if (rhd) { vizBtn.set(dp(12f), h / 2 - bs / 2, dp(12f) + bs, h / 2 + bs / 2); vizRect.set(vizBtn.right + dp(8f), dp(12f), colX - dp(14f), h - dp(12f)) }
+                else { vizBtn.set(colX + colW + dp(10f), h / 2 - bs / 2, colX + colW + dp(10f) + bs, h / 2 + bs / 2); vizRect.set(vizBtn.right + dp(8f), dp(12f), w - dp(12f), h - dp(12f)) }
                 // real audio when the device allows it and sound is actually coming through, otherwise a simulated beat
                 var bands: FloatArray? = null
                 if (playing && AudioViz.start(context)) { vizLive = true; if (AudioViz.hasSignal()) bands = AudioViz.bands } else { vizLive = false; if (!playing) AudioViz.stop() }
