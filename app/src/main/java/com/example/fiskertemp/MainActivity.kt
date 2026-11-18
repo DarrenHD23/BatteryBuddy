@@ -1948,17 +1948,21 @@ class MainActivity : Activity() {
             val l = (0.299f * Color.red(ac) + 0.587f * Color.green(ac) + 0.114f * Color.blue(ac)) / 255f
             climateView.accent = if (l > 0.7f) Color.rgb((Color.red(ac) * 0.55f + 108 * 0.45f).toInt(), (Color.green(ac) * 0.55f + 122 * 0.45f).toInt(), (Color.blue(ac) * 0.55f + 140 * 0.45f).toInt()) else ac
         }
-        // the background is the skin's colour: a deep shade of the accent at night, a soft tint of it over light grey in Day mode
+        // night: the skin's own dark background; Day mode: light grey with a soft tint of the skin colour
         run {
             val ac = climateView.accent
             fun sc(c: Int, k: Float) = Color.rgb((Color.red(c) * k).toInt(), (Color.green(c) * k).toInt(), (Color.blue(c) * k).toInt())
             fun mx(a: Int, b: Int, t: Float) = Color.rgb((Color.red(a) + (Color.red(b) - Color.red(a)) * t).toInt(), (Color.green(a) + (Color.green(b) - Color.green(a)) * t).toInt(), (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * t).toInt())
             if (dashDay) {
-                climateView.bgTopColor = mx(Color.parseColor("#B4BBC4"), ac, 0.35f)
-                climateView.bgColor = mx(Color.parseColor("#8C95A1"), ac, 0.35f)
+                climateView.bgTopColor = mx(Color.parseColor("#DCE1E7"), ac, 0.22f)
+                climateView.bgColor = mx(Color.parseColor("#BFC6CF"), ac, 0.22f)
             } else {
-                climateView.bgTopColor = sc(ac, 0.46f)
-                climateView.bgColor = sc(ac, 0.22f)
+                // night: the skin's own dashboard background, as before
+                val base = Skins.look.bgBottom or (0xFF shl 24)
+                val lum = (0.299f * Color.red(base) + 0.587f * Color.green(base) + 0.114f * Color.blue(base)) / 255f
+                val k = if (lum > 0.35f) 0.28f else 1f
+                climateView.bgColor = sc(base, k)
+                climateView.bgTopColor = sc(Skins.look.bgTop or (0xFF shl 24), k)
             }
         }
         climateView.invalidate()
