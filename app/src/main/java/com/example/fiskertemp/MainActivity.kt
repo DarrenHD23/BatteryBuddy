@@ -1994,7 +1994,7 @@ class MainActivity : Activity() {
         val band = rowHdp / 2f - minOf(gaugeWdp, rowHdp) / 2f * 0.92f - 6f - up
         val clockH = if (band >= 30f) band.toInt().coerceAtMost(110) else if (third) 24 else 0
         val rhd = prefs().getBoolean("rhd", false)
-        val key = "$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$edgeL/$edgeR/$up/$rhd/$hideBar/$hideTrip/${prefs().getBoolean("fullMedia", true)}/${prefs().getBoolean("iconBtns", false)}"
+        val key = "$hDp/$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$edgeL/$edgeR/$up/$rhd/$hideBar/$hideTrip/${prefs().getBoolean("fullMedia", true)}/${prefs().getBoolean("iconBtns", false)}"
         if (key == layoutKey) return
         layoutKey = key
         EventLog.add("layout ${wDp}x${hDp}dp tier=$ti trip=$midRows third=$third half=$half tall=$tall")
@@ -2073,15 +2073,16 @@ class MainActivity : Activity() {
         val sideL = 8
         val sideR = 8
         // full screen only: from the top: gauges, stat rows + button row, media card, then the Climate panel at the bottom
-        val mediaH = 132
         val rowTopY = topM + wantH.toInt() + 34
         val rowBottomY = rowTopY + t.row
         val stripBottomY = if (t.showStrip) rowBottomY + 4 + t.strip else rowBottomY
         val lowerBoxBottomY = stripBottomY + 10 + 42
         val mediaTopY = lowerBoxBottomY + 8
+        // the media card is 132 dp tall, or as little as 100 dp when the window is a bit short, so the Climate panel keeps at least 380 dp under it
+        val mediaH = (hDp - 66 - 8 - mediaTopY - 380).coerceIn(100, 132)
         val mediaEndY = mediaTopY + mediaH
         val climH = hDp - 66 - (mediaEndY + 8)
-        val showMedia = tall && climH >= 400
+        val showMedia = tall && climH >= 380
         val rowBottomM = if (showMedia) hDp - rowBottomY else rowBottom
         val stripBottomM = if (showMedia) hDp - stripBottomY else stripBottom
         val lowerBoxBottomM = if (showMedia) hDp - lowerBoxBottomY else 10
