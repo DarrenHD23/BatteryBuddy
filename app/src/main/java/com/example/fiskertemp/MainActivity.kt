@@ -4881,7 +4881,7 @@ class TripPanelView(ctx: Context) : View(ctx) {
         val rows = (cells.size + cols - 1) / cols
         // the card
         val rad = 10f * d
-        fill.color = if (day) Color.argb(34, 20, 32, 46) else Color.argb(100, 8, 14, 34)
+        fill.color = if (day) Color.argb(64, Color.red(accent), Color.green(accent), Color.blue(accent)) else Color.argb(100, 8, 14, 34)   // Day mode: tinted with the skin colour
         rect.set(1f, 1f, w - 1f, h - 1f)
         c.drawRoundRect(rect, rad, rad, fill)
         line.color = Color.argb(if (day) 120 else 130, Color.red(accent), Color.green(accent), Color.blue(accent))
