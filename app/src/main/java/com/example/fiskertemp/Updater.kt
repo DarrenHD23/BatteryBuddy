@@ -31,17 +31,18 @@ object Updater {
     }
 
     /** The newest release (by build number) that has an APK attached, or null if none / offline. Call off the main thread. */
-    fun latest(beta: Boolean = false): Release? = try {
+    fun latest(beta: Boolean = false, installed: Int = 0): Release? = try {
         val c = open(API)
         if (c.responseCode != 200) null else {
             val arr = JSONArray(c.inputStream.bufferedReader().readText())
             var best: Release? = null
+            val notesBy = HashMap<Int, Pair<String, String>>()    // build -> (title, notes) for every release, tests included
             for (i in 0 until arr.length()) {
                 val r = arr.getJSONObject(i)
                 if (r.optBoolean("draft")) continue
-                if (r.optBoolean("prerelease") && !beta) continue   // test builds are only for people who joined the beta
                 val tag = r.optString("tag_name")
                 val n = tag.removePrefix("build-").toIntOrNull() ?: continue
+                notesBy[n] = Pair(r.optString("name", "Build $n"), cleanNotes(r.optString("body")))
                 val assets = r.optJSONArray("assets") ?: continue
                 var url = ""; var size = 0L
                 for (j in 0 until assets.length()) {
@@ -49,7 +50,16 @@ object Updater {
                     if (a.optString("name").endsWith(".apk")) { url = a.optString("browser_download_url"); size = a.optLong("size"); break }
                 }
                 if (url.isEmpty()) continue
+                if (r.optBoolean("prerelease") && !beta) continue   // test builds are only offered to people who joined the beta
                 if (best == null || n > best.build) best = Release(n, r.optString("name", "Build $n"), cleanNotes(r.optString("body")), url, size)
+            }
+            // one list of everything that changed since the installed build, newest first (test builds' notes included)
+            best?.let { b ->
+                val builds = notesBy.keys.filter { it > installed && it <= b.build }.sortedDescending()
+                if (builds.size > 1) {
+                    val text = builds.joinToString("\n\n") { k -> "Build $k\n" + (notesBy[k]?.second ?: "") }
+                    best = Release(b.build, b.title, text, b.apkUrl, b.size)
+                }
             }
             best
         }

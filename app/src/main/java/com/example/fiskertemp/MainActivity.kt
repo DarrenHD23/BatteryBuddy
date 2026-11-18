@@ -2680,7 +2680,7 @@ class MainActivity : Activity() {
         if (!manual && (now - lastUpdateCheck < 30 * 60 * 1000L || updateBusy)) return
         lastUpdateCheck = now
         Thread {
-            val r = Updater.latest(prefs().getBoolean("betaOn", false))
+            val r = Updater.latest(prefs().getBoolean("betaOn", false), Updater.installedBuild(this))
             val have = Updater.installedBuild(this)
             ui.post {
                 if (r != null && r.build > have) {
