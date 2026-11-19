@@ -254,26 +254,45 @@ class ShortcutsCardView(ctx: Context) : View(ctx) {
 
     private fun pageCount() = maxOf(1, (tiles.size + 3) / 4)
 
-    private val gd = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
-        override fun onDown(e: MotionEvent) = true
-        override fun onSingleTapUp(e: MotionEvent): Boolean { tileAt(e.x, e.y)?.let { onTile?.invoke(it) }; return true }
-        override fun onLongPress(e: MotionEvent) { tileAt(e.x, e.y)?.let { if (it.slot >= 0) onLong?.invoke(it) } }
-        override fun onFling(a: MotionEvent?, b: MotionEvent, vx: Float, vy: Float): Boolean {
-            if (embedded || abs(vx) < abs(vy)) return false
-            val pages = pageCount()
-            if (vx < 0 && page < pages - 1) { page++; invalidate() } else if (vx > 0 && page > 0) { page--; invalidate() }
-            return true
-        }
-    })
+    var iconsOnly = false                             // Settings > "show icons instead of names": tiles show just the app icon
+        set(v) { if (field != v) { field = v; invalidate() } }
+    private var downTile: ShortTile? = null
+    private var downX = 0f; private var downY = 0f
+    private var longDone = false
+    private val slopPx = android.view.ViewConfiguration.get(ctx).scaledTouchSlop
+    private val longRun = Runnable {
+        val t = downTile
+        if (t != null && t.slot >= 0) { longDone = true; onLong?.invoke(t) }
+    }
 
     private fun tileAt(x: Float, y: Float): ShortTile? {
         for (i in 0 until 4) if (rects[i].contains(x, y)) return shownTiles.getOrNull(i)
         return null
     }
 
+    // a tile fires when the finger lifts on it (not when it touches down); moving away or a long press cancels the tap
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        if (!embedded) parent?.requestDisallowInterceptTouchEvent(true)
-        return gd.onTouchEvent(e)
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downX = e.x; downY = e.y; longDone = false
+                downTile = tileAt(e.x, e.y)
+                if (downTile != null) postDelayed(longRun, android.view.ViewConfiguration.getLongPressTimeout().toLong())
+                invalidate()
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> if (downTile != null && (Math.abs(e.x - downX) > slopPx || Math.abs(e.y - downY) > slopPx)) {
+                removeCallbacks(longRun); downTile = null; invalidate()
+            }
+            MotionEvent.ACTION_UP -> {
+                removeCallbacks(longRun)
+                val t = downTile; downTile = null
+                invalidate()
+                if (t != null && !longDone && tileAt(e.x, e.y) === t) onTile?.invoke(t)
+                return true
+            }
+            MotionEvent.ACTION_CANCEL -> { removeCallbacks(longRun); downTile = null; invalidate() }
+        }
+        return true
     }
 
     override fun onDraw(c: Canvas) {
@@ -300,9 +319,11 @@ class ShortcutsCardView(ctx: Context) : View(ctx) {
             val t = list[i] ?: continue
             p.style = Paint.Style.FILL; p.shader = null
             p.color = if (day) Color.argb(70, 20, 40, 70) else Color.argb(60, 255, 255, 255)
+            if (downTile === t) p.color = if (day) Color.argb(130, 20, 40, 70) else Color.argb(120, 255, 255, 255)
             c.drawRoundRect(r, 14f * d, 14f * d, p)
-            val isize = min(r.height() * 0.46f, 40f * d)
-            val icy = r.top + r.height() * 0.40f
+            val icons = iconsOnly && t.slot >= 0 && t.icon != null
+            val isize = if (icons) min(r.height() * 0.7f, r.width() * 0.6f, 56f * d) else min(r.height() * 0.46f, 40f * d)
+            val icy = if (icons) r.centerY() else r.top + r.height() * 0.40f
             val ic = t.icon
             if (t.slot < 0) {
                 p.style = Paint.Style.STROKE; p.strokeWidth = 2.6f * d; p.color = ink; p.strokeCap = Paint.Cap.ROUND
@@ -313,6 +334,7 @@ class ShortcutsCardView(ctx: Context) : View(ctx) {
                 ic.setBounds((r.centerX() - isize / 2).toInt(), (icy - isize / 2).toInt(), (r.centerX() + isize / 2).toInt(), (icy + isize / 2).toInt())
                 ic.draw(c)
             }
+            if (icons) continue
             p.style = Paint.Style.FILL; p.color = ink; p.typeface = Typeface.DEFAULT
             p.textSize = min(13f * d, r.height() * 0.2f)
             var s = t.label

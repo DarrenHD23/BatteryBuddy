@@ -766,6 +766,11 @@ class MainActivity : Activity() {
                 EventLog.add("Heated wheel test: $msg")
                 toast(msg)
             }
+            onSeat = { who, lvl ->
+                val msg = pulse?.sendSeatHeat(who, lvl) ?: "CAN reader is not running"
+                EventLog.add("Seat heat test: $msg")
+                toast(msg)
+            }
             paintIdx = prefs().getInt("carPaint", 3)
             onPaint = { i -> prefs().edit().putInt("carPaint", i).apply() }
             onFan = { level ->
@@ -1198,6 +1203,13 @@ class MainActivity : Activity() {
             text = "Show icons instead of names on the app buttons"; isChecked = prefs().getBoolean("iconBtns", false)
             setOnCheckedChangeListener { _, on ->
                 prefs().edit().putBoolean("iconBtns", on).apply()
+                relayoutDash(); refreshLowerLabels(); paintLowerTabs(); refreshShortcuts()
+            }
+        }, 4)
+        box.add(CheckBox(this).apply {
+            text = "Layout 2: show the climate screen under the cards"; isChecked = prefs().getBoolean("l2Climate", true)
+            setOnCheckedChangeListener { _, on ->
+                prefs().edit().putBoolean("l2Climate", on).apply()
                 relayoutDash(); refreshLowerLabels(); paintLowerTabs()
             }
         }, 4)
@@ -1486,7 +1498,7 @@ class MainActivity : Activity() {
                 onLong = { t -> pickLowerApp(t.slot) }
             })
             while (ps.shorts.size > n) ps.shorts.removeAt(ps.shorts.size - 1)
-            for ((i, v) in ps.shorts.withIndex()) { v.setTiles(tiles); v.showPage(i); v.day = dashDay }
+            for ((i, v) in ps.shorts.withIndex()) { v.setTiles(tiles); v.showPage(i); v.day = dashDay; v.iconsOnly = prefs().getBoolean("iconBtns", false) }
         }
         // both cards cycle through the same pages: trip information, compass, navigation, media, the apps, then the controls
         fun pages(ps: PageSet): List<View> = listOf<View>(ps.trip, ps.compass, ps.nav, ps.media) + ps.shorts + listOf<View>(ps.actions)
@@ -2810,7 +2822,7 @@ class MainActivity : Activity() {
         val band = rowHdp / 2f - minOf(gaugeWdp, rowHdp) / 2f * 0.92f - 6f - up
         val clockH = if (l2) 26 else if (band >= 30f) band.toInt().coerceAtMost(110) else if (third) 24 else 0
         val rhd = prefs().getBoolean("rhd", false)
-        val key = "$hDp/$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$edgeL/$edgeR/$up/$rhd/$hideBar/$hideTrip/${prefs().getBoolean("fullMedia", true)}/${prefs().getBoolean("iconBtns", false)}/${prefs().getBoolean("moreBtns", false)}/${showSkinBtn()}/$l2"
+        val key = "$hDp/$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$edgeL/$edgeR/$up/$rhd/$hideBar/$hideTrip/${prefs().getBoolean("fullMedia", true)}/${prefs().getBoolean("iconBtns", false)}/${prefs().getBoolean("moreBtns", false)}/${showSkinBtn()}/$l2/${prefs().getBoolean("l2Climate", true)}"
         if (key == layoutKey) return
         layoutKey = key
         EventLog.add("layout ${wDp}x${hDp}dp tier=$ti trip=$midRows third=$third half=$half tall=$tall l2=$l2")
@@ -3071,6 +3083,7 @@ class MainActivity : Activity() {
             var room = bottom - top
             var climTop = top
             // full screen: the media card comes back between the cards and the Climate panel
+            mediaCard.l2 = l2
             val wantMedia = l2 && room >= 470 && prefs().getBoolean("fullMedia", true)
             if (wantMedia) {
                 (mediaCard.layoutParams as FrameLayout.LayoutParams).apply { height = dp(132); gravity = Gravity.BOTTOM; setMargins(dp(8), 0, dp(8), dp(maxOf(hDp - (top + 132), 0))) }
@@ -3080,12 +3093,14 @@ class MainActivity : Activity() {
                 climTop = top + 140; room -= 140
             } else if (l2) mediaCard.visibility = View.GONE
             if (l2) { ensureMediaWatcher(); mediaWatcher?.start() }   // the media pages need the player followed even when the old media card is off
-            val inline = l2 && room >= 110
+            val climOn = prefs().getBoolean("l2Climate", true)
+            if (::climateView.isInitialized) { climateView.l2 = l2; climateView.rhd = prefs().getBoolean("rhd", false) }
+            val inline = l2 && climOn && room >= 110
             l2ClimTop = climTop; l2ClimH = room; l2ClimInline = inline
             climateView.compact = inline && room < 300
             // Media is on the swipe cards; Climate only needs its button when the panel is not already showing
             mediaBtn.visibility = if (l2) View.GONE else View.VISIBLE
-            climateBtn.visibility = if (l2 && inline) View.GONE else View.VISIBLE
+            climateBtn.visibility = if (l2 && (inline || !climOn)) View.GONE else View.VISIBLE
             if (inline) edgeBox.post { if (dashShown && l2Applied) { if (climateView.visibility == View.VISIBLE) placeClimate() else openClimate() } }
             else if (wasL2Clim) { climateView.visibility = View.GONE }   // no longer room for it under the cards
             wasL2Clim = inline
@@ -6127,6 +6142,15 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     private val tempBtnInfo = ArrayList<Pair<Boolean, Int>>()
     var compact = false                               // Layout 2: a short panel under the cards: the two temperatures and the function tiles only
         set(v) { if (field != v) { field = v; invalidate() } }
+    var l2 = false                                    // Layout 2: one Close button, dials follow the drive side, seat heating buttons
+        set(v) { if (field != v) { field = v; invalidate() } }
+    var rhd = false                                   // right-hand drive: the driver's dial is on the right (Layout 2 only)
+        set(v) { if (field != v) { field = v; invalidate() } }
+    var onSeat: ((Int, Int) -> Unit)? = null          // seat heating: which (0 driver, 1 passenger, 2 rear left, 3 rear right), new level 0..3
+    private val seatRects = ArrayList<RectF>()
+    private val seatWho = ArrayList<Int>()
+    private val seatOver = IntArray(4) { -1 }
+    private val seatOverAt = LongArray(4)
     var floating = false                              // full-screen mode: a rounded panel instead of the whole window
         set(v) { field = v; invalidate() }
     var bgColor = Color.parseColor("#0B0F1A")          // solid, from the dashboard's current background
@@ -6465,7 +6489,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val ph = (now % 1600L) / 1600f
         val pulse = (0.65f + 0.35f * Math.sin(ph * 2.0 * Math.PI)).toFloat()
         val dt = s.climDrvT; val pt = s.climPassT
-        val cL = tempColor(dt); val cR = tempColor(pt)
+        val cL = tempColor(if (l2 && rhd) pt else dt); val cR = tempColor(if (l2 && rhd) dt else pt)
         val baseCol = paints[paintIdx].second
         val lightPaint = (0.299 * Color.red(baseCol) + 0.587 * Color.green(baseCol) + 0.114 * Color.blue(baseCol)) / 255.0 > 0.6
         val bodyCols = if (paintIdx == 3) intArrayOf(0xFFC9D3E2.toInt(), 0xFFF6F9FD.toInt(), 0xFFFFFFFF.toInt(), 0xFFF6F9FD.toInt(), 0xFFC9D3E2.toInt())
@@ -6631,6 +6655,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val labH = dp(if (small) 16f else 20f)
         val carH = areaH - barsH - labH - dp(10f)
         overheadCar(cx, top - dp(10f), areaW, carH, s, s.climSeen && s.climFan > 0, s.climDrvMode)
+        if (l2) seatButtons(cx, areaW, s)
         // fan speed bars
         val bt = top + carH + dp(10f)
         val bw = minOf(dp(13f), areaW * 0.07f); val bg = dp(5f)
@@ -6652,6 +6677,57 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         fanRect.set(x0 - dp(24f), bt - dp(6f), x0 + 7 * bw + 6 * bg + dp(24f), ly + dp(16f))
         fan(cx - tw0 / 2 - dp(14f), ly, dp(if (small) 7f else 9f), Color.argb(190, 255, 255, 255))
         text(label, cx + dp(8f), ly, if (small) 13f else 15f, Color.WHITE, true)
+    }
+
+    private fun seatLevel(who: Int, s: CanSnapshot): Int {
+        if (seatOver[who] >= 0 && System.currentTimeMillis() - seatOverAt[who] < 3500) return seatOver[who]
+        return (when (who) { 0 -> s.seatDrv; 1 -> s.seatPass; 2 -> s.seatRL; else -> s.seatRR }) ?: 0
+    }
+
+    /** Layout 2: four seat heating buttons either side of the car (a seat with 0 to 3 wavy lines). Nothing else moves. */
+    private fun seatButtons(cx: Float, areaW: Float, s: CanSnapshot) {
+        if (carRect.isEmpty()) return
+        val k = carRect.width() / 300f
+        val sy = 0.88f
+        val side = areaW / 2f - 161f * k
+        val gapV = 153f * sy * k
+        val isz = minOf(side - dp(3f), dp(46f), gapV - dp(4f)).coerceAtLeast(dp(20f))
+        val xl = maxOf(cx - 161f * k - dp(3f) - isz / 2f, cx - areaW / 2f + isz / 2f)
+        val xr = minOf(cx + 161f * k + dp(3f) + isz / 2f, cx + areaW / 2f - isz / 2f)
+        val yF = carRect.top + 225f * sy * k
+        val yR = carRect.top + 378f * sy * k
+        val drvRight = rhd
+        // left column first: front, rear; then the right column
+        val spec = listOf(
+            Triple(xl, yF, if (drvRight) 1 else 0), Triple(xl, yR, 2),
+            Triple(xr, yF, if (drvRight) 0 else 1), Triple(xr, yR, 3),
+        )
+        seatRects.clear(); seatWho.clear()
+        for ((x, y, who) in spec) {
+            val r = RectF(x - isz / 2f, y - isz / 2f, x + isz / 2f, y + isz / 2f)
+            val lvl = seatLevel(who, s)
+            val heat = Color.parseColor("#FF6A3D")
+            drawLiquidGlass(canvas, p, r, isz * 0.30f, dp(1f), if (lvl > 0) heat else null, glassBase)
+            // the wavy lines (one to three), then the seat under them
+            val lc = if (lvl > 0) Color.WHITE else Color.argb(0, 255, 255, 255)
+            if (lvl > 0) {
+                stroke(lc, 1.5f)
+                val h0 = r.top + isz * 0.10f; val hh = isz * 0.34f
+                val dx = isz * 0.17f
+                for (i in 0 until lvl) {
+                    val lx = r.centerX() + (i - (lvl - 1) / 2f) * dx
+                    path.reset(); path.moveTo(lx, h0)
+                    path.quadTo(lx + isz * 0.07f, h0 + hh * 0.25f, lx, h0 + hh * 0.5f)
+                    path.quadTo(lx - isz * 0.07f, h0 + hh * 0.75f, lx, h0 + hh)
+                    canvas.drawPath(path, p)
+                }
+            }
+            p.style = Paint.Style.FILL; p.color = if (lvl > 0) Color.WHITE else Color.argb(170, 255, 255, 255)
+            val cxx = r.centerX()
+            canvas.drawRoundRect(RectF(cxx - isz * 0.20f, r.top + isz * 0.50f, cxx + isz * 0.20f, r.top + isz * 0.78f), isz * 0.09f, isz * 0.09f, p)
+            canvas.drawRoundRect(RectF(cxx - isz * 0.25f, r.top + isz * 0.80f, cxx + isz * 0.25f, r.top + isz * 0.92f), isz * 0.05f, isz * 0.05f, p)
+            seatRects.add(r); seatWho.add(who)
+        }
     }
 
     private fun pill(right: Float, cy: Float, ph: Float, label: String, value: String, small: Boolean): Float {
@@ -6714,11 +6790,12 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         }
 
         // ---- the two dials and the cabin between them
-        tempBtns.clear(); tempBtnInfo.clear(); modeRects.clear()
+        tempBtns.clear(); tempBtnInfo.clear(); modeRects.clear(); seatRects.clear(); seatWho.clear()
         val cabinW = w * 0.30f
         val dialW = (w - cabinW - 3 * m) / 2f
-        dial(m, dialW, dialTop, dialH, "DRIVER", s.climDrvT, true)
-        dial(w - m - dialW, dialW, dialTop, dialH, "PASSENGER", s.climPassT, false)
+        val drvRight = l2 && rhd
+        dial(m, dialW, dialTop, dialH, if (drvRight) "PASSENGER" else "DRIVER", if (drvRight) s.climPassT else s.climDrvT, !drvRight)
+        dial(w - m - dialW, dialW, dialTop, dialH, if (drvRight) "DRIVER" else "PASSENGER", if (drvRight) s.climDrvT else s.climPassT, drvRight)
         cabin(w / 2f, dialTop, cabinW, dialH, s, small)
 
         // ---- air direction (the driver's; the car has no separate passenger airflow)
@@ -6759,9 +6836,16 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val xs = dp(if (small) 34f else 38f)
         val cw = dp(if (small) 84f else 96f)
         val bp = dp(if (small) 6f else 10f)
-        closeRect.set(m, h - bp - xs, m + cw, h - bp)
-        closeRect2.set(w - m - cw, h - bp - xs, w - m, h - bp)
+        if (l2) {
+            // Layout 2: a single Close, at the driver's side (left in left-hand drive, right in right-hand drive)
+            if (rhd) closeRect.set(w - m - cw, h - bp - xs, w - m, h - bp) else closeRect.set(m, h - bp - xs, m + cw, h - bp)
+            closeRect2.set(1e4f, 1e4f, 1e4f + 1f, 1e4f + 1f)
+        } else {
+            closeRect.set(m, h - bp - xs, m + cw, h - bp)
+            closeRect2.set(w - m - cw, h - bp - xs, w - m, h - bp)
+        }
         for (cr in listOf(closeRect, closeRect2)) {
+            if (cr.left > w) continue
             p.style = Paint.Style.FILL; p.color = Color.argb(40, 255, 255, 255); c.drawRoundRect(cr, xs / 2, xs / 2, p)
             stroke(Color.argb(100, 255, 255, 255), 1.4f); c.drawRoundRect(cr, xs / 2, xs / 2, p)
             text("Close", cr.centerX(), cr.centerY(), if (small) 13f else 15f, Color.WHITE, true)
@@ -6773,7 +6857,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         if (s.climRemote == 1) parts.add("remote A/C running")
         if (advice.isNotEmpty()) parts.add(advice)
         val fy = h - bp - xs / 2
-        val footW = closeRect2.left - closeRect.right - dp(16f)
+        val footW = if (l2) w - 2 * (m + cw + dp(16f)) else closeRect2.left - closeRect.right - dp(16f)
         if (!s.climSeen) fitText("Waiting for the A/C unit (no 0x373 frames yet)", w / 2, fy, if (small) 11f else 12f, warm, false, footW)
         else fitText(parts.joinToString("  ·  "), w / 2, fy - (if (s.climFault || s.climLimited || s.wheelHeat == null) dp(9f) else 0f), if (small) 11f else 12f, Color.argb(190, 255, 255, 255), false, footW)
         if (s.climSeen) {
@@ -6791,7 +6875,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     private fun drawCompact(w: Float, h: Float, s: CanSnapshot) {
         closeRect.set(-1e4f, -1e4f, -1e4f + 1f, -1e4f + 1f); closeRect2.set(1e4f, 1e4f, 1e4f + 1f, 1e4f + 1f)
         powerRect.setEmpty(); fanRect.setEmpty(); carRect.setEmpty(); wheelRect.setEmpty(); btnRects.clear()
-        tempBtns.clear(); tempBtnInfo.clear(); modeRects.clear()
+        tempBtns.clear(); tempBtnInfo.clear(); modeRects.clear(); seatRects.clear(); seatWho.clear()
         val m = dp(10f); val gap = dp(6f); val pad = dp(6f)
         val topH = (h * 0.40f).coerceIn(dp(38f), dp(64f))
         val tileH = (h - 2 * pad - topH - gap).coerceAtLeast(dp(40f))
@@ -6808,8 +6892,9 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             text(name, mx, cy - topH * 0.30f, 10f, Color.argb(190, 255, 255, 255), true)
             fitText(temp(t), mx, cy + topH * 0.10f, (topH / d * 0.46f).coerceIn(16f, 30f), if (t == null) off else Color.WHITE, true, blockW - 2 * bs - dp(6f))
         }
-        block(m, "DRIVER", s.climDrvT, true)
-        block(w - m - blockW, "PASSENGER", s.climPassT, false)
+        val drvRight = l2 && rhd
+        block(m, if (drvRight) "PASSENGER" else "DRIVER", if (drvRight) s.climPassT else s.climDrvT, !drvRight)
+        block(w - m - blockW, if (drvRight) "DRIVER" else "PASSENGER", if (drvRight) s.climDrvT else s.climPassT, drvRight)
         val midX = w / 2f; val midW = w - 2 * m - 2 * blockW - 2 * gap
         text("Climate", midX, cy - topH * 0.22f, 16f, Color.WHITE, true)
         fitText("Cabin " + temp(s.cabinC) + "   Outside " + temp(s.outsideC), midX, cy + topH * 0.22f, 11f, Color.argb(200, 255, 255, 255), false, midW)
@@ -6839,7 +6924,23 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             invalidate(); return true
         }
         val slop = dp(10f)
-        if (e.y > closeRect.top - slop && (e.x < closeRect.right + slop || e.x > closeRect2.left - slop)) { onClose?.invoke(); return true }
+        if (l2) {
+            if (e.y > closeRect.top - slop && e.x > closeRect.left - slop && e.x < closeRect.right + slop) { onClose?.invoke(); return true }
+        } else if (e.y > closeRect.top - slop && (e.x < closeRect.right + slop || e.x > closeRect2.left - slop)) { onClose?.invoke(); return true }
+        val si = seatRects.indexOfFirst { it.contains(e.x, e.y) }
+        if (si >= 0) {
+            if (System.currentTimeMillis() - lastFanTap > 350) {
+                lastFanTap = System.currentTimeMillis()
+                val who = seatWho[si]
+                if (!fanControl) showNotice("Tick the climate control option in Settings to use the seat heating")
+                else {
+                    val next = (seatLevel(who, snap) + 1) % 4
+                    seatOver[who] = next; seatOverAt[who] = System.currentTimeMillis(); postInvalidateDelayed(3600)
+                    onSeat?.invoke(who, next); invalidate()
+                }
+            }
+            return true
+        }
         if (!powerRect.isEmpty() && powerRect.contains(e.x, e.y) && System.currentTimeMillis() - lastFanTap > 800) {
             lastFanTap = System.currentTimeMillis()
             if (fanControl) onPower?.invoke(snap.climSeen && snap.climFan == 0) else onTempTap?.invoke()
@@ -7024,6 +7125,7 @@ class MediaCardView(ctx: Context) : View(ctx) {
     var onFavs: (() -> Unit)? = null                 // the yellow favourites star beside it
     var srcMode = 0                                  // 0 external player / Bluetooth, 1 local file, 2 internet radio
     var rhd = false                                   // right-hand drive: controls on the right
+    var l2 = false                                    // Layout 2: the button column and star sit clear of the transport buttons
     var fullBleed = false                             // Layout 2: the art fills the card, the text sits centred over its lower part
     private var title: String? = null
     private var artist: String? = null
@@ -7136,7 +7238,8 @@ class MediaCardView(ctx: Context) : View(ctx) {
         vizRect.setEmpty(); vizBtn.setEmpty(); vizColBtn.setEmpty(); srcBtn.setEmpty(); favBtn.setEmpty()
         if (wide) {
             val bs = dp(26f)
-            if (rhd) vizRect.set(dp(12f), dp(12f), colX - dp(14f), h - dp(12f)) else vizRect.set(colX + colW + dp(14f), dp(12f), w - dp(12f), h - dp(12f))
+            val clear = if (l2) dp(60f) else 0f
+            if (rhd) vizRect.set(dp(12f), dp(12f), colX - dp(14f) - clear, h - dp(12f)) else vizRect.set(colX + colW + dp(14f) + clear, dp(12f), w - dp(12f), h - dp(12f))
             // the on / off button sits outside the visualizer window, just beside its top corner (and stays there when the visualizer is off)
             val bcx = if (rhd) vizRect.right + dp(23f) else vizRect.left - dp(23f); val bcy = vizRect.top + dp(15f)
             vizBtn.set(bcx - bs / 2, bcy - bs / 2, bcx + bs / 2, bcy + bs / 2)

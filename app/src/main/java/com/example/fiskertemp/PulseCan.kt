@@ -90,6 +90,10 @@ data class CanSnapshot(
     val climRemote: Int = 0,               // 0 standby, 1 remote A/C working, 2 fault
     val rearDefrost: Boolean? = null,      // rear window heater on (0x335 BCM_ReDefrstHeatgCmd, IBUS1), status only
     val wheelHeat: Boolean? = null,        // heated steering wheel on (0x386 BCM_HeatedSteerWhlSt, IBUS1); null = not received
+    val seatDrv: Int? = null,              // seat heating level 0 off, 1 low, 2 medium, 3 high (0x518 / 0x512, IBUS1); null = not received
+    val seatPass: Int? = null,
+    val seatRL: Int? = null,
+    val seatRR: Int? = null,
 )
 
 class PulseCan(
@@ -468,6 +472,43 @@ class PulseCan(
         return "Heated wheel request sent on IBUS$bus"
     }
 
+    /**
+     * Seat heating: which = 0 driver, 1 passenger, 2 rear left, 3 rear right; level 0 off, 1 low, 2 medium, 3 high.
+     * Same method as the heated wheel: the car screen's own last 0x528 with every request set to "not change"
+     * (0) and only this seat's request filled in (4 off, 3 low, 2 medium, 1 high), sent a few times.
+     */
+    fun sendSeatHeat(which: Int, level: Int): String {
+        if (!txActive) return "Control is off: tick it in Settings and restart the app"
+        val ifs = txIfaces ?: return "CAN reader not running"
+        val out = txOut ?: return "CAN reader not running"
+        var bus = 0
+        for (b in 1..2) if (last528[b] != null && (bus == 0 || last528At[b] > last528At[bus])) bus = b
+        if (bus == 0) return "No 0x528 seen from the car's screen yet: press a seat heat once on the car's own screen, then try again"
+        val d = last528[bus]!!.copyOf()
+        val req = intArrayOf(4, 3, 2, 1)[level.coerceIn(0, 3)]
+        d[1] = d[1] and 0xE3                  // driver seat request: not change
+        d[2] = d[2] and 0xF8                  // rear left display sync: not change
+        d[3] = d[3] and 0x80                  // seat-belt, anti-theft requests and rear right display sync: not change
+        d[4] = d[4] and 0xE0                  // passenger seat request and heated wheel request: not change
+        d[5] = d[5] and 0x18                  // rear seat requests: not change (keeps the KL15 flag)
+        when (which) {
+            0 -> d[1] = d[1] or (req shl 2)
+            1 -> d[4] = d[4] or (req shl 2)
+            2 -> d[5] = d[5] or req
+            else -> d[5] = d[5] or (req shl 5)
+        }
+        val iface = if (bus == 1) ifs.first else ifs.second
+        val line = "tx $iface 528 " + d.joinToString("") { String.format("%02X", it and 0xFF) } + "\n"
+        Thread {
+            synchronized(txLock) {
+                try {
+                    for (i in 0 until 3) { out.write(line.toByteArray()); out.flush(); Thread.sleep(100) }
+                } catch (e: Exception) { onStatus("Climate TX failed: ${e.message}") }
+            }
+        }.start()
+        return "Seat heat ${listOf("driver", "passenger", "rear left", "rear right")[which.coerceIn(0, 3)]} level $level sent on IBUS$bus"
+    }
+
     private fun loop(bin: String, my: Int) {
         var tries = 0
         while (running && generation == my) {
@@ -482,7 +523,7 @@ class PulseCan(
                     onStatus(if (why == null) "CAN filters: $filterReadback" else "CAN filters not changed: $why")
                 }
                 txActive = context.getSharedPreferences("prefs", Context.MODE_PRIVATE).getBoolean("climateTx", false)
-                val base = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD,1A9,5EA,505,530,534,386,528", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534,528,313")
+                val base = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD,1A9,5EA,505,530,534,386,528,512,518", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534,528,313")
                 // transmit is allowed only for 0x530, 0x528 and 0x534 and only when the test is ticked in Settings; otherwise the helper is receive-only
                 val args = if (txActive) base + listOf("tx:$b1=530,528,534", "tx:$b2=530,528,534") else base
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
@@ -697,6 +738,11 @@ class PulseCan(
         if (id == 0x386 && b.isNotEmpty()) {
             return s.copy(wheelHeat = when (b[0] and 3) { 1 -> true; 0 -> false; else -> null })
         }
+        // seat heating status: 0x518 DSMC (driver byte 0 bits 0-2, rear left byte 3 bits 0-2, rear right byte 3 bits 3-5), 0x512 PSM (passenger byte 0 bits 2-4)
+        // values: 1 High, 2 Med, 3 Low, 4 Off
+        fun seatLvl(v: Int): Int? = when (v) { 1 -> 3; 2 -> 2; 3 -> 1; 4 -> 0; else -> null }
+        if (id == 0x518 && b.size >= 4) return s.copy(seatDrv = seatLvl(b[0] and 7), seatRL = seatLvl(b[3] and 7), seatRR = seatLvl((b[3] shr 3) and 7))
+        if (id == 0x512 && b.isNotEmpty()) return s.copy(seatPass = seatLvl((b[0] shr 2) and 7))
         // 0x313 ADAS_0x313: ADAS_TSRSts, where the speed limit comes from (camera, navigation map or both)
         if (id == 0x313 && b.size >= 7) {
             return s.copy(tsrMode = ((b[6] shr 3) and 7).takeIf { it in 1..5 })
