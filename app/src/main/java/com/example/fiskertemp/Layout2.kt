@@ -425,6 +425,8 @@ class PagerCardView(ctx: Context) : android.widget.FrameLayout(ctx) {
     init { setWillNotDraw(false); clipChildren = true }
 
     fun setPages(list: List<View>, start: Int = -1) {
+        // the card list is refreshed on every layout pass: when nothing changed, leave the views alone so a swipe in progress is not cut off
+        if (start < 0 && list == pages && childCount == list.size) return
         val keepIndex = if (start >= 0) start else index
         removeAllViews()
         pages = list
@@ -450,7 +452,7 @@ class PagerCardView(ctx: Context) : android.widget.FrameLayout(ctx) {
     override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> { downX = e.x; downY = e.y; swiping = false }
-            MotionEvent.ACTION_MOVE -> if (!swiping && Math.abs(e.x - downX) > slop * 1.5f && Math.abs(e.x - downX) > Math.abs(e.y - downY) * 1.3f) { swiping = true; parent?.requestDisallowInterceptTouchEvent(true); return true }
+            MotionEvent.ACTION_MOVE -> if (!swiping && Math.abs(e.x - downX) > slop * 1.5f && Math.abs(e.x - downX) > Math.abs(e.y - downY)) { swiping = true; parent?.requestDisallowInterceptTouchEvent(true); return true }
         }
         return false
     }
@@ -461,7 +463,7 @@ class PagerCardView(ctx: Context) : android.widget.FrameLayout(ctx) {
             MotionEvent.ACTION_UP -> {
                 // judged here from the finger's travel, so a page that handles no touches of its own (the compass) still swipes
                 val dx = e.x - downX; val dy = e.y - downY
-                if (Math.abs(dx) > 40f * d && Math.abs(dx) > Math.abs(dy) * 1.2f) show(if (dx < 0) index + 1 else index - 1)
+                if (Math.abs(dx) > 28f * d && Math.abs(dx) > Math.abs(dy) * 1.0f) show(if (dx < 0) index + 1 else index - 1)
                 swiping = false
             }
             MotionEvent.ACTION_CANCEL -> swiping = false

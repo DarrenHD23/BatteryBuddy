@@ -1508,8 +1508,8 @@ class MainActivity : Activity() {
         }
         // both cards cycle through the same pages: trip information, compass, navigation, media, the apps, then the controls
         fun pages(ps: PageSet): List<View> = listOf<View>(ps.trip, ps.compass, ps.nav, ps.media) + ps.shorts + listOf<View>(ps.actions)
-        leftPager.setPages(pages(pageSets[0]), if (first) 1 else -1)
-        rightPager.setPages(pages(pageSets[1]), if (first) 3 else -1)
+        leftPager.setPages(pages(pageSets[0]), if (first) 0 else -1)      // Trip Information
+        rightPager.setPages(pages(pageSets[1]), if (first) 1 else -1)     // Compass
     }
 
     private fun addShortcutApp() {
@@ -6659,7 +6659,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val labH = dp(if (small) 16f else 20f)
         val carH = areaH - barsH - labH - dp(10f)
         overheadCar(cx, top - dp(10f), areaW, carH, s, s.climSeen && s.climFan > 0, s.climDrvMode)
-        if (l2) seatButtons(cx, areaW, s)
+        seatButtons(cx, areaW, s)
         // fan speed bars
         val bt = top + carH + dp(10f)
         val bw = minOf(dp(13f), areaW * 0.07f); val bg = dp(5f)
@@ -6700,7 +6700,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val xr = minOf(cx + 161f * k + dp(3f) + isz / 2f, cx + areaW / 2f - isz / 2f)
         val yF = carRect.top + 225f * sy * k
         val yR = carRect.top + 378f * sy * k
-        val drvRight = rhd
+        val drvRight = l2 && rhd
         // left column first: front, rear; then the right column
         val spec = listOf(
             Triple(xl, yF, if (drvRight) 1 else 0), Triple(xl, yR, 2),
