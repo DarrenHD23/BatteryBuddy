@@ -771,6 +771,7 @@ class MainActivity : Activity() {
                 EventLog.add("Seat heat test: $msg")
                 toast(msg)
             }
+            hideSeatIcons = prefs().getBoolean("hideSeatIcons", false)
             paintIdx = prefs().getInt("carPaint", 3)
             onPaint = { i -> prefs().edit().putInt("carPaint", i).apply() }
             onFan = { level ->
@@ -1215,6 +1216,13 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on ->
                 prefs().edit().putBoolean("l2Climate", on).apply()
                 relayoutDash(); refreshLowerLabels(); paintLowerTabs()
+            }
+        }, 4)
+        box.add(CheckBox(this).apply {
+            text = "Climate screen: hide the heated seat buttons outside the car (use the seats in the car drawing instead)"; isChecked = prefs().getBoolean("hideSeatIcons", false)
+            setOnCheckedChangeListener { _, on ->
+                prefs().edit().putBoolean("hideSeatIcons", on).apply()
+                if (::climateView.isInitialized) climateView.hideSeatIcons = on
             }
         }, 4)
         box.add(CheckBox(this).apply {
@@ -6192,6 +6200,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         set(v) { if (field != v) { field = v; invalidate() } }
     var rhd = false                                   // right-hand drive: the driver's dial is on the right (Layout 2 only)
         set(v) { if (field != v) { field = v; invalidate() } }
+    var hideSeatIcons = false                         // Settings: no seat buttons outside the car (the seats in the car drawing still work)
+        set(v) { if (field != v) { field = v; invalidate() } }
     var onSeat: ((Int, Int) -> Unit)? = null          // seat heating: which (0 driver, 1 passenger, 2 rear left, 3 rear right), new level 0..3
     private val seatRects = ArrayList<RectF>()
     private val seatWho = ArrayList<Int>()
@@ -6738,7 +6748,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val labH = dp(if (small) 16f else 20f)
         val carH = areaH - barsH - labH - dp(10f)
         overheadCar(cx, top - dp(10f), areaW, carH, s, s.climSeen && s.climFan > 0, s.climDrvMode)
-        if (!seatsPlaced) seatButtons(cx, areaW, s)
+        if (!seatsPlaced && !hideSeatIcons) seatButtons(cx, areaW, s)
         // fan speed bars
         val bt = top + carH + dp(10f)
         val bw = minOf(dp(13f), areaW * 0.07f); val bg = dp(5f)
@@ -6964,7 +6974,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val dd0 = minOf(dialH * 0.80f, dialW * 0.88f, (dialH - bs0 - dp(6f)) / 0.827f)
         val free0 = dialH - (dd0 * 0.827f + dp(6f) + bs0 + dp(10f))
         var dialH2 = dialH
-        if (free0 >= dp(44f)) seatsPlaced = seatBesideCar(m, dialW, w - m - dialW, dialTop, dialH, s)
+        if (hideSeatIcons) seatsPlaced = true
+        else if (free0 >= dp(44f)) seatsPlaced = seatBesideCar(m, dialW, w - m - dialW, dialTop, dialH, s)
         else {
             // not enough room under the dials (the media card is also showing): shrink the dials a little and put the seat buttons in a row under them
             val rowH = dp(42f)
@@ -7077,7 +7088,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         // one seat heating button at the left of the middle: it opens a small panel with the four seats
         seatBtn.setEmpty()
         var midX = w / 2f; var midW = midW0
-        if (l2 && midW0 > dp(150f)) {
+        if (l2 && !hideSeatIcons && midW0 > dp(150f)) {
             val sb = minOf(topH, dp(44f))
             seatBtn.set(w / 2f - midW0 / 2f, cy - sb / 2f, w / 2f - midW0 / 2f + sb, cy + sb / 2f)
             drawSeatIcon(seatBtn, maxOf(maxOf(seatLevel(0, s), seatLevel(1, s)), maxOf(seatLevel(2, s), seatLevel(3, s))))
