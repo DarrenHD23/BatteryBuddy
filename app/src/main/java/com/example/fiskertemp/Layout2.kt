@@ -322,7 +322,7 @@ class ShortcutsCardView(ctx: Context) : View(ctx) {
             if (downTile === t) p.color = if (day) Color.argb(130, 20, 40, 70) else Color.argb(120, 255, 255, 255)
             c.drawRoundRect(r, 14f * d, 14f * d, p)
             val icons = iconsOnly && t.slot >= 0 && t.icon != null
-            val isize = if (icons) min(r.height() * 0.7f, r.width() * 0.6f, 56f * d) else min(r.height() * 0.46f, 40f * d)
+            val isize = if (icons) minOf(r.height() * 0.7f, r.width() * 0.6f, 56f * d) else min(r.height() * 0.46f, 40f * d)
             val icy = if (icons) r.centerY() else r.top + r.height() * 0.40f
             val ic = t.icon
             if (t.slot < 0) {
