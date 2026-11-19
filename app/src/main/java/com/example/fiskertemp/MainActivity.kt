@@ -1709,6 +1709,7 @@ class MainActivity : Activity() {
         }
     }
     private lateinit var l2FlyBtn: TextView
+    private var l2ClimTop = 0; private var l2ClimH = 0; private var l2ClimInline = false; private var wasL2Clim = false
     private var l2FlyOpen = false
     private val closeL2Fly = Runnable { l2FlyOpen = false; if (::btnBar.isInitialized && l2Applied) btnBar.visibility = View.GONE }
     private lateinit var leftPager: PagerCardView
@@ -2089,8 +2090,8 @@ class MainActivity : Activity() {
         }
         l2Mid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(carView, LinearLayout.LayoutParams(-1, 0, 0.40f))
-            addView(l2Cards, LinearLayout.LayoutParams(-1, 0, 0.60f).apply { topMargin = dp(4); bottomMargin = dp(4) })
+            addView(carView, LinearLayout.LayoutParams(-1, 0, 0.36f))
+            addView(l2Cards, LinearLayout.LayoutParams(-1, 0, 0.64f).apply { topMargin = dp(2); bottomMargin = 0 })
         }
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; clipChildren = false }
         dashGaugeRow = row
@@ -2695,7 +2696,10 @@ class MainActivity : Activity() {
         val full = try {
             android.os.Build.VERSION.SDK_INT >= 30 && windowManager.currentWindowMetrics.bounds.height() >= windowManager.maximumWindowMetrics.bounds.height() * 0.8
         } catch (e: Exception) { false }
-        if (full && edgeBox.height > 0) {
+        if (l2Applied && l2ClimInline && edgeBox.height > 0) {
+            lp.topMargin = dp(l2ClimTop); lp.height = dp(l2ClimH); lp.leftMargin = dp(8); lp.rightMargin = dp(8); lp.bottomMargin = 0
+            climateView.floating = true
+        } else if (full && edgeBox.height > 0) {
             var top: Int; var hgt: Int
             if (climateHDp > 0) {
                 // the full-screen order: gauges, stat rows and buttons, media card, then this panel at the bottom
@@ -2754,7 +2758,7 @@ class MainActivity : Activity() {
         val midLevel = if (gaugeH >= 300) 0 else if (gaugeH >= 235) 1 else 2
         // in a tall window (full screen) the gauges stay at the top instead of being centred in all the free height
         val gb = (if (t.showStrip) base + t.strip + 4 else base) + t.row + 8 + tripOff
-        val topM = if (l2) 58 else if (midLevel > 0) 20 else 8
+        val topM = if (l2) 34 else if (midLevel > 0) 20 else 8
         val wantH = maxOf((wDp - 16) * 1.15f / 3f * 1.1f, 340f)
         val tall = hDp - gb - topM > wantH + 24f
         // the trip readouts sit in the middle column under the traffic light; rows by the height left there
@@ -2769,7 +2773,7 @@ class MainActivity : Activity() {
         // the gauge circles are limited by the row height, so any spare width goes to the middle column (bigger trip text)
         val gwDefault = (wDp - 16) * 1.15f / 3.0f
         var gaugeWdp = maxOf(minOf(gwDefault, rowHdp), gwDefault * 0.85f)
-        if (l2) gaugeWdp = minOf((wDp - 16) * 0.28f, rowHdp)
+        if (l2) gaugeWdp = minOf((wDp - 16) * 0.28f, (rowHdp - 48f) / 0.96f).coerceAtLeast(120f)
         val wInner = (wDp - 16).toFloat()
         val arcMode = prefs().getString("arcStyle", "mirror")
         val ovL: Int; val ovR: Int
@@ -2804,7 +2808,7 @@ class MainActivity : Activity() {
         // 50/50 split: the gauges move up a little so the media card under the left gauge clears them; the clock shrinks to suit
         val up = if (half && !tall) 12 else 0
         val band = rowHdp / 2f - minOf(gaugeWdp, rowHdp) / 2f * 0.92f - 6f - up
-        val clockH = if (band >= 30f) band.toInt().coerceAtMost(110) else if (third) 24 else 0
+        val clockH = if (l2) 26 else if (band >= 30f) band.toInt().coerceAtMost(110) else if (third) 24 else 0
         val rhd = prefs().getBoolean("rhd", false)
         val key = "$hDp/$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$edgeL/$edgeR/$up/$rhd/$hideBar/$hideTrip/${prefs().getBoolean("fullMedia", true)}/${prefs().getBoolean("iconBtns", false)}/${prefs().getBoolean("moreBtns", false)}/${showSkinBtn()}/$l2"
         if (key == layoutKey) return
@@ -2838,13 +2842,19 @@ class MainActivity : Activity() {
         dashClock.visibility = if (clockH > 0) View.VISIBLE else View.GONE
         dashClock.alignRight = rhd
         (dashClock.layoutParams as FrameLayout.LayoutParams).apply {
-            width = dp(gaugeWdp.toInt() - 6); height = dp(clockH)
-            // Layout 2: the clock goes over the gauge that has no speed sign
-            val clockRight = if (l2) prefs().getBoolean("speedLeft", false) else rhd
-            dashClock.alignRight = clockRight
-            gravity = Gravity.TOP or (if (clockRight) Gravity.END else Gravity.START)
-            val ct = if (third && clockH == 24) 2 else topM
-            if (clockRight) setMargins(0, dp(ct), dp(14), 0) else setMargins(dp(14), dp(ct), 0, 0)
+            if (!l2) { width = dp(gaugeWdp.toInt() - 6); height = dp(clockH) }
+            if (l2) {
+                // Layout 2: the time sits in the top row beside the drive mode, away from the settings handle
+                val atRight = !rhd
+                width = dp(112); height = dp(26)
+                dashClock.alignRight = atRight
+                gravity = Gravity.TOP or (if (atRight) Gravity.END else Gravity.START)
+                if (atRight) setMargins(0, dp(5), dp(176), 0) else setMargins(dp(176), dp(5), 0, 0)
+            } else {
+                gravity = Gravity.TOP or (if (rhd) Gravity.END else Gravity.START)
+                val ct = if (third && clockH == 24) 2 else topM
+                if (rhd) setMargins(0, dp(ct), dp(14), 0) else setMargins(dp(14), dp(ct), 0, 0)
+            }
         }
         dashClock.requestLayout()
         tripPanel.visibility = if (midRows > 0) View.VISIBLE else View.GONE
@@ -2897,7 +2907,7 @@ class MainActivity : Activity() {
         val mediaH = (climBottomY - 8 - mediaTopY - 380).coerceIn(100, 132)
         val mediaEndY = mediaTopY + mediaH
         val climH = climBottomY - (mediaEndY + 8)
-        val showMedia = tall && climH >= 380
+        val showMedia = !l2 && tall && climH >= 380
         val rowBottomM = rowBottom
         val stripBottomM = stripBottom
         val lowerBoxBottomM = 10
@@ -2971,8 +2981,8 @@ class MainActivity : Activity() {
         (btnBar.layoutParams as FrameLayout.LayoutParams).apply {
             if (l2) {
                 // Layout 2: the buttons live in a flyout under a round gear handle at the top right
-                gravity = Gravity.TOP or (if (rhd) Gravity.START else Gravity.END)
-                if (rhd) setMargins(dp(8), dp(50), 0, 0) else setMargins(0, dp(50), dp(8), 0)
+                gravity = Gravity.TOP or (if (rhd) Gravity.END else Gravity.START)
+                if (rhd) setMargins(0, dp(50), dp(8), 0) else setMargins(dp(8), dp(50), 0, 0)
             } else {
                 gravity = Gravity.BOTTOM or (if (rhd) Gravity.START else Gravity.END)
                 if (rhd) setMargins(edgeOff, 0, 0, dp(16)) else setMargins(0, 0, dp(8), dp(16))
@@ -2986,8 +2996,8 @@ class MainActivity : Activity() {
             btnBar.setPadding(dp(8), dp(8), dp(8), dp(4))
             btnBar.visibility = if (l2FlyOpen) View.VISIBLE else View.GONE
             (l2FlyBtn.layoutParams as? FrameLayout.LayoutParams)?.apply {
-                gravity = Gravity.TOP or (if (rhd) Gravity.START else Gravity.END)
-                if (rhd) setMargins(dp(8), dp(6), 0, 0) else setMargins(0, dp(6), dp(8), 0)
+                gravity = Gravity.TOP or (if (rhd) Gravity.END else Gravity.START)
+                if (rhd) setMargins(0, dp(6), dp(8), 0) else setMargins(dp(8), dp(6), 0, 0)
             }
         } else {
             btnBar.orientation = LinearLayout.HORIZONTAL; btnBar.background = null; btnBar.setPadding(0, 0, 0, 0)
@@ -3002,17 +3012,26 @@ class MainActivity : Activity() {
         btnBar.requestLayout(); lowerBox.requestLayout()
         refreshLowerLabels()
         (poolBar.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), 0, dp(8), dp(lowerBottomM)) }
+        // Layout 2: the gauge circles sit at the top of the row, the battery bar and buttons right under them, and the cards end level with those
+        val l2GaugeH = gaugeWdp.toInt()
+        val l2CircleB = topM + (l2GaugeH * 0.96f).toInt()
+        val l2BarTop = l2CircleB + 4
+        val l2RowH = l2BarTop + 30 + 14 - topM
+        for (gi in intArrayOf(0, 2)) (dashGaugeRow.getChildAt(gi).layoutParams as LinearLayout.LayoutParams).apply {
+            height = if (l2) dp(l2GaugeH) else -1
+            gravity = if (l2) Gravity.TOP else Gravity.NO_GRAVITY
+        }
+        dashGaugeRow.getChildAt(1).let { (it.layoutParams as LinearLayout.LayoutParams).topMargin = if (l2) -dp(16) else (if (brakeUnder) -dp(3) else 0) }
+        dashGaugeRow.requestLayout()
         (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply {
             gravity = Gravity.TOP or Gravity.START
-            if (tall) { height = dp(wantH.toInt()); setMargins(dp(8), dp(topM), dp(8), 0) }
+            if (l2) { height = dp(l2RowH); setMargins(dp(8), dp(topM), dp(8), 0) }
+            else if (tall) { height = dp(wantH.toInt()); setMargins(dp(8), dp(topM), dp(8), 0) }
             else { height = FrameLayout.LayoutParams.MATCH_PARENT; setMargins(dp(8), dp(topM - up), dp(8), dp(gaugeBottom + up)) }
         }
         if (l2) {
             val speedLeft = prefs().getBoolean("speedLeft", false)
-            val rowBottomY0 = if (tall) topM + wantH.toInt() else hDp - (gaugeBottom + up)
-            // the gauge circle is centred in its row; lift the bar and buttons into the free space under the circle
-            val circleGap = ((rowHdp - minOf(gaugeWdp, rowHdp) * 0.92f) / 2f).toInt().coerceIn(0, 70)
-            val rowBottomY = minOf(rowBottomY0, rowBottomY0 - circleGap + 40)
+            val rowBottomY = l2BarTop + 34
             (chargeBar.layoutParams as FrameLayout.LayoutParams).apply {
                 width = dp(maxOf(gaugeWdp.toInt() - 8, 100)); height = dp(30)
                 gravity = Gravity.TOP or (if (speedLeft) Gravity.END else Gravity.START)
@@ -3022,11 +3041,11 @@ class MainActivity : Activity() {
             val sg = Gravity.TOP or (if (speedLeft) Gravity.START else Gravity.END)
             (dashSlot.layoutParams as FrameLayout.LayoutParams).apply {
                 width = dp(72); height = dp(92); gravity = sg
-                setMargins(if (speedLeft) signSide else 0, dp(topM + 4), if (speedLeft) 0 else signSide, 0)
+                setMargins(if (speedLeft) signSide else 0, dp(maxOf(topM - 24, 6)), if (speedLeft) 0 else signSide, 0)
             }
             (dashLightDist.layoutParams as FrameLayout.LayoutParams).apply {
                 width = dp(72); gravity = sg
-                setMargins(if (speedLeft) signSide else 0, dp(topM + 98), if (speedLeft) 0 else signSide, 0)
+                setMargins(if (speedLeft) signSide else 0, dp(maxOf(topM - 24, 6) + 94), if (speedLeft) 0 else signSide, 0)
             }
             // Climate and Media sit under the speed gauge, level with the battery bar under the power gauge
             val bw = maxOf((gaugeWdp.toInt() - 8 - 6) / 2, 60)
@@ -3045,6 +3064,18 @@ class MainActivity : Activity() {
             mediaBtn.requestLayout(); climateBtn.requestLayout()
             chargeBar.requestLayout(); dashSlot.requestLayout(); dashLightDist.requestLayout()
         }
+        // Layout 2: the Climate panel sits in the free space under the cards, when there is enough of it
+        run {
+            val top = topM + l2RowH + 2
+            val bottom = hDp - lowerBottom - 4
+            val room = bottom - top
+            val inline = l2 && room >= 110
+            l2ClimTop = top; l2ClimH = room; l2ClimInline = inline
+            climateView.compact = inline && room < 300
+            if (inline) edgeBox.post { if (dashShown && l2Applied) { if (climateView.visibility == View.VISIBLE) placeClimate() else openClimate() } }
+            else if (wasL2Clim) { climateView.visibility = View.GONE }   // no longer room for it under the cards
+            wasL2Clim = inline
+        }
         if (!l2) { mediaBtn.textSize = 12f; climateBtn.textSize = 12f }
         (dashLight.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 22 else if (short) 26 else 42); height = dp(if (midLevel == 2) 46 else if (short) 56 else 88) }
         dashReady.textSize = if (midLevel == 2 || (midLevel == 1 && brakeUnder)) 11f else if (midLevel == 1) 12f else 15f
@@ -3054,12 +3085,12 @@ class MainActivity : Activity() {
         dashMode.minWidth = dp(if (short) 60 else 84)
         dashMode.setPadding(dp(if (short) 6 else 10), dp(if (short) 1 else 3), dp(if (short) 6 else 10), dp(if (short) 1 else 3))
         (dashTop.layoutParams as FrameLayout.LayoutParams).apply {
-            val topAtRight = if (l2) rhd else !rhd
+            val topAtRight = !rhd
             gravity = Gravity.TOP or (if (topAtRight) Gravity.END else Gravity.START)
             if (topAtRight) setMargins(0, dp(if (short) 2 else 6), dp(8), 0) else setMargins(dp(8), dp(if (short) 2 else 6), 0, 0)
         }
         dashTop.removeAllViews()
-        if (if (l2) !rhd else rhd) {
+        if (rhd) {
             dashTop.addView(dashMode, LinearLayout.LayoutParams(-2, -2).apply { rightMargin = dp(10) })
             dashTop.addView(dashHeading, LinearLayout.LayoutParams(-2, -2))
         } else {
@@ -3081,7 +3112,7 @@ class MainActivity : Activity() {
             dashReady.textSize = 15f; dashReady.letterSpacing = 0.18f
             dashBrake.textSize = 12f; dashBrake.text = "Brake light on"; dashBrake.setPadding(dp(12), dp(2), dp(12), dp(2))
             (dashReady.layoutParams as? FrameLayout.LayoutParams)?.apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(4) }
-            (dashBrake.layoutParams as? FrameLayout.LayoutParams)?.apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(30) }
+            (dashBrake.layoutParams as? FrameLayout.LayoutParams)?.apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(6); leftMargin = dp(190) }
         }
         (dashSign.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 38 else if (short) 48 else 64); height = dp(if (midLevel == 2) 38 else if (short) 48 else 64) }
         poolBar.requestLayout(); lowerBox.requestLayout()
@@ -6079,6 +6110,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     private val modeRects = ArrayList<RectF>()
     private val modeOrder = intArrayOf(5, 1, 2, 3, 4)      // left to right: Screen first, then Face, Face + Feet, Feet, Feet + Screen
     private val tempBtnInfo = ArrayList<Pair<Boolean, Int>>()
+    var compact = false                               // Layout 2: a short panel under the cards: the two temperatures and the function tiles only
+        set(v) { if (field != v) { field = v; invalidate() } }
     var floating = false                              // full-screen mode: a rounded panel instead of the whole window
         set(v) { field = v; invalidate() }
     var bgColor = Color.parseColor("#0B0F1A")          // solid, from the dashboard's current background
@@ -6634,6 +6667,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         p.shader = LinearGradient(0f, 0f, 0f, h, bgTopColor or (0xFF shl 24), solid, Shader.TileMode.CLAMP)
         c.drawRoundRect(RectF(0f, 0f, w, h), rad, rad, p); p.shader = null
         if (floating) { stroke(Color.argb(70, 255, 255, 255), 1.5f); c.drawRoundRect(RectF(1f, 1f, w - 1f, h - 1f), rad, rad, p) }
+        if (compact) { drawCompact(w, h, s); return }
         val m = dp(if (small) 12f else 16f)
         val gap = dp(if (small) 6f else 8f)
         val topY = dp(if (small) 8f else 12f)
@@ -6737,6 +6771,49 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     }
 
     private fun CanSnapshot.climWheelOn() = wheelHeat == true
+
+    /** The short version for Layout 2: driver and passenger temperatures with - / +, then one row of function tiles. */
+    private fun drawCompact(w: Float, h: Float, s: CanSnapshot) {
+        closeRect.set(-1e4f, -1e4f, -1e4f + 1f, -1e4f + 1f); closeRect2.set(1e4f, 1e4f, 1e4f + 1f, 1e4f + 1f)
+        powerRect.setEmpty(); fanRect.setEmpty(); carRect.setEmpty(); wheelRect.setEmpty(); btnRects.clear()
+        tempBtns.clear(); tempBtnInfo.clear(); modeRects.clear()
+        val m = dp(10f); val gap = dp(6f); val pad = dp(6f)
+        val topH = (h * 0.40f).coerceIn(dp(38f), dp(64f))
+        val tileH = (h - 2 * pad - topH - gap).coerceAtLeast(dp(40f))
+        val cy = pad + topH / 2f
+        val bs = minOf(topH, dp(38f))
+        val blockW = (w - 2 * m) * 0.34f
+        fun block(x0: Float, name: String, t: Double?, driver: Boolean) {
+            val minus = RectF(x0, cy - bs / 2, x0 + bs, cy + bs / 2)
+            val plus = RectF(x0 + blockW - bs, cy - bs / 2, x0 + blockW, cy + bs / 2)
+            glassBtn(minus, 0); glassBtn(plus, 1)
+            tempBtns.add(minus); tempBtns.add(plus)
+            tempBtnInfo.add(Pair(driver, -1)); tempBtnInfo.add(Pair(driver, 1))
+            val mx = x0 + blockW / 2f
+            text(name, mx, cy - topH * 0.30f, 10f, Color.argb(190, 255, 255, 255), true)
+            fitText(temp(t), mx, cy + topH * 0.10f, (topH / d * 0.46f).coerceIn(16f, 30f), if (t == null) off else Color.WHITE, true, blockW - 2 * bs - dp(6f))
+        }
+        block(m, "DRIVER", s.climDrvT, true)
+        block(w - m - blockW, "PASSENGER", s.climPassT, false)
+        val midX = w / 2f; val midW = w - 2 * m - 2 * blockW - 2 * gap
+        text("Climate", midX, cy - topH * 0.22f, 16f, Color.WHITE, true)
+        fitText("Cabin " + temp(s.cabinC) + "   Outside " + temp(s.outsideC), midX, cy + topH * 0.22f, 11f, Color.argb(200, 255, 255, 255), false, midW)
+        val tilesTop = pad + topH + gap
+        val cols = 7
+        tile(0, cols, m, tilesTop, w - 2 * m, tileH, "A/C", s.climAc, on, true) { x, yy, r, col -> snowflake(x, yy, r, col) }
+        tile(1, cols, m, tilesTop, w - 2 * m, tileH, "Heated wheel", s.climWheelOn(), Color.parseColor("#F23A32"), true) { x, yy, r, col -> wheel(x, yy, r, col) }
+        tile(2, cols, m, tilesTop, w - 2 * m, tileH, "Defrost", s.climMaxDefrost, Color.parseColor("#F23A32"), true) { x, yy, r, col -> defrost(x, yy, r, col) }
+        tile(3, cols, m, tilesTop, w - 2 * m, tileH, "Rear Defrost", s.rearDefrost == true, Color.parseColor("#F23A32"), true) { x, yy, r, col -> rearDefrost(x, yy, r, col) }
+        tile(4, cols, m, tilesTop, w - 2 * m, tileH, "Recirc", s.climSeen && !s.climOuterAir, cool, true) { x, yy, r, col -> recirc(x, yy, r, col, s.climOuterAir) }
+        tile(5, cols, m, tilesTop, w - 2 * m, tileH, "Sync", s.climSync, on, true) { x, yy, r, col -> sync(x, yy, r, col) }
+        tile(6, cols, m, tilesTop, w - 2 * m, tileH, "Auto", s.climAuto, on, true) { x, yy, r, col -> autoIcon(x, yy, r, col) }
+        if (fanControl) {
+            val gp = tileGap(true); val tw1 = (w - 2 * m - gp * (cols - 1)) / cols
+            val wx = m + 1 * (tw1 + gp); wheelRect.set(wx, tilesTop, wx + tw1, tilesTop + tileH)
+            for (ti in listOf(0, 2, 4, 5, 6)) { val xx = m + ti * (tw1 + gp); btnRects.add(RectF(xx, tilesTop, xx + tw1, tilesTop + tileH)) }
+        }
+        drawNotice(w / 2, tilesTop - dp(2f), w - 2 * m)
+    }
 
     override fun onTouchEvent(e: android.view.MotionEvent): Boolean {
         if (e.action != android.view.MotionEvent.ACTION_UP) return true

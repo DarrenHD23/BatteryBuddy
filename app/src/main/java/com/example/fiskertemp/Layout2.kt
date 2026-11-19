@@ -435,10 +435,11 @@ class PagerCardView(ctx: Context) : android.widget.FrameLayout(ctx) {
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN -> return true
+            MotionEvent.ACTION_DOWN -> { downX = e.x; downY = e.y; return true }
             MotionEvent.ACTION_UP -> {
-                val dx = e.x - downX
-                if (swiping && Math.abs(dx) > 40f * d) show(if (dx < 0) index + 1 else index - 1)
+                // judged here from the finger's travel, so a page that handles no touches of its own (the compass) still swipes
+                val dx = e.x - downX; val dy = e.y - downY
+                if (Math.abs(dx) > 40f * d && Math.abs(dx) > Math.abs(dy) * 1.2f) show(if (dx < 0) index + 1 else index - 1)
                 swiping = false
             }
             MotionEvent.ACTION_CANCEL -> swiping = false
