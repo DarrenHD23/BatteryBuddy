@@ -6405,7 +6405,8 @@ class MediaCardView(ctx: Context) : View(ctx) {
     private val rPrev = RectF(); private val rPlay = RectF(); private val rNext = RectF()
 
     // ---- visualizer (wide card only): on the right, tap it for the next style; the small button turns it on / off
-    private val vizRect = RectF(); private val vizBtn = RectF()
+    private val vizRect = RectF(); private val vizBtn = RectF(); private val vizColBtn = RectF()
+    private var palNameAt = 0L
     private val painter = VizPainter(ctx.resources.displayMetrics.density)
     private val sp = ctx.getSharedPreferences("prefs", Context.MODE_PRIVATE)
     private var vizOn = true; private var vizStyle = 0; private var vizPal = 0; private var vizRead = 0L
@@ -6491,19 +6492,29 @@ class MediaCardView(ctx: Context) : View(ctx) {
             fitText(if (small) "Bluetooth music shows here" else "Music from the phone over Bluetooth shows here", tx, y2, 12f, Color.argb(150, 255, 255, 255), false, maxW)
         }
 
-        vizRect.setEmpty(); vizBtn.setEmpty()
+        vizRect.setEmpty(); vizBtn.setEmpty(); vizColBtn.setEmpty()
         if (wide) {
             val bs = dp(26f)
             if (rhd) vizRect.set(dp(12f), dp(12f), colX - dp(14f), h - dp(12f)) else vizRect.set(colX + colW + dp(14f), dp(12f), w - dp(12f), h - dp(12f))
             // the on / off button sits outside the visualizer window, just beside its top corner (and stays there when the visualizer is off)
             val bcx = if (rhd) vizRect.right + dp(23f) else vizRect.left - dp(23f); val bcy = vizRect.top + dp(15f)
             vizBtn.set(bcx - bs / 2, bcy - bs / 2, bcx + bs / 2, bcy + bs / 2)
+            if (vizDraw) vizColBtn.set(vizBtn.left, vizBtn.bottom + dp(8f), vizBtn.right, vizBtn.bottom + dp(8f) + bs)
             if (vizDraw) {
                 // real audio when the device allows it and sound is actually coming through, otherwise a simulated beat
                 var bands: FloatArray? = null
                 if (playing && AudioViz.start(context)) { vizLive = true; if (AudioViz.hasSignal()) bands = AudioViz.bands } else { vizLive = false; if (!playing) AudioViz.stop() }
                 val animating = painter.step(System.currentTimeMillis(), playing, bands)
                 painter.draw(c, vizRect, vizStyle, vizPal, Skins.look.accent)
+                // the name of the colour set, shown for a moment after it is changed
+                val since = System.currentTimeMillis() - palNameAt
+                if (since < 1600) {
+                    p.style = Paint.Style.FILL; p.shader = null; p.color = Color.WHITE; p.alpha = (255 * (1f - (since / 1600f) * (since / 1600f) * (since / 1600f))).toInt().coerceIn(0, 255)
+                    p.textSize = dp(13f); p.typeface = Typeface.DEFAULT_BOLD; p.textAlign = Paint.Align.CENTER; p.setShadowLayer(dp(3f), 0f, dp(1f), Color.BLACK)
+                    c.drawText(VizInfo.palettes[vizPal], vizRect.centerX(), vizRect.bottom - dp(10f), p)
+                    p.clearShadowLayer(); p.textAlign = Paint.Align.LEFT; p.alpha = 255
+                    postInvalidateDelayed(33)
+                }
                 if (animating) postInvalidateDelayed(33)
             }
             // the on / off button: three little equalizer bars on a glass circle, a little see-through
@@ -6515,6 +6526,18 @@ class MediaCardView(ctx: Context) : View(ctx) {
             for (i in 0..2) c.drawRoundRect(RectF(bx + i * bw * 2.1f, bb - bs * hs[i], bx + i * bw * 2.1f + bw, bb), bw / 2, bw / 2, p)
             p.alpha = 255
             c.restore()
+            if (vizDraw) {
+                // the colour button: three dots in the colours of the current set; each tap goes to the next set
+                c.saveLayerAlpha(RectF(vizColBtn.left - dp(8f), vizColBtn.top - dp(8f), vizColBtn.right + dp(8f), vizColBtn.bottom + dp(10f)), 165)
+                drawLiquidGlass(c, p, vizColBtn, bs / 2, dp(1f), null)
+                val pl = VizInfo.pal.getOrNull(vizPal)
+                val dots = if (pl == null) intArrayOf(Skins.look.accent, Skins.look.accent2, Color.WHITE) else intArrayOf(pl.first(), pl[pl.size / 2], pl.last())
+                p.style = Paint.Style.FILL; p.shader = null
+                val dr = bs * 0.1f
+                for (i in 0..2) { p.color = dots[i]; c.drawCircle(vizColBtn.centerX() + (i - 1) * dr * 2.5f, vizColBtn.centerY(), dr, p) }
+                p.alpha = 255
+                c.restore()
+            }
         }
     }
 
@@ -6552,6 +6575,7 @@ class MediaCardView(ctx: Context) : View(ctx) {
             fun hit(r: RectF) = e.x >= r.left - s && e.x <= r.right + s && e.y >= r.top - s && e.y <= r.bottom + s
             when {
                 hit(rPlay) -> onToggle?.invoke(); hit(rPrev) -> onPrev?.invoke(); hit(rNext) -> onNext?.invoke()
+                !vizColBtn.isEmpty && hit(vizColBtn) -> { vizPal = (vizPal + 1) % VizInfo.palettes.size; sp.edit().putInt("vizPal", vizPal).apply(); palNameAt = System.currentTimeMillis(); invalidate() }
                 !vizBtn.isEmpty && hit(vizBtn) -> { vizOn = !vizOn; sp.edit().putBoolean("vizOn", vizOn).apply(); if (!vizOn) AudioViz.stop(); invalidate() }
                 !vizRect.isEmpty && vizOn && vizRect.contains(e.x, e.y) -> { vizStyle = (vizStyle + 1) % VizInfo.styles.size; sp.edit().putInt("vizStyle", vizStyle).apply(); invalidate() }
                 else -> onTap?.invoke()
