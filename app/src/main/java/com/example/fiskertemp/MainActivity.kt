@@ -6495,6 +6495,13 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     var onPaint: ((Int) -> Unit)? = null
     private var paintOpen = false
     private val carRect = RectF()
+    private val carZones = ArrayList<Pair<RectF, Int>>()     // touchable parts of the car: 0..3 a seat, 10 front window, 11 rear window, 12 steering wheel
+    private var carZoneTop = 0f; private var carZoneK = 1f
+    /** Remembers a touchable part of the car; the numbers are in the car's own cabin drawing units. */
+    private fun carZone(x0: Float, y0: Float, x1: Float, y1: Float, id: Int) {
+        val sy = 0.88f
+        carZones.add(Pair(RectF(carRect.left + x0 * carZoneK, carZoneTop + (y0 + 142f) * carZoneK * sy, carRect.left + x1 * carZoneK, carZoneTop + (y1 + 142f) * carZoneK * sy), id))
+    }
     private val paintRects = ArrayList<RectF>()
     private val paintPanel = RectF()
     private fun adj(c: Int, k: Float): Int {
@@ -6576,6 +6583,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
 
         val carTop0 = top + (carH - 676f * sy * k) / 2f
         carRect.set(cx - 150f * k, carTop0, cx + 150f * k, carTop0 + 676f * sy * k)
+        carZones.clear(); carZoneTop = carTop0; carZoneK = k
         canvas.save()
         canvas.translate(cx - 150f * k, carTop0)
         canvas.scale(k, k * sy)
@@ -6638,8 +6646,12 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         strokeP(0xFF4A6190.toInt(), 1.4f); canvas.drawPath(path, p)
         both(58f, 78f, 56f, 10f, 3f, 0xFF0A1220.toInt(), 0xFF5B7299.toInt(), 1f)
         fillP(0xFF6F86AD.toInt()); for (vx in floatArrayOf(38f, 112f, 164f, 238f)) rr(vx, 72f, 24f, 5f, 2f); rr(137f, 62f, 26f, 5f, 2f)
-        strokeP(0xFF8AA0C6.toInt(), 3.4f); tmpR.set(64f, 109f, 108f, 123f); canvas.drawOval(tmpR, p)
-        fillP(0xFF3D5280.toInt()); circ(86f, 116f, 5f)
+        val wx = if (l2 && rhd) 214f else 86f
+        val wheelHot = s.climWheelOn()
+        if (wheelHot) { fillP(Color.argb(70, 255, 60, 60)); tmpR.set(wx - 26f, 104f, wx + 26f, 128f); canvas.drawOval(tmpR, p) }
+        strokeP(if (wheelHot) Color.argb(235, 255, 80, 80) else 0xFF8AA0C6.toInt(), if (wheelHot) 4.2f else 3.4f); tmpR.set(wx - 22f, 109f, wx + 22f, 123f); canvas.drawOval(tmpR, p)
+        fillP(if (wheelHot) Color.argb(235, 255, 80, 80) else 0xFF3D5280.toInt()); circ(wx, 116f, 5f)
+        carZone(wx - 28f, 98f, wx + 28f, 134f, 12)
         both(135f, 83f, 30f, 47f, 5f, 0xFF0A1220.toInt(), 0xFF8AA0C6.toInt(), 1.4f)
         // console
         both(132f, 138f, 36f, 166f, 10f, 0xFF16233D.toInt(), 0xFF3D5280.toInt(), 1.2f)
@@ -6662,6 +6674,31 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         fillP(Color.argb(235, 74, 95, 138))
         for (hx in floatArrayOf(80f, 220f)) { tmpR.set(hx - 24f, 395f, hx + 24f, 413f); canvas.drawOval(tmpR, p); circ(hx, 426f, 10f) }
         fillP(0xFF6F86AD.toInt()); rr(74f, 226f, 28f, 5f, 2f); rr(198f, 226f, 28f, 5f, 2f)
+
+        // ---- touchable parts of the car: the four heated seats (a transparent red and three small dots), the two windows and the wheel
+        val drvR = l2 && rhd
+        fun heatDots(cxx: Float, cyy: Float, lvl: Int) {
+            for (i in 0 until 3) { fillP(if (i < lvl) Color.argb(255, 255, 110, 110) else Color.argb(90, 255, 255, 255)); circ(cxx + (i - 1) * 13f, cyy, 4.6f) }
+        }
+        fun seatHeat(who: Int, front: Boolean, left: Boolean) {
+            val lvl = seatLevel(who, s)
+            val x0 = if (front) (if (left) 54f else 178f) else (if (left) 46f else 186f)
+            if (lvl > 0) {
+                fillP(Color.argb(55 + 35 * lvl, 255, 50, 50))
+                if (front) { rr(x0, 172f, 68f, 62f, 14f); rr(x0 + 2f, 234f, 64f, 30f, 12f); rr(x0 + 18f, 264f, 32f, 14f, 6f) }
+                else { rr(x0, 324f, 68f, 66f, 12f); rr(x0, 390f, 68f, 30f, 10f); rr(x0 + 18f, 420f, 32f, 13f, 6f) }
+            }
+            heatDots(x0 + 34f, if (front) 208f else 358f, lvl)
+            if (front) carZone(x0, 172f, x0 + 68f, 280f, who) else carZone(x0, 324f, x0 + 68f, 434f, who)
+        }
+        seatHeat(if (drvR) 1 else 0, true, true); seatHeat(if (drvR) 0 else 1, true, false)
+        seatHeat(2, false, true); seatHeat(3, false, false)
+        if (s.climMaxDefrost) { fillP(Color.argb(95, 255, 50, 50)); canvas.drawPath(wsPath, p) }
+        if (s.rearDefrost == true) {
+            path.reset(); path.moveTo(44f, 450f); path.lineTo(256f, 450f); path.lineTo(264f, 430f); path.lineTo(36f, 430f); path.close()
+            fillP(Color.argb(110, 255, 50, 50)); canvas.drawPath(path, p)
+        }
+        carZone(36f, 12f, 264f, 66f, 10); carZone(36f, 430f, 264f, 452f, 11)
 
         // ---- air streams
         if (flow) {
@@ -7015,7 +7052,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     /** The short version for Layout 2: driver and passenger temperatures with - / +, then one row of function tiles. */
     private fun drawCompact(w: Float, h: Float, s: CanSnapshot) {
         closeRect.set(-1e4f, -1e4f, -1e4f + 1f, -1e4f + 1f); closeRect2.set(1e4f, 1e4f, 1e4f + 1f, 1e4f + 1f)
-        powerRect.setEmpty(); fanRect.setEmpty(); carRect.setEmpty(); wheelRect.setEmpty(); btnRects.clear()
+        powerRect.setEmpty(); fanRect.setEmpty(); carRect.setEmpty(); wheelRect.setEmpty(); btnRects.clear(); carZones.clear()
         tempBtns.clear(); tempBtnInfo.clear(); modeRects.clear(); seatRects.clear(); seatWho.clear()
         val m = dp(10f); val gap = dp(6f); val pad = dp(6f)
         val topH = (h * 0.40f).coerceIn(dp(38f), dp(64f))
@@ -7086,10 +7123,29 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     }
 
     /** A tap on a seat heating button: the next level (off, low, medium, high). */
-    private fun tapSeat(si: Int) {
+    private fun tapSeat(si: Int) = cycleSeat(seatWho[si])
+
+    /** A tap on part of the car drawing. */
+    private fun carZoneTap(id: Int) {
+        when (id) {
+            in 0..3 -> cycleSeat(id)
+            10 -> {
+                if (System.currentTimeMillis() - lastFanTap <= 600) return
+                lastFanTap = System.currentTimeMillis()
+                if (!fanControl) showNotice("Tick the climate control option in Settings to use the front defrost here, or use the button bar below the screen") else onButton?.invoke(1)
+            }
+            11 -> showNotice("Please use the button bar below the screen to adjust Rear Defrost")
+            12 -> {
+                if (System.currentTimeMillis() - lastFanTap <= 600) return
+                lastFanTap = System.currentTimeMillis()
+                if (!fanControl) showNotice("Tick the climate control option in Settings to use the heated steering wheel here") else onWheel?.invoke()
+            }
+        }
+    }
+
+    private fun cycleSeat(who: Int) {
         if (System.currentTimeMillis() - lastFanTap <= 350) return
         lastFanTap = System.currentTimeMillis()
-        val who = seatWho[si]
         if (!fanControl) showNotice("Tick the climate control option in Settings to use the seat heating")
         else {
             val next = (seatLevel(who, snap) + 1) % 4
@@ -7141,6 +7197,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         if (fanControl && !wheelRect.isEmpty() && wheelRect.contains(e.x, e.y) && System.currentTimeMillis() - lastFanTap > 600) { lastFanTap = System.currentTimeMillis(); onWheel?.invoke(); return true }
         if (!fanRect.isEmpty() && fanRect.contains(e.x, e.y)) { showNotice("Please use the button bar below the screen to adjust fan speed"); return true }
         if (!rearRect.isEmpty() && rearRect.contains(e.x, e.y)) { showNotice("Please use the button bar below the screen to adjust Rear Defrost"); return true }
+        val cz = carZones.indexOfFirst { it.first.contains(e.x, e.y) }
+        if (cz >= 0) { carZoneTap(carZones[cz].second); invalidate(); return true }
         if (!carRect.isEmpty() && carRect.contains(e.x, e.y)) { paintOpen = true; invalidate(); return true }
         return true
     }
