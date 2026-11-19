@@ -6191,8 +6191,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     var onButton: ((Int) -> Unit)? = null            // 0 A/C, 1 defrost, 2 recirculation, 3 sync, 4 auto
     private val btnRects = ArrayList<RectF>()          // the function tiles that are buttons: A/C (0), defrost (2), recirculation (4), sync (5), auto (6)
     private val modeRects = ArrayList<RectF>()
-    // left to right. Original: Screen, Face, Face + Feet, Feet, Feet + Screen. Layout 2: Feet + Screen sits beside Screen, and the whole row mirrors for right-hand drive
-    private val modeOrder: IntArray get() = if (!l2) intArrayOf(5, 1, 2, 3, 4) else if (rhd) intArrayOf(3, 2, 1, 4, 5) else intArrayOf(5, 4, 1, 2, 3)
+    // left to right, in every layout: Feet + Screen sits beside Screen, and the whole row mirrors for right-hand drive
+    private val modeOrder: IntArray get() = if (rhd) intArrayOf(3, 2, 1, 4, 5) else intArrayOf(5, 4, 1, 2, 3)
     private val tempBtnInfo = ArrayList<Pair<Boolean, Int>>()
     var compact = false                               // Layout 2: a short panel under the cards: the two temperatures and the function tiles only
         set(v) { if (field != v) { field = v; invalidate() } }
