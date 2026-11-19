@@ -2090,8 +2090,8 @@ class MainActivity : Activity() {
         }
         l2Mid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(carView, LinearLayout.LayoutParams(-1, 0, 0.36f))
-            addView(l2Cards, LinearLayout.LayoutParams(-1, 0, 0.64f).apply { topMargin = dp(2); bottomMargin = 0 })
+            addView(carView, LinearLayout.LayoutParams(-1, 0, 0.38f))
+            addView(l2Cards, LinearLayout.LayoutParams(-1, 0, 0.62f).apply { topMargin = dp(2); bottomMargin = 0 })
         }
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; clipChildren = false }
         dashGaugeRow = row
@@ -3021,7 +3021,7 @@ class MainActivity : Activity() {
             height = if (l2) dp(l2GaugeH) else -1
             gravity = if (l2) Gravity.TOP else Gravity.NO_GRAVITY
         }
-        dashGaugeRow.getChildAt(1).let { (it.layoutParams as LinearLayout.LayoutParams).topMargin = if (l2) -dp(16) else (if (brakeUnder) -dp(3) else 0) }
+        dashGaugeRow.getChildAt(1).let { (it.layoutParams as LinearLayout.LayoutParams).topMargin = if (l2) dp(2) else (if (brakeUnder) -dp(3) else 0) }
         dashGaugeRow.requestLayout()
         (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -3068,10 +3068,24 @@ class MainActivity : Activity() {
         run {
             val top = topM + l2RowH + 2
             val bottom = hDp - lowerBottom - 4
-            val room = bottom - top
+            var room = bottom - top
+            var climTop = top
+            // full screen: the media card comes back between the cards and the Climate panel
+            val wantMedia = l2 && room >= 470 && prefs().getBoolean("fullMedia", true)
+            if (wantMedia) {
+                (mediaCard.layoutParams as FrameLayout.LayoutParams).apply { height = dp(132); gravity = Gravity.BOTTOM; setMargins(dp(8), 0, dp(8), dp(maxOf(hDp - (top + 132), 0))) }
+                mediaCard.rhd = prefs().getBoolean("rhd", false)
+                mediaCard.visibility = View.VISIBLE
+                mediaCard.requestLayout()
+                climTop = top + 140; room -= 140
+            } else if (l2) mediaCard.visibility = View.GONE
+            if (l2) { ensureMediaWatcher(); mediaWatcher?.start() }   // the media pages need the player followed even when the old media card is off
             val inline = l2 && room >= 110
-            l2ClimTop = top; l2ClimH = room; l2ClimInline = inline
+            l2ClimTop = climTop; l2ClimH = room; l2ClimInline = inline
             climateView.compact = inline && room < 300
+            // Media is on the swipe cards; Climate only needs its button when the panel is not already showing
+            mediaBtn.visibility = if (l2) View.GONE else View.VISIBLE
+            climateBtn.visibility = if (l2 && inline) View.GONE else View.VISIBLE
             if (inline) edgeBox.post { if (dashShown && l2Applied) { if (climateView.visibility == View.VISIBLE) placeClimate() else openClimate() } }
             else if (wasL2Clim) { climateView.visibility = View.GONE }   // no longer room for it under the cards
             wasL2Clim = inline
@@ -3109,9 +3123,9 @@ class MainActivity : Activity() {
         dashBrake.setPadding(dp(if (short) 10 else 18), dp(if (midLevel == 2) 1 else 4), dp(if (short) 10 else 18), dp(if (midLevel == 2) 1 else 4))
         if (l2) {
             // READY and the brake-light note sit one above the other at the top centre, clear of the car and the cards
-            dashReady.textSize = 15f; dashReady.letterSpacing = 0.18f
+            dashReady.textSize = 14f; dashReady.letterSpacing = 0.18f; dashReady.setPadding(0, 0, 0, 0)
             dashBrake.textSize = 12f; dashBrake.text = "Brake light on"; dashBrake.setPadding(dp(12), dp(2), dp(12), dp(2))
-            (dashReady.layoutParams as? FrameLayout.LayoutParams)?.apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(4) }
+            (dashReady.layoutParams as? FrameLayout.LayoutParams)?.apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(2) }
             (dashBrake.layoutParams as? FrameLayout.LayoutParams)?.apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(6); leftMargin = dp(190) }
         }
         (dashSign.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 38 else if (short) 48 else 64); height = dp(if (midLevel == 2) 38 else if (short) 48 else 64) }
@@ -3737,7 +3751,8 @@ class MainActivity : Activity() {
         val hd = s.headingDeg
         if (l2Applied) {
             carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true)
-            val cells = tripCells(s, true).take(4)
+            fun shortLabel(l: String) = when (l.lowercase()) { "distance driven" -> "Distance"; "energy consumed" -> "Energy"; "average speed" -> "Avg speed"; else -> l }
+            val cells = tripCells(s, true).take(4).map { it.copy(label = shortLabel(it.label)) }
             for (ps in pageSets) {
                 ps.compass.heading = hd; ps.compass.day = dashDay; ps.trip.day = dashDay; ps.trip.setCells(cells); ps.nav.day = dashDay; ps.actions.day = dashDay
                 for (v in ps.shorts) v.day = dashDay
