@@ -100,6 +100,9 @@ class CarView(ctx: Context) : View(ctx) {
     /** Speed in km/h; the car tilts forward, the road lines run past on both sides and the rear tyre lines turn. */
     var speedKmh = 0f
         set(v) { field = v; if (v >= 1f && !animating) postInvalidateOnAnimation() }
+    /** Layout 2 in a 50/50 window: how far above this view the road fill reaches (it fades out to nothing at the top). */
+    var roadAbovePx = 0f
+        set(v) { if (field != v) { field = v; invalidate() } }
     private var animating = false
     private var shown = 0f              // smoothed speed
     private var roadOff = 0f            // how far the road has run
@@ -132,11 +135,16 @@ class CarView(ctx: Context) : View(ctx) {
         c.scale(u, u)
         // road lines on both sides, wide at the rear of the car and narrow at the top
         val hh = 162f; val smin = 0.45f; val per = 0.3f; val len = 0.15f; val cx = 151f; val half = 86f
-        // the road between the lines: a light, transparent grey
-        lanePaint.color = Color.argb(48, 200, 206, 216)
+        // the road between the lines: a light, transparent grey (in a 50/50 window it carries on up to the top of the screen, fading out)
+        val ext = roadAbovePx / u
+        val sTop = if (ext > 0f) Math.max(smin - ext * (1f - smin) / hh, 0.15f) else smin
+        val yTop = if (ext > 0f) -ext else 0f
         lanePath.reset()
-        lanePath.moveTo(cx - half * smin, 0f); lanePath.lineTo(cx + half * smin, 0f); lanePath.lineTo(cx + half, hh); lanePath.lineTo(cx - half, hh); lanePath.close()
+        lanePath.moveTo(cx - half * sTop, yTop); lanePath.lineTo(cx + half * sTop, yTop); lanePath.lineTo(cx + half, hh); lanePath.lineTo(cx - half, hh); lanePath.close()
+        lanePaint.shader = if (ext > 0f) LinearGradient(0f, yTop, 0f, 0f, Color.argb(0, 200, 206, 216), Color.argb(48, 200, 206, 216), Shader.TileMode.CLAMP) else null
+        lanePaint.color = Color.argb(48, 200, 206, 216)
         c.drawPath(lanePath, lanePaint)
+        lanePaint.shader = null
         for (side in intArrayOf(-1, 1)) {
             for (k in -2..8) {
                 var z1 = 1f + k * per - (roadOff * 0.006f) % per

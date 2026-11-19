@@ -2749,6 +2749,7 @@ class MainActivity : Activity() {
 
     private fun placeMediaPopup() {
         if (!::mediaPopup.isInitialized) return
+        mediaPopup.l2 = l2Applied
         val lp = mediaPopup.layoutParams as FrameLayout.LayoutParams
         var bottom = dp(66); var hgt = dp(132); var wid = FrameLayout.LayoutParams.MATCH_PARENT; var side = dp(8)
         var grav = Gravity.BOTTOM
@@ -3143,11 +3144,11 @@ class MainActivity : Activity() {
             btnBar.background = GradientDrawable().apply { setColor(Color.argb(215, 14, 20, 38)); cornerRadius = dp(16).toFloat(); setStroke(dp(1), Color.argb(130, 255, 255, 255)) }
             btnBar.setPadding(dp(8), dp(8), dp(8), dp(4))
             btnBar.visibility = if (l2FlyOpen) View.VISIBLE else View.GONE
-            l2FlyBtn.textSize = 17f
+            l2FlyBtn.textSize = 20f
             (l2FlyBtn.layoutParams as? FrameLayout.LayoutParams)?.apply {
-                width = dp(36); height = dp(36)
+                width = dp(40); height = dp(40)
                 gravity = Gravity.TOP or (if (rhd) Gravity.END else Gravity.START)
-                if (rhd) setMargins(0, dp(1), dp(8), 0) else setMargins(dp(8), dp(1), 0, 0)
+                if (rhd) setMargins(0, dp(6), dp(8), 0) else setMargins(dp(8), dp(6), 0, 0)
             }
         } else {
             btnBar.orientation = LinearLayout.HORIZONTAL; btnBar.background = null; btnBar.setPadding(0, 0, 0, 0)
@@ -3173,6 +3174,10 @@ class MainActivity : Activity() {
             topMargin = if (l2) dp(45) else 0
         }
         dashGaugeRow.getChildAt(1).let { (it.layoutParams as LinearLayout.LayoutParams).topMargin = if (l2) dp(2) else (if (brakeUnder) -dp(3) else 0) }
+        dashPowerGauge.iconLevel = if (l2) (if (half) 2 else 1) else 0; dashPowerGauge.invalidate()
+        // Layout 2 in a 50/50 window: the grey road fades out upward to the top of the screen, under READY
+        carView.roadAbovePx = if (l2 && half) dp(topM).toFloat() else 0f
+        l2Mid.clipChildren = false; dashRoot.clipChildren = false; dashGaugeRow.clipChildren = false
         if (l2) {
             // middle column: the car and the road lines fill the top 162 dp (the car is drawn 114 x 104 dp inside it); the two cards 145 dp tall at the bottom of the row
             (carView.layoutParams as LinearLayout.LayoutParams).apply { width = -1; height = dp(162); weight = 0f; topMargin = 0 }
@@ -4663,6 +4668,8 @@ object Skins {
 /** Segmented arc gauge in the style of a modern instrument cluster: a "(" arc (or ")" when mirrored) with the
  *  readout in the middle. Fills from the zero position, so a regen value fills the other way. */
 class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Float, private val colorAt: (Float) -> Int) : View(ctx) {
+    /** Layout 2: 1 = the battery-chart tile a little smaller and higher, 2 = higher still (50/50 window). */
+    var iconLevel = 0
     var topLabel = ""; var topValue = ""
     var title = ""; var valueText = "--"; var unit = ""
     var bottomLabel = ""; var bottomValue = ""; var bottomColor: Int? = null
@@ -5168,7 +5175,10 @@ class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Fl
             arc.style = Paint.Style.STROKE
         }
         drawReadouts(c, g, 0.42f, 0.04f, 0.30f, 0.66f)
-        if (title == "POWER") drawBatteryChartIcon(c, g.cx + g.r * 0.12f, g.cy - g.r * 0.86f, g.r * 0.44f)
+        if (title == "POWER") {
+            if (iconLevel == 0) drawBatteryChartIcon(c, g.cx + g.r * 0.12f, g.cy - g.r * 0.86f, g.r * 0.44f)
+            else drawBatteryChartIcon(c, g.cx + g.r * 0.12f, g.cy - g.r * (if (iconLevel == 2) 0.98f else 0.91f), g.r * 0.40f)
+        }
     }
 
     /** A rounded glass tile holding a battery with a rising line, above the power gauge in the Glass skin. */
@@ -7601,16 +7611,24 @@ class MediaCardView(ctx: Context) : View(ctx) {
         vizRect.setEmpty(); vizBtn.setEmpty(); vizColBtn.setEmpty(); srcBtn.setEmpty(); favBtn.setEmpty()
         if (wide) {
             val bs = dp(26f)
-            val clear = if (l2) dp(60f) else 0f
+            val compact = l2 && h < dp(130f)       // Layout 2, short card (50/50 window): two columns of buttons, so none is cut off
+            val clear = if (compact) dp(92f) else if (l2) dp(60f) else 0f
             if (rhd) vizRect.set(dp(12f), dp(12f), colX - dp(14f) - clear, h - dp(12f)) else vizRect.set(colX + colW + dp(14f) + clear, dp(12f), w - dp(12f), h - dp(12f))
             // the on / off button sits outside the visualizer window, just beside its top corner (and stays there when the visualizer is off)
             val bcx = if (rhd) vizRect.right + dp(23f) else vizRect.left - dp(23f); val bcy = vizRect.top + dp(15f)
             vizBtn.set(bcx - bs / 2, bcy - bs / 2, bcx + bs / 2, bcy + bs / 2)
             if (vizDraw) vizColBtn.set(vizBtn.left, vizBtn.bottom + dp(8f), vizBtn.right, vizBtn.bottom + dp(8f) + bs)
             // the Sources button is always in the third place, just below where the colour button is
+            if (compact) {
+                // the favourites star and Sources button make a second column beside the visualizer and colour buttons
+                val sx = if (rhd) vizBtn.right + dp(6f) else vizBtn.left - dp(6f) - bs
+                favBtn.set(sx, vizBtn.top, sx + bs, vizBtn.bottom)
+                srcBtn.set(sx, vizBtn.bottom + dp(8f), sx + bs, vizBtn.bottom + dp(8f) + bs)
+            } else {
             srcBtn.set(vizBtn.left, vizBtn.bottom + dp(16f) + bs, vizBtn.right, vizBtn.bottom + dp(16f) + 2 * bs)
             // the favourites star sits beside it, on the text side (left of the Sources button; mirrored for right-hand drive)
             if (rhd) favBtn.set(srcBtn.right + dp(6f), srcBtn.top, srcBtn.right + dp(6f) + bs, srcBtn.bottom) else favBtn.set(srcBtn.left - dp(6f) - bs, srcBtn.top, srcBtn.left - dp(6f), srcBtn.bottom)
+            }
             if (vizDraw) {
                 // real audio when the device allows it and sound is actually coming through, otherwise a simulated beat
                 var bands: FloatArray? = null
