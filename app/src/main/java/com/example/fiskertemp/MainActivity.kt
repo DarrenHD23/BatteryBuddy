@@ -4253,7 +4253,7 @@ class SocBarView(ctx: Context) : View(ctx) {
 object Skins {
     class Look(
         val id: Int, val name: String, val note: String,
-        val gauge: Int,              // 0 segmented arc, 1 fine ticks, 2 minimal, 3 analog pointer, 4 bold blocks, 5 glowing ring, 6 wedge bars, 7 numbered scale
+        val gauge: Int,              // 0 segmented arc, 1 fine ticks, 2 minimal, 3 analog pointer, 4 bold blocks, 5 glowing ring, 6 wedge bars, 7 numbered scale, 8 frosted glass
         val accent: Int,             // units, strip line, selected button
         val accentDay: Int,          // the same on the light (day) background
         val accent2: Int,            // second colour in the strip line
@@ -4299,6 +4299,10 @@ object Skins {
             c("#2AA8FF"), c("#2A78C8"), c("#8E5CFF"), c("#04070D"), c("#0B1626"),
             intArrayOf(c("#22D3EE"), c("#1E90FF"), c("#8E5CFF"), c("#FF4FA3"), c("#FF3B4E")),
             "sans-serif-light", true, false, Color.argb(150, 20, 20, 40), Color.argb(120, 255, 255, 255)),
+        Look(8, "Glass", "A thick frosted-glass band with outer tick marks, scale numbers and a small blue marker", 8,
+            c("#6FD8F0"), c("#0B7C95"), c("#4C8DFF"), c("#070B12"), c("#121A26"),
+            intArrayOf(c("#FFFFFF"), c("#E6F0FA")),
+            "sans-serif-light", false, true, Color.argb(120, 40, 52, 70), Color.argb(110, 255, 255, 255)),
     )
 
     @Volatile var current = 7
@@ -4774,6 +4778,61 @@ class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Fl
         drawReadouts(c, g, 0.42f, 0.04f, 0.30f, 0.72f)
     }
 
+    /** Skin "glass": a thick frosted-glass band, tick marks on its outer edge, numbers on the band and a small marker. */
+    private fun drawGlass(c: Canvas, w: Float, h: Float) {
+        val g = Geo(w, h)
+        arc.style = Paint.Style.STROKE; arc.strokeCap = Paint.Cap.BUTT
+        // ticks on the outside
+        for (i in 0..40) {
+            val f = i / 40f
+            val major = i % 5 == 0
+            val r1 = g.r * 0.995f
+            val r2 = if (major) g.r * 0.925f else g.r * 0.96f
+            arc.strokeWidth = maxOf(1.2f, g.r * (if (major) 0.016f else 0.009f))
+            arc.color = if (major) g.ink else g.dim
+            c.drawLine(g.x(r1, f), g.y(r1, f), g.x(r2, f), g.y(r2, f), arc)
+        }
+        val sw = g.r * 0.21f
+        val ra = g.r * 0.80f
+        rect.set(g.cx - ra, g.cy - ra, g.cx + ra, g.cy + ra)
+        // the glass: a milky band with a bright rim on each edge
+        arc.strokeWidth = sw
+        arc.color = if (day) Color.argb(70, 255, 255, 255) else Color.argb(55, 235, 244, 255)
+        c.drawArc(rect, g.start, g.dir * g.sweep, false, arc)
+        // the part showing the value is a little brighter, with a cool tint
+        if (g.live && g.hi > g.lo) {
+            arc.color = if (day) Color.argb(120, 120, 200, 225) else Color.argb(105, 215, 238, 255)
+            c.drawArc(rect, g.start + g.dir * g.lo * g.sweep, g.dir * (g.hi - g.lo) * g.sweep, false, arc)
+        }
+        arc.strokeWidth = maxOf(1.5f, g.r * 0.012f)
+        arc.color = if (day) Color.argb(150, 255, 255, 255) else Color.argb(120, 255, 255, 255)
+        val ro = ra + sw / 2
+        rect2.set(g.cx - ro, g.cy - ro, g.cx + ro, g.cy + ro)
+        c.drawArc(rect2, g.start, g.dir * g.sweep, false, arc)
+        val ri = ra - sw / 2
+        rect2.set(g.cx - ri, g.cy - ri, g.cx + ri, g.cy + ri)
+        arc.color = if (day) Color.argb(90, 255, 255, 255) else Color.argb(70, 255, 255, 255)
+        c.drawArc(rect2, g.start, g.dir * g.sweep, false, arc)
+        // numbers on the band
+        for ((f, label) in scale) text(label, g.x(ra, f), g.y(ra, f) + g.r * 0.032f, g.r * 0.090f, g.ink, numTf())
+        // the marker: a small blue triangle outside the ticks, pointing in
+        if (g.live) {
+            val a = Math.toRadians((g.start + g.dir * g.sweep * shown).toDouble())
+            val ux = Math.cos(a).toFloat(); val uy = Math.sin(a).toFloat()
+            val rt = g.r * 0.90f; val rb = g.r * 1.03f; val hw = g.r * 0.05f
+            needle.reset()
+            needle.moveTo(g.cx + ux * rt, g.cy + uy * rt)
+            needle.lineTo(g.cx + ux * rb - uy * hw, g.cy + uy * rb + ux * hw)
+            needle.lineTo(g.cx + ux * rb + uy * hw, g.cy + uy * rb - ux * hw)
+            needle.close()
+            arc.style = Paint.Style.FILL
+            arc.color = if (day) Color.parseColor("#1F6FE0") else Color.parseColor("#4C9BFF")
+            c.drawPath(needle, arc)
+            arc.style = Paint.Style.STROKE
+        }
+        drawReadouts(c, g, 0.42f, 0.04f, 0.30f, 0.66f)
+    }
+
     /** Skin "wedge bars": radial bars that get taller towards the high end; the lit ones show the value. */
     private fun drawWedge(c: Canvas, w: Float, h: Float) {
         val g = Geo(w, h)
@@ -4814,6 +4873,7 @@ class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Fl
                 4 -> drawBold(c, w, h)
                 5 -> drawRing(c, w, h)
                 7 -> drawScale(c, w, h)
+                8 -> drawGlass(c, w, h)
                 else -> drawWedge(c, w, h)
             }
             arcCanvas = null
