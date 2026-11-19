@@ -6072,7 +6072,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         canvas.drawText(s, x, y + p.textSize * 0.35f, p)
     }
     /** Like text(), but shrinks the size so the string never wider than maxW pixels. */
-    private fun fitText(s: String, x: Float, y: Float, sizeDp: Float, color: Int, bold: Boolean, maxW: Float, center: Boolean = false) {
+    private fun fitText(s: String, x: Float, y: Float, sizeDp: Float, color: Int, bold: Boolean, maxW: Float) {
         p.textSize = dp(sizeDp); p.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
         val wd = p.measureText(s)
         text(s, x, y, if (wd > maxW && wd > 0f) sizeDp * maxW / wd else sizeDp, color, bold)
@@ -6905,7 +6905,7 @@ class MediaCardView(ctx: Context) : View(ctx) {
         title = t; artist = a; art = b; playing = pl; hasSession = has; invalidate()
     }
 
-    private fun fitText(s: String, x: Float, y: Float, sizeDp: Float, color: Int, bold: Boolean, maxW: Float) {
+    private fun fitText(s: String, x: Float, y: Float, sizeDp: Float, color: Int, bold: Boolean, maxW: Float, center: Boolean = false) {
         p.style = Paint.Style.FILL; p.color = color; p.textAlign = Paint.Align.LEFT
         p.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
         p.textSize = dp(sizeDp)
