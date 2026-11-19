@@ -7,6 +7,7 @@ package com.example.fiskertemp
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
@@ -17,6 +18,7 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
+import android.os.SystemClock
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
@@ -38,57 +40,53 @@ private fun drawCardBg(c: Canvas, p: Paint, r: RectF, rad: Float, day: Boolean, 
     p.shader = null; p.style = Paint.Style.FILL
 }
 
-/** A simple top-down car seen from behind, with glowing tail lights. */
+/** The Fisker Ocean seen from behind (a rendered vector drawing), with its lamps lit by stacking transparent overlays. */
 class CarView(ctx: Context) : View(ctx) {
-    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val path = Path()
     var braking = false
-        set(v) { field = v; invalidate() }
+        set(v) { if (field != v) { field = v; invalidate() } }
+    var headlights = false
+        set(v) { if (field != v) { field = v; invalidate() } }
+    var highBeam = false
+        set(v) { if (field != v) { field = v; invalidate() } }
+    var reverse = false
+        set(v) { if (field != v) { field = v; invalidate() } }
+    var leftInd = false
+        set(v) { if (field != v) { field = v; invalidate() } }
+    var rightInd = false
+        set(v) { if (field != v) { field = v; invalidate() } }
+
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val dst = RectF()
+    private val res = ctx.resources
+    private fun load(id: Int): Bitmap? = try {
+        BitmapFactory.decodeResource(res, id, BitmapFactory.Options().apply { inScaled = false })
+    } catch (e: Throwable) { null }
+    private val base by lazy { load(R.drawable.car_base) }
+    private val dipped by lazy { load(R.drawable.car_dipped) }
+    private val beam by lazy { load(R.drawable.car_highbeam) }
+    private val left by lazy { load(R.drawable.car_left) }
+    private val right by lazy { load(R.drawable.car_right) }
+    private val brake by lazy { load(R.drawable.car_brake) }
+    private val rev by lazy { load(R.drawable.car_reverse) }
 
     override fun onDraw(c: Canvas) {
         val w = width.toFloat(); val h = height.toFloat()
+        val b = base ?: return
         if (w <= 0f || h <= 0f) return
-        // the car is 300 x 676 in its own units, scaled to fit the height
-        val k = min(h / 340f, w / 190f)
-        val cw = 190f * k; val ch = 340f * k
-        val x0 = (w - cw) / 2f; val y0 = (h - ch) / 2f
-        c.save(); c.translate(x0, y0); c.scale(k, k)
-        // light cast ahead of the car
-        p.style = Paint.Style.FILL
-        for (sx in floatArrayOf(52f, 138f)) {
-            p.shader = RadialGradient(sx, 4f, 44f, Color.argb(190, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP)
-            c.drawCircle(sx, 4f, 44f, p)
+        val k = min(w / b.width, h / b.height)
+        val cw = b.width * k; val ch = b.height * k
+        dst.set((w - cw) / 2f, (h - ch) / 2f, (w + cw) / 2f, (h + ch) / 2f)
+        c.drawBitmap(b, null, dst, p)
+        if (highBeam) beam?.let { c.drawBitmap(it, null, dst, p) } else if (headlights) dipped?.let { c.drawBitmap(it, null, dst, p) }
+        if (braking) brake?.let { c.drawBitmap(it, null, dst, p) }
+        if (reverse) rev?.let { c.drawBitmap(it, null, dst, p) }
+        if (leftInd || rightInd) {
+            if ((SystemClock.uptimeMillis() / 380) % 2 == 0L) {
+                if (leftInd) left?.let { c.drawBitmap(it, null, dst, p) }
+                if (rightInd) right?.let { c.drawBitmap(it, null, dst, p) }
+            }
+            postInvalidateDelayed(120)
         }
-        p.shader = null
-        // body
-        path.reset()
-        path.moveTo(40f, 20f); path.cubicTo(70f, 10f, 120f, 10f, 150f, 20f)
-        path.cubicTo(172f, 30f, 182f, 70f, 184f, 130f); path.lineTo(184f, 270f)
-        path.cubicTo(184f, 310f, 160f, 332f, 120f, 334f); path.lineTo(70f, 334f)
-        path.cubicTo(30f, 332f, 6f, 310f, 6f, 270f); path.lineTo(6f, 130f)
-        path.cubicTo(8f, 70f, 18f, 30f, 40f, 20f); path.close()
-        p.shader = LinearGradient(0f, 0f, 190f, 0f, intArrayOf(0xFF1A222F.toInt(), 0xFF3A4658.toInt(), 0xFF111823.toInt()), floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP)
-        c.drawPath(path, p); p.shader = null
-        p.style = Paint.Style.STROKE; p.strokeWidth = 1.5f; p.color = Color.argb(130, 200, 220, 255); c.drawPath(path, p)
-        // glass roof and screens
-        p.style = Paint.Style.FILL; p.color = Color.parseColor("#0B1220")
-        path.reset(); path.moveTo(34f, 84f); path.cubicTo(60f, 70f, 130f, 70f, 156f, 84f); path.lineTo(150f, 112f); path.lineTo(40f, 112f); path.close(); c.drawPath(path, p)
-        path.reset(); path.moveTo(42f, 128f); path.lineTo(148f, 128f); path.lineTo(146f, 236f); path.lineTo(44f, 236f); path.close()
-        p.color = Color.parseColor("#141E30"); c.drawPath(path, p)
-        p.color = Color.argb(40, 255, 255, 255); c.drawRect(52f, 134f, 66f, 232f, p)
-        path.reset(); path.moveTo(44f, 250f); path.lineTo(146f, 250f); path.lineTo(152f, 286f); path.lineTo(38f, 286f); path.close()
-        p.color = Color.parseColor("#0B1220"); c.drawPath(path, p)
-        // tail lights
-        val tl = if (braking) Color.parseColor("#FF2A2A") else Color.parseColor("#C8161E")
-        p.style = Paint.Style.STROKE; p.strokeCap = Paint.Cap.ROUND; p.strokeWidth = 4f; p.color = tl
-        c.drawLine(28f, 304f, 78f, 308f, p); c.drawLine(162f, 304f, 112f, 308f, p)
-        p.style = Paint.Style.FILL
-        for (sx in floatArrayOf(40f, 150f)) {
-            p.shader = RadialGradient(sx, 306f, 26f, Color.argb(if (braking) 200 else 110, 255, 40, 40), Color.argb(0, 255, 40, 40), Shader.TileMode.CLAMP)
-            c.drawCircle(sx, 306f, 26f, p)
-        }
-        p.shader = null; p.strokeCap = Paint.Cap.BUTT
-        c.restore()
     }
 }
 
@@ -171,6 +169,10 @@ class ShortcutsCardView(ctx: Context) : View(ctx) {
 
     private var tiles: List<ShortTile> = emptyList()
     private var page = 0
+    /** In a pager card: this view shows one fixed page of tiles, and the pager swipes and draws the dots. */
+    var embedded = false
+    fun showPage(i: Int) { page = i; invalidate() }
+    fun pageTotal() = pageCount()
     private val d = ctx.resources.displayMetrics.density
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rects = Array(4) { RectF() }
@@ -190,7 +192,7 @@ class ShortcutsCardView(ctx: Context) : View(ctx) {
         override fun onSingleTapUp(e: MotionEvent): Boolean { tileAt(e.x, e.y)?.let { onTile?.invoke(it) }; return true }
         override fun onLongPress(e: MotionEvent) { tileAt(e.x, e.y)?.let { if (it.slot >= 0) onLong?.invoke(it) } }
         override fun onFling(a: MotionEvent?, b: MotionEvent, vx: Float, vy: Float): Boolean {
-            if (abs(vx) < abs(vy)) return false
+            if (embedded || abs(vx) < abs(vy)) return false
             val pages = pageCount()
             if (vx < 0 && page < pages - 1) { page++; invalidate() } else if (vx > 0 && page > 0) { page--; invalidate() }
             return true
@@ -203,7 +205,7 @@ class ShortcutsCardView(ctx: Context) : View(ctx) {
     }
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        parent?.requestDisallowInterceptTouchEvent(true)
+        if (!embedded) parent?.requestDisallowInterceptTouchEvent(true)
         return gd.onTouchEvent(e)
     }
 
@@ -216,7 +218,7 @@ class ShortcutsCardView(ctx: Context) : View(ctx) {
         p.color = ink; p.typeface = Typeface.DEFAULT_BOLD; p.textSize = min(20f * d, h * 0.11f)
         c.drawText("Shortcuts", w / 2, 8f * d + p.textSize * 0.9f, p)
         val top = 8f * d + p.textSize * 1.25f
-        val dotsH = 16f * d
+        val dotsH = if (embedded) 4f * d else 16f * d
         val gx = 10f * d; val gy = 6f * d; val pad = 10f * d
         val tw = (w - 2 * pad - gx) / 2f
         val th = (h - top - dotsH - pad - gy - 4f * d) / 2f
@@ -252,7 +254,7 @@ class ShortcutsCardView(ctx: Context) : View(ctx) {
             c.drawText(s, r.centerX(), r.bottom - 7f * d, p)
         }
         // page dots
-        val pages = pageCount()
+        val pages = if (embedded) 0 else pageCount()
         val dy = h - 11f * d
         val total = pages * 9f * d
         for (i in 0 until pages) {
@@ -316,5 +318,78 @@ object LayoutThumbs {
             box(W * 0.04f, H * 0.82f, W * 0.96f, H * 0.95f, 50)
         }
         return bmp
+    }
+}
+
+/** A card that holds several pages (each a card view): swipe sideways to change page; dots under the card show where you are. */
+class PagerCardView(ctx: Context) : android.widget.FrameLayout(ctx) {
+    var day = false
+        set(v) { if (field != v) { field = v; invalidate() } }
+    private val d = ctx.resources.displayMetrics.density
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var pages: List<View> = emptyList()
+    var index = 0
+        private set
+    private var downX = 0f; private var downY = 0f; private var swiping = false
+    private val slop = android.view.ViewConfiguration.get(ctx).scaledTouchSlop
+
+    init { setWillNotDraw(false); clipChildren = true }
+
+    fun setPages(list: List<View>) {
+        val keepIndex = index
+        removeAllViews()
+        pages = list
+        for (v in list) addView(v, LayoutParams(-1, -1).apply { bottomMargin = (14f * d).toInt() })
+        index = keepIndex.coerceIn(0, maxOf(0, list.size - 1))
+        for ((i, v) in list.withIndex()) { v.visibility = if (i == index) View.VISIBLE else View.GONE; v.translationX = 0f }
+        invalidate()
+    }
+
+    fun show(i: Int) {
+        if (i < 0 || i >= pages.size || i == index) return
+        val old = pages[index]; val new = pages[i]
+        val dirn = if (i > index) 1f else -1f
+        val w = width.toFloat().coerceAtLeast(1f)
+        new.visibility = View.VISIBLE
+        new.translationX = dirn * w
+        new.animate().translationX(0f).setDuration(220).start()
+        old.animate().translationX(-dirn * w).setDuration(220).withEndAction { old.visibility = View.GONE; old.translationX = 0f }.start()
+        index = i
+        invalidate()
+    }
+
+    override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> { downX = e.x; downY = e.y; swiping = false }
+            MotionEvent.ACTION_MOVE -> if (!swiping && Math.abs(e.x - downX) > slop * 1.5f && Math.abs(e.x - downX) > Math.abs(e.y - downY) * 1.3f) { swiping = true; parent?.requestDisallowInterceptTouchEvent(true); return true }
+        }
+        return false
+    }
+
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> return true
+            MotionEvent.ACTION_UP -> {
+                val dx = e.x - downX
+                if (swiping && Math.abs(dx) > 40f * d) show(if (dx < 0) index + 1 else index - 1)
+                swiping = false
+            }
+            MotionEvent.ACTION_CANCEL -> swiping = false
+        }
+        return true
+    }
+
+    override fun dispatchDraw(c: Canvas) {
+        super.dispatchDraw(c)
+        val n = pages.size
+        if (n < 2) return
+        val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
+        val dy = height - 7f * d
+        val total = n * 9f * d
+        for (i in 0 until n) {
+            val x = width / 2f - total / 2 + 4.5f * d + i * 9f * d
+            if (i == index) { p.style = Paint.Style.FILL; p.color = Color.parseColor("#2AA8FF"); c.drawCircle(x, dy, 3.2f * d, p) }
+            else { p.style = Paint.Style.STROKE; p.strokeWidth = 1.1f * d; p.color = ink; c.drawCircle(x, dy, 3f * d, p) }
+        }
     }
 }
