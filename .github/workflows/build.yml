@@ -50,5 +50,6 @@ jobs:
           APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
           NAME="FiskerBattery-build${{ github.run_number }}.apk"
           cp "$APK" "$NAME"
-          MSG=$(git log -1 --pretty=%B | head -c 1500)
+          # release notes: the commit message without the trailer lines (Claude-Session, Co-Authored-By)
+          MSG=$(git log -1 --pretty=%B | grep -v -i -E '^(Claude-Session|Co-Authored-By):' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' | head -c 1500)
           gh release create "build-${{ github.run_number }}" "$NAME" --target "${{ github.sha }}" --title "Build ${{ github.run_number }}" --notes "$MSG" --prerelease
