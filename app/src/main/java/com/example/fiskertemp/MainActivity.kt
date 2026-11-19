@@ -2157,10 +2157,13 @@ class MainActivity : Activity() {
             }
         }
         l2MediaBtn = flyChip("Media") {
-            val on = prefs().getBoolean("fullMedia", true) && mediaCard.visibility == View.VISIBLE
-            prefs().edit().putBoolean("fullMedia", !on).apply()
-            relayoutDash()
-            if (!on && mediaCard.visibility != View.VISIBLE) toast("No room for the media card at this screen size")
+            val shown = prefs().getBoolean("fullMedia", true) && mediaCard.visibility == View.VISIBLE
+            if (shown) { prefs().edit().putBoolean("fullMedia", false).apply(); relayoutDash() }
+            else {
+                if (!prefs().getBoolean("fullMedia", true)) { prefs().edit().putBoolean("fullMedia", true).apply(); relayoutDash() }
+                // no room for the full card (small window): show the Media page of the card on the right instead
+                if (mediaCard.visibility != View.VISIBLE && ::rightPager.isInitialized) rightPager.show(3)
+            }
         }
         NavState.onChange = { for (ps in pageSets) ps.nav.refresh() }
         Thread { rootRun("cmd notification allow_listener " + NavListener.component(this)) }.start()
@@ -6687,12 +6690,12 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         // ---- cabin (everything below sits 130 lower)
         canvas.translate(0f, 142f)
         path.reset()
-        path.moveTo(52f, 12f); path.lineTo(248f, 12f); path.quadTo(280f, 12f, 280f, 50f); path.lineTo(280f, 422f); path.quadTo(280f, 460f, 248f, 460f)
-        path.lineTo(52f, 460f); path.quadTo(20f, 460f, 20f, 422f); path.lineTo(20f, 50f); path.quadTo(20f, 12f, 52f, 12f); path.close()
-        p.style = Paint.Style.FILL; p.shader = LinearGradient(0f, 12f, 0f, 460f, 0xFF14213B.toInt(), 0xFF0B1426.toInt(), Shader.TileMode.CLAMP); canvas.drawPath(path, p); p.shader = null
+        path.moveTo(52f, -10f); path.lineTo(248f, -10f); path.quadTo(280f, -10f, 280f, 40f); path.lineTo(280f, 422f); path.quadTo(280f, 460f, 248f, 460f)
+        path.lineTo(52f, 460f); path.quadTo(20f, 460f, 20f, 422f); path.lineTo(20f, 40f); path.quadTo(20f, -10f, 52f, -10f); path.close()
+        p.style = Paint.Style.FILL; p.shader = LinearGradient(0f, -10f, 0f, 460f, 0xFF14213B.toInt(), 0xFF0B1426.toInt(), Shader.TileMode.CLAMP); canvas.drawPath(path, p); p.shader = null
         strokeP(0xFF1B2540.toInt(), 3f); canvas.drawPath(path, p)
         val wsPath = Path()
-        wsPath.moveTo(36f, 63f); wsPath.cubicTo(38f, 42f, 50f, 24f, 84f, 19f); wsPath.quadTo(150f, 11f, 216f, 19f); wsPath.cubicTo(250f, 24f, 262f, 42f, 264f, 63f); wsPath.close()
+        wsPath.moveTo(34f, 63f); wsPath.cubicTo(34f, 34f, 48f, 2f, 84f, -5f); wsPath.quadTo(150f, -15f, 216f, -5f); wsPath.cubicTo(252f, 2f, 266f, 34f, 266f, 63f); wsPath.close()
         fillP(Color.argb(26, 120, 180, 255)); canvas.drawPath(wsPath, p); strokeP(Color.argb(90, 160, 200, 255), 1.2f); canvas.drawPath(wsPath, p)
         path.reset(); path.moveTo(44f, 450f); path.lineTo(256f, 450f); path.lineTo(264f, 430f); path.lineTo(36f, 430f); path.close()
         fillP(Color.argb(20, 120, 180, 255)); canvas.drawPath(path, p); strokeP(Color.argb(76, 160, 200, 255), 1.2f); canvas.drawPath(path, p)
@@ -6756,7 +6759,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             path.reset(); path.moveTo(44f, 450f); path.lineTo(256f, 450f); path.lineTo(264f, 430f); path.lineTo(36f, 430f); path.close()
             fillP(Color.argb(110, 255, 50, 50)); canvas.drawPath(path, p)
         }
-        carZone(36f, 12f, 264f, 66f, 10); carZone(36f, 430f, 264f, 452f, 11)
+        carZone(36f, -8f, 264f, 66f, 10); carZone(36f, 430f, 264f, 452f, 11)
 
         // ---- air streams
         if (flow) {

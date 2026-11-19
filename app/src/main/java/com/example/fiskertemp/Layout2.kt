@@ -156,9 +156,9 @@ class CarView(ctx: Context) : View(ctx) {
         val cw = 114f; val ch = cw * b.height / b.width
         val cl = cx - cw / 2f; val ct = 26f
         dst.set(cl, ct, cl + cw, ct + ch)
-        val sh = 0.78f + 0.22f * g + 0.07f * f
-        val topW = 1.02f - 0.08f * g - 0.02f * f
-        val botW = 0.96f + 0.10f * g + 0.02f * f
+        val sh = 1f + 0.07f * f
+        val topW = 0.94f - 0.02f * f
+        val botW = 1.06f + 0.02f * f
         val cyc = ct + ch / 2f
         quadDst[0] = cx - cw * topW / 2f; quadDst[1] = cyc - ch * sh / 2f
         quadDst[2] = cx + cw * topW / 2f; quadDst[3] = quadDst[1]
@@ -167,6 +167,8 @@ class CarView(ctx: Context) : View(ctx) {
         quadSrc[0] = cl; quadSrc[1] = ct; quadSrc[2] = cl + cw; quadSrc[3] = ct
         quadSrc[4] = cl + cw; quadSrc[5] = ct + ch; quadSrc[6] = cl; quadSrc[7] = ct + ch
         mat.setPolyToPoly(quadSrc, 0, quadDst, 0, 4)
+        if (g < 1f) drawTopDown(c, cx, (1f - g))
+        if (g > 0f) c.saveLayerAlpha(0f, 0f, 302f, 162f, (g * 255).toInt())
         c.save()
         c.concat(mat)
         c.drawBitmap(b, null, dst, p)
@@ -188,7 +190,7 @@ class CarView(ctx: Context) : View(ctx) {
             }
         }
         // small grey lines on the strip of rear tyre that shows, turning with the road
-        if (shown > 0f) {
+        if (shown > 0f && g > 0f) {
             val sx = cw / 114f; val sy = ch / 104f
             tyrePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(2f, 1.6f), (roadOff * 0.2f) % 4f)
             val xs = floatArrayOf(17.4f, 19.6f, 94.4f, 96.6f); val ds = floatArrayOf(-1f, -1f, 1f, 1f)
@@ -198,10 +200,61 @@ class CarView(ctx: Context) : View(ctx) {
             c.restore()
         }
         c.restore()
+        if (g > 0f) c.restore()
         c.restore()
         if (leftInd || rightInd) postInvalidateDelayed(120)
         animating = shown > 0f || target > 0f
         if (animating) postInvalidateDelayed(30)
+    }
+
+    private val tdPath = Path()
+    private val tdRect = RectF()
+    /** The car seen from straight above (front at the top), in the paint colour; drawn at the given opacity when parked. */
+    private fun drawTopDown(c: Canvas, cx: Float, a: Float) {
+        val a255 = (a.coerceIn(0f, 1f) * 255).toInt()
+        c.saveLayerAlpha(0f, 0f, 302f, 162f, a255)
+        val col = CAR_PAINTS[paintIdx].second
+        fun shade(k: Float) = Color.rgb((Color.red(col) * k).toInt().coerceIn(0, 255), (Color.green(col) * k).toInt().coerceIn(0, 255), (Color.blue(col) * k).toInt().coerceIn(0, 255))
+        val fl = Paint(Paint.ANTI_ALIAS_FLAG)
+        // tyres peeking out at the sides
+        fl.style = Paint.Style.FILL; fl.color = Color.rgb(20, 22, 26)
+        for (yy in floatArrayOf(36f, 118f)) for (sd in intArrayOf(-1, 1)) {
+            tdRect.set(cx + sd * 29.5f - 2.5f, yy, cx + sd * 29.5f + 2.5f, yy + 20f); c.drawRoundRect(tdRect, 2f, 2f, fl)
+        }
+        // body
+        tdPath.reset()
+        tdPath.moveTo(cx - 18f, 20f); tdPath.quadTo(cx, 15f, cx + 18f, 20f)
+        tdPath.cubicTo(cx + 27f, 28f, cx + 29f, 46f, cx + 29f, 68f); tdPath.lineTo(cx + 29f, 108f)
+        tdPath.cubicTo(cx + 29f, 130f, cx + 26f, 144f, cx + 18f, 151f); tdPath.quadTo(cx, 155f, cx - 18f, 151f)
+        tdPath.cubicTo(cx - 26f, 144f, cx - 29f, 130f, cx - 29f, 108f); tdPath.lineTo(cx - 29f, 68f)
+        tdPath.cubicTo(cx - 29f, 46f, cx - 27f, 28f, cx - 18f, 20f); tdPath.close()
+        fl.shader = LinearGradient(cx - 29f, 0f, cx + 29f, 0f, intArrayOf(shade(0.55f), shade(1.05f), shade(1.2f), shade(1.05f), shade(0.55f)), floatArrayOf(0f, 0.25f, 0.5f, 0.75f, 1f), Shader.TileMode.CLAMP)
+        c.drawPath(tdPath, fl); fl.shader = null
+        fl.style = Paint.Style.STROKE; fl.strokeWidth = 0.8f; fl.color = shade(0.4f); c.drawPath(tdPath, fl)
+        // hood lines
+        fl.strokeWidth = 0.6f; fl.color = Color.argb(70, 255, 255, 255)
+        tdPath.reset(); tdPath.moveTo(cx - 10f, 24f); tdPath.cubicTo(cx - 12f, 36f, cx - 14f, 46f, cx - 16f, 54f); c.drawPath(tdPath, fl)
+        tdPath.reset(); tdPath.moveTo(cx + 10f, 24f); tdPath.cubicTo(cx + 12f, 36f, cx + 14f, 46f, cx + 16f, 54f); c.drawPath(tdPath, fl)
+        fl.style = Paint.Style.FILL
+        // windscreen, glass roof, rear window
+        fl.color = Color.rgb(16, 24, 40)
+        tdPath.reset(); tdPath.moveTo(cx - 22f, 80f); tdPath.cubicTo(cx - 21f, 68f, cx - 17f, 58f, cx - 12f, 54f); tdPath.quadTo(cx, 51f, cx + 12f, 54f)
+        tdPath.cubicTo(cx + 17f, 58f, cx + 21f, 68f, cx + 22f, 80f); tdPath.quadTo(cx, 75f, cx - 22f, 80f); tdPath.close(); c.drawPath(tdPath, fl)
+        fl.color = Color.rgb(26, 38, 62); tdRect.set(cx - 21f, 82f, cx + 21f, 112f); c.drawRoundRect(tdRect, 4f, 4f, fl)
+        fl.color = Color.rgb(16, 24, 40)
+        tdPath.reset(); tdPath.moveTo(cx - 20f, 114f); tdPath.quadTo(cx, 110f, cx + 20f, 114f); tdPath.cubicTo(cx + 19f, 122f, cx + 17f, 128f, cx + 15f, 132f)
+        tdPath.quadTo(cx, 135f, cx - 15f, 132f); tdPath.cubicTo(cx - 17f, 128f, cx - 19f, 122f, cx - 20f, 114f); tdPath.close(); c.drawPath(tdPath, fl)
+        // mirrors
+        fl.color = shade(0.8f)
+        for (sd in intArrayOf(-1, 1)) { tdRect.set(cx + sd * 33f - 4f, 68f, cx + sd * 33f + 4f, 78f); c.drawRoundRect(tdRect, 3f, 3f, fl) }
+        // tail lights across the back
+        fl.style = Paint.Style.STROKE; fl.strokeCap = Paint.Cap.ROUND
+        for (sd in intArrayOf(-1, 1)) {
+            tdPath.reset(); tdPath.moveTo(cx + sd * 25f, 140f); tdPath.cubicTo(cx + sd * 22f, 146f, cx + sd * 15f, 150f, cx + sd * 6f, 151f)
+            if (braking) { fl.color = Color.argb(110, 255, 40, 40); fl.strokeWidth = 4.5f; c.drawPath(tdPath, fl) }
+            fl.color = if (braking) Color.rgb(255, 50, 50) else Color.rgb(190, 40, 48); fl.strokeWidth = 1.6f; c.drawPath(tdPath, fl)
+        }
+        c.restore()
     }
 
     private fun tyreLine(c: Canvas, cl: Float, ct: Float, sx: Float, sy: Float, x: Float, d: Float) {
