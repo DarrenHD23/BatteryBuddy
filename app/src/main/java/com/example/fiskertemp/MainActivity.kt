@@ -6731,39 +6731,35 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     private fun drawSeat(r: RectF, who: Int, s: CanSnapshot) {
         val isz = r.width()
         val lvl = seatLevel(who, s)
-        val heat = Color.parseColor("#FF6A3D")
-        drawLiquidGlass(canvas, p, r, isz * 0.30f, dp(1f), if (lvl > 0) heat else null, glassBase)
+        drawLiquidGlass(canvas, p, r, isz * 0.30f, dp(1f), null, glassBase)
         val x0 = r.left; val y0 = r.top
         fun px(v: Float) = x0 + v * isz
         fun py(v: Float) = y0 + v * isz
         val white = Color.WHITE
-        // a side view of the seat, facing right: tilted headrest, leaning back, cushion reaching forward
-        p.shader = null; p.style = Paint.Style.FILL; p.color = white
-        canvas.save(); canvas.rotate(-14f, px(0.27f), py(0.20f))
-        canvas.drawRoundRect(RectF(px(0.19f), py(0.11f), px(0.36f), py(0.27f)), isz * 0.06f, isz * 0.06f, p)
-        canvas.restore()
+        // outlined side view of the seat, facing right
+        p.shader = null; p.style = Paint.Style.STROKE; p.color = white
+        p.strokeWidth = maxOf(1.5f, isz * 0.022f); p.strokeJoin = Paint.Join.ROUND; p.strokeCap = Paint.Cap.ROUND
         path.reset()
-        path.moveTo(px(0.17f), py(0.33f)); path.lineTo(px(0.35f), py(0.30f)); path.lineTo(px(0.46f), py(0.64f)); path.lineTo(px(0.27f), py(0.66f)); path.close()
-        canvas.drawPath(path, p)
-        p.style = Paint.Style.STROKE; p.strokeWidth = isz * 0.04f; p.strokeJoin = Paint.Join.ROUND; canvas.drawPath(path, p)
-        p.style = Paint.Style.FILL
-        canvas.drawRoundRect(RectF(px(0.25f), py(0.63f), px(0.74f), py(0.75f)), isz * 0.05f, isz * 0.05f, p)
-        canvas.drawRect(RectF(px(0.40f), py(0.74f), px(0.50f), py(0.79f)), p)
+        for (k in 0 until SEAT_OUTLINE.size / 2) {
+            val sx = px(SEAT_OUTLINE[2 * k]); val sy = py(SEAT_OUTLINE[2 * k + 1])
+            if (k == 0) path.moveTo(sx, sy) else path.lineTo(sx, sy)
+        }
+        path.close(); canvas.drawPath(path, p)
         // heat waves rising from the cushion: one to three
         if (lvl > 0) {
-            stroke(white, maxOf(1.4f, isz / d * 0.04f))
-            val hh = isz * 0.36f
-            for (i in 0 until lvl) {
-                val lx = px(0.54f + 0.10f * i)
-                val h0 = py(0.15f)
-                path.reset(); path.moveTo(lx, h0)
-                path.quadTo(lx + isz * 0.045f, h0 + hh * 0.25f, lx, h0 + hh * 0.5f)
-                path.quadTo(lx - isz * 0.045f, h0 + hh * 0.75f, lx, h0 + hh)
+            p.color = Color.parseColor("#FF7B7B"); p.strokeWidth = maxOf(1.6f, isz * 0.025f)
+            for (i in 0 until lvl.coerceAtMost(3)) {
+                val w = SEAT_WAVES[i]
+                path.reset()
+                for (k in 0 until w.size / 2) {
+                    val wx = px(w[2 * k]); val wy = py(w[2 * k + 1])
+                    if (k == 0) path.moveTo(wx, wy) else path.lineTo(wx, wy)
+                }
                 canvas.drawPath(path, p)
             }
         }
         // three dots under the seat show the level
-        p.style = Paint.Style.FILL
+        p.style = Paint.Style.FILL; p.strokeCap = Paint.Cap.BUTT
         for (i in 0 until 3) {
             p.color = if (i < lvl) white else Color.argb(90, 255, 255, 255)
             canvas.drawCircle(px(0.34f + 0.16f * i), py(0.89f), isz * 0.042f, p)
@@ -7484,3 +7480,13 @@ fun drawLiquidGlass(c: Canvas, p: Paint, r: RectF, cr: Float, u: Float, tint: In
     c.drawRoundRect(RectF(r.left + 0.65f * u, r.top + 0.65f * u, r.right - 0.65f * u, r.bottom - 0.65f * u), cr, cr, p)
     p.shader = null; p.style = Paint.Style.FILL
 }
+
+// heated-seat icon geometry (unit square), traced from the chosen design
+private val SEAT_OUTLINE = floatArrayOf(
+    0.118f, 0.083f, 0.107f, 0.096f, 0.100f, 0.132f, 0.106f, 0.198f, 0.111f, 0.213f, 0.112f, 0.229f, 0.225f, 0.637f, 0.231f, 0.651f, 0.237f, 0.677f, 0.256f, 0.726f, 0.288f, 0.777f, 0.325f, 0.808f, 0.350f, 0.820f, 0.361f, 0.821f, 0.371f, 0.827f, 0.767f, 0.827f, 0.794f, 0.812f, 0.820f, 0.780f, 0.837f, 0.741f, 0.851f, 0.699f, 0.859f, 0.655f, 0.858f, 0.637f, 0.853f, 0.628f, 0.837f, 0.616f, 0.818f, 0.610f, 0.750f, 0.610f, 0.593f, 0.636f, 0.579f, 0.641f, 0.562f, 0.641f, 0.544f, 0.647f, 0.526f, 0.647f, 0.506f, 0.654f, 0.422f, 0.654f, 0.400f, 0.639f, 0.396f, 0.628f, 0.395f, 0.591f, 0.385f, 0.526f, 0.359f, 0.453f, 0.340f, 0.418f, 0.315f, 0.380f, 0.236f, 0.285f, 0.239f, 0.231f, 0.235f, 0.201f, 0.223f, 0.165f, 0.211f, 0.139f, 0.194f, 0.116f, 0.162f, 0.088f, 0.141f, 0.080f, 0.124f, 0.080f
+)
+private val SEAT_WAVES = arrayOf(
+    floatArrayOf(0.518f, 0.205f, 0.516f, 0.218f, 0.512f, 0.230f, 0.506f, 0.243f, 0.500f, 0.255f, 0.495f, 0.267f, 0.490f, 0.280f, 0.488f, 0.292f, 0.488f, 0.305f, 0.490f, 0.317f, 0.494f, 0.330f, 0.498f, 0.342f, 0.503f, 0.354f, 0.507f, 0.367f, 0.508f, 0.379f, 0.508f, 0.392f, 0.505f, 0.404f, 0.500f, 0.417f, 0.494f, 0.429f, 0.488f, 0.441f, 0.483f, 0.454f, 0.479f, 0.466f, 0.478f, 0.479f, 0.479f, 0.491f, 0.482f, 0.503f, 0.486f, 0.516f, 0.491f, 0.528f, 0.495f, 0.541f, 0.498f, 0.553f, 0.499f, 0.566f, 0.497f, 0.578f),
+    floatArrayOf(0.629f, 0.187f, 0.627f, 0.199f, 0.623f, 0.211f, 0.618f, 0.224f, 0.612f, 0.236f, 0.606f, 0.249f, 0.602f, 0.261f, 0.599f, 0.274f, 0.599f, 0.286f, 0.601f, 0.298f, 0.605f, 0.311f, 0.609f, 0.323f, 0.614f, 0.336f, 0.618f, 0.348f, 0.620f, 0.361f, 0.619f, 0.373f, 0.617f, 0.385f, 0.612f, 0.398f, 0.606f, 0.410f, 0.600f, 0.423f, 0.595f, 0.435f, 0.591f, 0.448f, 0.589f, 0.460f, 0.590f, 0.472f, 0.593f, 0.485f, 0.597f, 0.497f, 0.602f, 0.510f, 0.607f, 0.522f, 0.610f, 0.535f, 0.611f, 0.547f, 0.609f, 0.559f),
+    floatArrayOf(0.741f, 0.169f, 0.739f, 0.181f, 0.735f, 0.194f, 0.729f, 0.206f, 0.723f, 0.219f, 0.718f, 0.231f, 0.713f, 0.244f, 0.711f, 0.256f, 0.711f, 0.268f, 0.713f, 0.281f, 0.716f, 0.293f, 0.721f, 0.306f, 0.726f, 0.318f, 0.729f, 0.331f, 0.731f, 0.343f, 0.731f, 0.355f, 0.728f, 0.368f, 0.723f, 0.380f, 0.718f, 0.393f, 0.711f, 0.405f, 0.706f, 0.418f, 0.702f, 0.430f, 0.701f, 0.442f, 0.702f, 0.455f, 0.705f, 0.467f, 0.709f, 0.480f, 0.714f, 0.492f, 0.718f, 0.505f, 0.721f, 0.517f, 0.722f, 0.529f, 0.721f, 0.542f)
+)
