@@ -6695,8 +6695,8 @@ class MediaCardView(ctx: Context) : View(ctx) {
             if (vizDraw) vizColBtn.set(vizBtn.left, vizBtn.bottom + dp(8f), vizBtn.right, vizBtn.bottom + dp(8f) + bs)
             // the Sources button is always in the third place, just below where the colour button is
             srcBtn.set(vizBtn.left, vizBtn.bottom + dp(16f) + bs, vizBtn.right, vizBtn.bottom + dp(16f) + 2 * bs)
-            // the favourites star sits beside it, on the visualizer side
-            if (rhd) favBtn.set(srcBtn.left - dp(6f) - bs, srcBtn.top, srcBtn.left - dp(6f), srcBtn.bottom) else favBtn.set(srcBtn.right + dp(6f), srcBtn.top, srcBtn.right + dp(6f) + bs, srcBtn.bottom)
+            // the favourites star sits beside it, on the text side (left of the Sources button; mirrored for right-hand drive)
+            if (rhd) favBtn.set(srcBtn.right + dp(6f), srcBtn.top, srcBtn.right + dp(6f) + bs, srcBtn.bottom) else favBtn.set(srcBtn.left - dp(6f) - bs, srcBtn.top, srcBtn.left - dp(6f), srcBtn.bottom)
             if (vizDraw) {
                 // real audio when the device allows it and sound is actually coming through, otherwise a simulated beat
                 var bands: FloatArray? = null
