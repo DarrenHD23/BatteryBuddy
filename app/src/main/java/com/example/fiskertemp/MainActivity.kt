@@ -3135,9 +3135,9 @@ class MainActivity : Activity() {
         }
         dashGaugeRow.getChildAt(1).let { (it.layoutParams as LinearLayout.LayoutParams).topMargin = if (l2) dp(2) else (if (brakeUnder) -dp(3) else 0) }
         if (l2) {
-            // middle column: the car drawing 140 x 90 dp centred, 50 dp under the top; the two cards 145 dp tall at the bottom of the row
-            (carView.layoutParams as LinearLayout.LayoutParams).apply { width = dp(140); height = dp(90); weight = 0f; topMargin = dp(50); gravity = Gravity.CENTER_HORIZONTAL }
-            (l2Mid.getChildAt(1).layoutParams as LinearLayout.LayoutParams).apply { width = -1; height = dp(145); weight = 0f; topMargin = dp(maxOf(l2RowH - 50 - 90 - 145, 0)); bottomMargin = 0 }
+            // middle column: the car and the road lines fill the top 162 dp (the car is drawn 114 x 104 dp inside it); the two cards 145 dp tall at the bottom of the row
+            (carView.layoutParams as LinearLayout.LayoutParams).apply { width = -1; height = dp(162); weight = 0f; topMargin = 0 }
+            (l2Mid.getChildAt(1).layoutParams as LinearLayout.LayoutParams).apply { width = -1; height = dp(145); weight = 0f; topMargin = dp(maxOf(l2RowH - 162 - 145, 0)); bottomMargin = 0 }
             carView.requestLayout(); l2Mid.getChildAt(1).requestLayout()
         }
         dashGaugeRow.requestLayout()
@@ -3870,7 +3870,7 @@ class MainActivity : Activity() {
         }
         val hd = s.headingDeg
         if (l2Applied) {
-            carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true)
+            carView.speedKmh = (s.speedKmh ?: 0.0).toFloat(); carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true)
             fun shortLabel(l: String) = when (l.lowercase()) { "distance driven" -> "Distance"; "energy consumed" -> "Energy"; "average speed" -> "Avg speed"; else -> l }
             val cells = tripCells(s, true).take(4).map { it.copy(label = shortLabel(it.label)) }
             for (ps in pageSets) {
@@ -3945,12 +3945,12 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Colour for the efficiency readout from Wh/km: green up to 100, through yellow and orange to red at 400 and above. */
+    /** Colour for the efficiency readout from Wh/km: dark green up to 100, light green at 200, yellow at 250, orange at 300, red at 400 and above. */
     private fun effTint(k: Double?): Int? {
         if (k == null) return null
         val wh = k * 10.0
-        val pos = doubleArrayOf(0.0, 100.0, 150.0, 200.0, 400.0)
-        val col = intArrayOf(Color.parseColor("#2ECC71"), Color.parseColor("#4FD66A"), Color.parseColor("#F2D338"), Color.parseColor("#FF9F1C"), Color.parseColor("#FF3B4E"))
+        val pos = doubleArrayOf(0.0, 100.0, 200.0, 250.0, 300.0, 400.0)
+        val col = intArrayOf(Color.parseColor("#14803F"), Color.parseColor("#22A455"), Color.parseColor("#A6E36B"), Color.parseColor("#F2D338"), Color.parseColor("#FF9F1C"), Color.parseColor("#FF3B4E"))
         if (wh <= pos[0]) return col[0]
         for (i in 1 until pos.size) if (wh <= pos[i]) {
             val t = ((wh - pos[i - 1]) / (pos[i] - pos[i - 1])).toFloat()
@@ -4303,7 +4303,7 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onDestroy() { EventLog.add("app stopped"); InApp.useExternal(); mediaWatcher?.stop(); try { btReceiver?.let { unregisterReceiver(it) } } catch (e: Exception) { }; pulse?.stop(); ui.removeCallbacksAndMessages(null); close(); super.onDestroy() }
+    override fun onDestroy() { EventLog.add("app stopped"); InApp.useExternal(); if (layoutRecreating) pulse?.saveTrip(); mediaWatcher?.stop(); try { btReceiver?.let { unregisterReceiver(it) } } catch (e: Exception) { }; pulse?.stop(); ui.removeCallbacksAndMessages(null); close(); super.onDestroy() }
 
     /** Send an AT or OBD command; read until the ELM '>' prompt (3 s timeout). */
     @Synchronized

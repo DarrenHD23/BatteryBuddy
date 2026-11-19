@@ -131,6 +131,15 @@ class PulseCan(
     @Volatile private var tripStartMs = System.currentTimeMillis()
     private var lastSpdNanos = 0L
 
+    // the trip counters survive the screen being rebuilt for a layout change (kept in memory for a minute)
+    init {
+        TripKeep.take()?.let { k ->
+            regenWh = k.regenWh; tripKm = k.tripKm; tripWh = k.tripWh; tripMoveSecs = k.moveSecs; tripStartMs = k.startMs
+            snap = snap.copy(regenKwh = regenWh / 1000.0, tripKm = tripKm, tripKwh = tripWh / 1000.0, tripMoveSecs = tripMoveSecs, tripStartMs = tripStartMs)
+        }
+    }
+    fun saveTrip() { TripKeep.put(TripKeep.Data(regenWh, tripKm, tripWh, tripMoveSecs, tripStartMs, System.currentTimeMillis())) }
+
     /** Start the trip again from zero: regen, distance, energy and time. */
     fun resetDrive() {
         regenWh = 0.0; tripKm = 0.0; tripWh = 0.0; tripMoveSecs = 0.0
@@ -936,4 +945,12 @@ object CanDiag {
         val r = Root.exec(cmd, 20)
         return "This app has received $frames frames.\nCounters: ${quick()}\n\n" + (if (r.ok) r.out else "no root: ${r.out}")
     }
+}
+
+/** Holds the trip counters for a moment while the activity is rebuilt (a layout change), so efficiency does not start again. */
+object TripKeep {
+    class Data(val regenWh: Double, val tripKm: Double, val tripWh: Double, val moveSecs: Double, val startMs: Long, val savedAt: Long)
+    @Volatile private var kept: Data? = null
+    fun put(d: Data) { kept = d }
+    fun take(): Data? { val d = kept; kept = null; return if (d != null && System.currentTimeMillis() - d.savedAt < 60_000L) d else null }
 }

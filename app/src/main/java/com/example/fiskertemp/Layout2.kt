@@ -97,24 +97,109 @@ class CarView(ctx: Context) : View(ctx) {
     private val brake by lazy { load(R.drawable.car_brake) }
     private val rev by lazy { load(R.drawable.car_reverse) }
 
+    /** Speed in km/h; the car tilts forward, the road lines run past on both sides and the rear tyre lines turn. */
+    var speedKmh = 0f
+    private var shown = 0f              // smoothed speed
+    private var roadOff = 0f            // how far the road has run
+    private var lastMs = 0L
+    private val cam = android.graphics.Camera()
+    private val mat = android.graphics.Matrix()
+    private val lanePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val lanePath = Path()
+    private val tyrePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Color.argb(128, 190, 196, 205); strokeWidth = 0.7f }
+    private val tyrePath = Path()
+    private val brakePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+    private val brakePath = Path()
+
+    /** Draws in a 302 x 162 unit space (the middle column); the car is 114 x 104 units, 15% bigger than before. */
     override fun onDraw(c: Canvas) {
         val w = width.toFloat(); val h = height.toFloat()
         val b = base ?: return
         if (w <= 0f || h <= 0f) return
-        val k = min(w / b.width, h / b.height)
-        val cw = b.width * k; val ch = b.height * k
-        dst.set((w - cw) / 2f, (h - ch) / 2f, (w + cw) / 2f, (h + ch) / 2f)
+        val now = SystemClock.uptimeMillis()
+        val dt = if (lastMs == 0L) 0f else ((now - lastMs) / 1000f).coerceIn(0f, 0.1f)
+        lastMs = now
+        val target = if (speedKmh < 1f) 0f else speedKmh.coerceAtMost(220f)
+        shown += (target - shown) * min(1f, dt * 4f)
+        if (target == 0f && shown < 0.5f) shown = 0f
+        roadOff += 200f * Math.pow((shown / 200f).toDouble(), 0.3).toFloat() * dt * 1.1f
+        val u = h / 162f
+        c.save()
+        c.translate((w - 302f * u) / 2f, 0f)
+        c.scale(u, u)
+        // road lines on both sides, wide at the rear of the car and narrow at the top
+        val hh = 162f; val smin = 0.45f; val per = 0.3f; val len = 0.15f; val cx = 151f; val half = 86f
+        for (side in intArrayOf(-1, 1)) {
+            for (k in -2..8) {
+                var z1 = 1f + k * per - (roadOff * 0.006f) % per
+                var z2 = z1 + len
+                z1 = Math.max(z1, 1f)
+                if (z2 <= 1f || z1 >= 1f / smin) continue
+                z2 = Math.min(z2, 1f / smin)
+                val s1 = 1f / z1; val s2 = 1f / z2
+                val y1 = hh * (s1 - smin) / (1f - smin); val y2 = hh * (s2 - smin) / (1f - smin)
+                val w1 = 3.4f * s1; val w2 = 3.4f * s2
+                val x1 = cx + side * half * s1; val x2 = cx + side * half * s2
+                lanePaint.color = Color.argb(((0.35f + 0.4f * s1) * 255).toInt().coerceIn(0, 255), 255, 255, 255)
+                lanePath.reset()
+                lanePath.moveTo(x1 - w1 / 2, y1); lanePath.lineTo(x1 + w1 / 2, y1); lanePath.lineTo(x2 + w2 / 2, y2); lanePath.lineTo(x2 - w2 / 2, y2); lanePath.close()
+                c.drawPath(lanePath, lanePaint)
+            }
+        }
+        // the car: 114 x 104 units, tilted forward up to about 8 degrees at 200 km/h
+        val f = (shown / 200f).coerceIn(0f, 1f)
+        val cw = 114f; val ch = cw * b.height / b.width
+        val cl = cx - cw / 2f; val ct = 26f
+        dst.set(cl, ct, cl + cw, ct + ch)
+        c.save()
+        if (f > 0.001f) {
+            cam.save()
+            cam.setLocation(0f, 0f, -260f / 72f)
+            cam.rotateX(f * 8f)
+            cam.getMatrix(mat)
+            cam.restore()
+            mat.preTranslate(-cx, -(ct + ch * 0.6f)); mat.postTranslate(cx, ct + ch * 0.6f - f * 2f)
+            c.concat(mat)
+        }
         c.drawBitmap(b, null, dst, p)
         if (highBeam) beam?.let { c.drawBitmap(it, null, dst, p) } else if (headlights) dipped?.let { c.drawBitmap(it, null, dst, p) }
-        if (braking) brake?.let { c.drawBitmap(it, null, dst, p) }
+        if (braking) {
+            brake?.let { c.drawBitmap(it, null, dst, p) }
+            // the upper brake light: a thin line, curved up slightly at the ends to follow the car
+            val bx = cl + 0.35f * cw; val bw = 0.30f * cw; val by = ct + 0.446f * ch; val bh = 0.034f * ch
+            brakePath.reset()
+            brakePath.moveTo(bx + 0.01f * bw, by + 0.2f * bh); brakePath.quadTo(bx + 0.5f * bw, by + 0.65f * bh * 1.0f, bx + 0.99f * bw, by + 0.2f * bh)
+            brakePaint.color = Color.argb(90, 255, 40, 40); brakePaint.strokeWidth = 2.6f; c.drawPath(brakePath, brakePaint)
+            brakePaint.color = Color.rgb(255, 42, 42); brakePaint.strokeWidth = 0.9f; c.drawPath(brakePath, brakePaint)
+        }
         if (reverse) rev?.let { c.drawBitmap(it, null, dst, p) }
         if (leftInd || rightInd) {
             if ((SystemClock.uptimeMillis() / 380) % 2 == 0L) {
                 if (leftInd) left?.let { c.drawBitmap(it, null, dst, p) }
                 if (rightInd) right?.let { c.drawBitmap(it, null, dst, p) }
             }
-            postInvalidateDelayed(120)
         }
+        // small grey lines on the strip of rear tyre that shows, turning with the road
+        if (shown > 0f) {
+            val sx = cw / 114f; val sy = ch / 104f
+            tyrePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(2f, 1.6f), (roadOff * 0.2f) % 4f)
+            val xs = floatArrayOf(17.4f, 19.6f, 94.4f, 96.6f); val ds = floatArrayOf(-1f, -1f, 1f, 1f)
+            for (i in xs.indices) tyreLine(c, cl, ct, sx, sy, xs[i], ds[i])
+            c.save(); c.clipRect(cl, ct + 90.2f * sy, cl + cw, ct + 94.6f * sy)
+            tyreLine(c, cl, ct, sx, sy, 15.2f, -1f); tyreLine(c, cl, ct, sx, sy, 98.8f, 1f)
+            c.restore()
+        }
+        c.restore()
+        c.restore()
+        if (leftInd || rightInd) postInvalidateDelayed(120)
+        if (shown > 0f || target > 0f) postInvalidateOnAnimation()
+    }
+
+    private fun tyreLine(c: Canvas, cl: Float, ct: Float, sx: Float, sy: Float, x: Float, d: Float) {
+        tyrePath.reset()
+        tyrePath.moveTo(cl + (x + d * 0.7f) * sx, ct + 88.5f * sy)
+        tyrePath.quadTo(cl + (x + d * 1.1f) * sx, ct + 92.5f * sy, cl + (x + d * 0.7f) * sx, ct + 96.5f * sy)
+        c.drawPath(tyrePath, tyrePaint)
     }
 }
 
