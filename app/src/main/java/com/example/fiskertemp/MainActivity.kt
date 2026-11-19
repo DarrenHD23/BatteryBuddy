@@ -790,6 +790,10 @@ class MainActivity : Activity() {
         if (!cautionAgreedThisRun) showCaution()
         applyEdgePadding()
         applyTheme(getSharedPreferences("prefs", MODE_PRIVATE).getInt("theme", 0).coerceIn(0, THEMES.size - 1))
+        if (prefs().getBoolean("reopenSettings", false)) {      // the layout was just changed from Settings: back to Settings
+            prefs().edit().remove("reopenSettings").apply()
+            ui.postDelayed({ if (!isFinishing && !isDestroyed) showSettings() }, 800)
+        }
     }
 
     // ------------------------------------------------------- Theme / settings
@@ -1520,13 +1524,18 @@ class MainActivity : Activity() {
         pickLowerApp(n)
     }
 
-    private fun chooseLayout(id: Int) {
-        prefs().edit().putInt("layout", id).apply()
+    private var layoutRecreating = false
+
+    /**
+     * The two layouts are independent: changing layout rebuilds the whole screen from scratch (as when the app starts), so neither
+     * can leave anything of itself behind in the other. Settings comes back up afterwards when it was opened from there.
+     */
+    private fun chooseLayout(id: Int, backToSettings: Boolean = false) {
+        if (prefs().getInt("layout", 1) == id) return
+        prefs().edit().putInt("layout", id).putBoolean("reopenSettings", backToSettings).apply()
         EventLog.add("layout style: " + (if (id == 2) "Layout 2" else "Original"))
-        relayoutDash()
-        // the views are re-parented by the first pass and only have their real sizes afterwards: run it again once they are laid out
-        // (this is what going to split screen and back was doing)
-        ui.post { relayoutDash(); ui.postDelayed({ relayoutDash(); if (::lowerBox.isInitialized) lowerBox.requestLayout() }, 350) }
+        layoutRecreating = true
+        recreate()
     }
 
     private fun showLayoutPicker(backToSettings: Boolean = false) {
@@ -1550,12 +1559,12 @@ class MainActivity : Activity() {
                     LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
                 addView(TextView(context).apply { text = name + if (sel) "  \u2713" else ""; textSize = 16f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD; setPadding(0, dp(8), 0, 0) })
                 addView(TextView(context).apply { text = note; textSize = 12f; setTextColor(Color.parseColor("#B8C2D0")) })
-                setOnClickListener { chooseLayout(id); d.dismiss() }
+                setOnClickListener { chooseLayout(id, backToSettings); d.dismiss() }
             }
             col.addView(card, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(12) })
         }
         d = darkDialog().setTitle("Layout").setView(ScrollView(this).apply { addView(col) }).setNegativeButton("Close", null).create()
-        if (backToSettings) d.setOnDismissListener { ui.post { showSettings() } }   // opened from Settings: go back there, not to the dashboard
+        if (backToSettings) d.setOnDismissListener { if (!layoutRecreating) ui.post { showSettings() } }   // opened from Settings: go back there, not to the dashboard
         d.show()
         styleDark(d)
     }
