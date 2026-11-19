@@ -113,8 +113,8 @@ class CompassCardView(ctx: Context) : View(ctx) {
         val titleB = 8f * d + p.textSize * 1.2f
         val bigSz = min(30f * d, h * 0.14f); val smallSz = min(17f * d, h * 0.085f)
         val textH = bigSz + smallSz * 1.2f + 4f * d
-        val r = (min(w * 0.40f, (h - titleB - textH - 14f * d) / 2f)).coerceAtLeast(10f * d)
-        val cx = w / 2f; val cy = titleB + 6f * d + r
+        val r = (min(w * 0.34f, (h - titleB - textH - 37f * d) / 2.24f)).coerceAtLeast(10f * d)
+        val cx = w / 2f; val cy = titleB + 20f * d + 1.12f * r
         // dial
         p.style = Paint.Style.STROKE; p.strokeWidth = 1.2f * d; p.color = Color.argb(150, if (day) 20 else 255, if (day) 32 else 255, if (day) 46 else 255)
         c.drawCircle(cx, cy, r, p)
@@ -402,8 +402,8 @@ class PagerCardView(ctx: Context) : android.widget.FrameLayout(ctx) {
 
     init { setWillNotDraw(false); clipChildren = true }
 
-    fun setPages(list: List<View>) {
-        val keepIndex = index
+    fun setPages(list: List<View>, start: Int = -1) {
+        val keepIndex = if (start >= 0) start else index
         removeAllViews()
         pages = list
         for (v in list) addView(v, LayoutParams(-1, -1).apply { bottomMargin = (14f * d).toInt() })
@@ -457,6 +457,61 @@ class PagerCardView(ctx: Context) : android.widget.FrameLayout(ctx) {
             val x = width / 2f - total / 2 + 4.5f * d + i * 9f * d
             if (i == index) { p.style = Paint.Style.FILL; p.color = Color.parseColor("#2AA8FF"); c.drawCircle(x, dy, 3.2f * d, p) }
             else { p.style = Paint.Style.STROKE; p.strokeWidth = 1.1f * d; p.color = ink; c.drawCircle(x, dy, 3f * d, p) }
+        }
+    }
+}
+
+class ActionTile(val glyph: String, val label: String, val onTap: () -> Unit)
+
+/** A card of big buttons (Settings, Screen size, Hide, Exit ...), one per row, used as a page of the swipe cards. */
+class ActionCardView(ctx: Context) : View(ctx) {
+    var day = false
+        set(v) { if (field != v) { field = v; invalidate() } }
+    var provider: (() -> List<ActionTile>)? = null
+    private val d = ctx.resources.displayMetrics.density
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val rects = ArrayList<RectF>()
+    private var shown: List<ActionTile> = emptyList()
+    private val gd = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onDown(e: MotionEvent) = true
+        override fun onSingleTapUp(e: MotionEvent): Boolean {
+            for ((i, r) in rects.withIndex()) if (r.contains(e.x, e.y)) { shown.getOrNull(i)?.onTap?.invoke(); invalidate(); return true }
+            return true
+        }
+    })
+    override fun onTouchEvent(e: MotionEvent): Boolean = gd.onTouchEvent(e)
+
+    override fun onDraw(c: Canvas) {
+        val w = width.toFloat(); val h = height.toFloat()
+        if (w <= 0f || h <= 0f) return
+        val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
+        drawCardBg(c, p, RectF(0f, 0f, w, h), 22f * d, day, d)
+        p.textAlign = Paint.Align.CENTER; p.style = Paint.Style.FILL
+        p.color = ink; p.typeface = Typeface.DEFAULT_BOLD; p.textSize = min(20f * d, h * 0.11f)
+        c.drawText("Controls", w / 2, 8f * d + p.textSize * 0.9f, p)
+        val top = 8f * d + p.textSize * 1.3f
+        shown = provider?.invoke() ?: emptyList()
+        val n = shown.size
+        if (n == 0) return
+        val gap = 5f * d; val pad = 10f * d
+        val th = ((h - top - pad - gap * (n - 1)) / n).coerceAtMost(46f * d)
+        rects.clear()
+        for ((i, t) in shown.withIndex()) {
+            val r = RectF(pad, top + i * (th + gap), w - pad, top + i * (th + gap) + th)
+            rects.add(r)
+            p.style = Paint.Style.FILL; p.shader = null
+            p.color = if (day) Color.argb(70, 20, 40, 70) else Color.argb(60, 255, 255, 255)
+            c.drawRoundRect(r, 12f * d, 12f * d, p)
+            p.color = ink; p.typeface = Typeface.DEFAULT_BOLD
+            p.textSize = min(th * 0.5f, 18f * d)
+            p.textAlign = Paint.Align.CENTER
+            c.drawText(t.glyph, r.left + th * 0.6f, r.centerY() + p.textSize * 0.35f, p)
+            p.typeface = Typeface.DEFAULT; p.textAlign = Paint.Align.LEFT
+            p.textSize = min(th * 0.42f, 15f * d)
+            var lab = t.label
+            val maxW = r.width() - th * 1.2f - 6f * d
+            if (p.measureText(lab) > maxW) { while (lab.length > 1 && p.measureText("$lab\u2026") > maxW) lab = lab.dropLast(1); lab = "$lab\u2026" }
+            c.drawText(lab, r.left + th * 1.2f, r.centerY() + p.textSize * 0.35f, p)
         }
     }
 }

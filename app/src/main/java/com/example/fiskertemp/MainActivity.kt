@@ -1470,25 +1470,28 @@ class MainActivity : Activity() {
     }
 
     /** The shortcut tiles are the apps chosen for the lower buttons, plus an Add app tile. */
-    private fun refreshShortcuts() {
-        if (!::shortcutsCard.isInitialized) return
+    private fun refreshShortcuts(first: Boolean = false) {
+        if (!::pageSets.isInitialized || !::rightPager.isInitialized) return
         val tiles = ArrayList<ShortTile>()
         for (i in 0 until maxSlots) {
             val pkg = slotPkg(i)
             if (pkg.isNotEmpty()) tiles.add(ShortTile(appLabelOf(pkg), try { packageManager.getApplicationIcon(pkg) } catch (e: Exception) { null }, i))
         }
         tiles.add(ShortTile("Add app", null, -1))
-        shortcutsCard.setTiles(tiles)
-        // the right-hand pager: the media card, then one page per four shortcut tiles
         val n = maxOf(1, (tiles.size + 3) / 4)
-        while (shortcutPages.size < n) shortcutPages.add(ShortcutsCardView(this).apply {
-            embedded = true
-            onTile = { t -> if (t.slot < 0) addShortcutApp() else openLower(t.slot) }
-            onLong = { t -> pickLowerApp(t.slot) }
-        })
-        while (shortcutPages.size > n) shortcutPages.removeAt(shortcutPages.size - 1)
-        for ((i, v) in shortcutPages.withIndex()) { v.setTiles(tiles); v.showPage(i); v.day = dashDay }
-        rightPager.setPages(listOf<View>(l2Media) + shortcutPages)
+        for (ps in pageSets) {
+            while (ps.shorts.size < n) ps.shorts.add(ShortcutsCardView(this).apply {
+                embedded = true
+                onTile = { t -> if (t.slot < 0) addShortcutApp() else openLower(t.slot) }
+                onLong = { t -> pickLowerApp(t.slot) }
+            })
+            while (ps.shorts.size > n) ps.shorts.removeAt(ps.shorts.size - 1)
+            for ((i, v) in ps.shorts.withIndex()) { v.setTiles(tiles); v.showPage(i); v.day = dashDay }
+        }
+        // both cards cycle through the same pages: trip information, compass, navigation, media, the apps, then the controls
+        fun pages(ps: PageSet): List<View> = listOf<View>(ps.trip, ps.compass, ps.nav, ps.media) + ps.shorts + listOf<View>(ps.actions)
+        leftPager.setPages(pages(pageSets[0]), if (first) 1 else -1)
+        rightPager.setPages(pages(pageSets[1]), if (first) 3 else -1)
     }
 
     private fun addShortcutApp() {
@@ -1674,17 +1677,43 @@ class MainActivity : Activity() {
     // Layout 2: the middle column holds the car, a compass card and a shortcuts card
     private lateinit var l2Mid: LinearLayout
     private lateinit var carView: CarView
-    private lateinit var compassCard: CompassCardView
-    private lateinit var shortcutsCard: ShortcutsCardView
-    private lateinit var l2Trip: TripPanelView
-    private lateinit var l2Media: MediaCardView
-    private lateinit var l2Nav: NavCardView
+    private lateinit var pageSets: List<PageSet>
+    /** One copy of every page of the two swipe cards (a view can only be in one place, so each card has its own set). */
+    private inner class PageSet {
+        val trip = TripPanelView(this@MainActivity).apply {
+            cols = 2; title = "Trip Information"
+            onReset = { pulse?.resetDrive(); Toast.makeText(context, "Trip reset", Toast.LENGTH_SHORT).show() }
+        }
+        val compass = CompassCardView(this@MainActivity)
+        val nav = NavCardView(this@MainActivity).apply {
+            onTap = { try { packageManager.getLaunchIntentForPackage(NavState.MAPS)?.let { startActivity(it) } } catch (e: Exception) { } }
+        }
+        val media = MediaCardView(this@MainActivity).apply {
+            fullBleed = true
+            onPrev = { if (InApp.mode != InApp.EXTERNAL) InApp.prev() else mediaWatcher?.prev() }
+            onToggle = { if (InApp.mode != InApp.EXTERNAL) InApp.toggle() else mediaWatcher?.toggle() }
+            onNext = { if (InApp.mode != InApp.EXTERNAL) InApp.next() else mediaWatcher?.next() }
+            onSources = { showSources() }
+            onFavs = { showFavorites() }
+            onTap = { if (InApp.mode == InApp.EXTERNAL) openMusicApp(false) }
+        }
+        val shorts = ArrayList<ShortcutsCardView>()
+        val actions = ActionCardView(this@MainActivity).apply {
+            provider = {
+                listOf(ActionTile("\u2699", "Settings") { settingsBtn.performClick() },
+                    ActionTile("\u21C5", resBtn.text.toString()) { resBtn.performClick() },
+                    ActionTile("\u25A3", "Hide dashboard") { dashBtn.performClick() },
+                    ActionTile("\u2715", "Exit") { exitBtn.performClick() }) +
+                    (if (showSkinBtn()) listOf(ActionTile("\u2726", "Skin") { skinBtn.performClick() }) else emptyList())
+            }
+        }
+    }
     private lateinit var l2FlyBtn: TextView
     private var l2FlyOpen = false
     private val closeL2Fly = Runnable { l2FlyOpen = false; if (::btnBar.isInitialized && l2Applied) btnBar.visibility = View.GONE }
     private lateinit var leftPager: PagerCardView
     private lateinit var rightPager: PagerCardView
-    private val shortcutPages = ArrayList<ShortcutsCardView>()
+
     private var l2Applied = false
     private var ovLeftDp = 0
     private var ovRightDp = 0
@@ -2037,24 +2066,7 @@ class MainActivity : Activity() {
         }
         dashMid = mid
         carView = CarView(this)
-        compassCard = CompassCardView(this)
-        shortcutsCard = ShortcutsCardView(this).apply {
-            onTile = { t -> if (t.slot < 0) addShortcutApp() else openLower(t.slot) }
-            onLong = { t -> pickLowerApp(t.slot) }
-        }
-        l2Trip = TripPanelView(this).apply {
-            cols = 2; title = "Trip Information"
-            onReset = { pulse?.resetDrive(); Toast.makeText(context, "Trip reset", Toast.LENGTH_SHORT).show() }
-        }
-        l2Media = MediaCardView(this).apply {
-            fullBleed = true
-            onPrev = { if (InApp.mode != InApp.EXTERNAL) InApp.prev() else mediaWatcher?.prev() }
-            onToggle = { if (InApp.mode != InApp.EXTERNAL) InApp.toggle() else mediaWatcher?.toggle() }
-            onNext = { if (InApp.mode != InApp.EXTERNAL) InApp.next() else mediaWatcher?.next() }
-            onSources = { showSources() }
-            onFavs = { showFavorites() }
-            onTap = { if (InApp.mode == InApp.EXTERNAL) openMusicApp(false) }
-        }
+        pageSets = listOf(PageSet(), PageSet())
         l2FlyBtn = TextView(this).apply {
             text = "\u2699"; textSize = 20f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
             background = GradientDrawable().apply { setColor(Color.argb(150, 20, 24, 44)); shape = GradientDrawable.OVAL; setStroke(dp(1), Color.argb(150, 255, 255, 255)) }
@@ -2065,13 +2077,11 @@ class MainActivity : Activity() {
                 if (l2FlyOpen) { btnBar.bringToFront(); ui.postDelayed(closeL2Fly, 7000) }
             }
         }
-        l2Nav = NavCardView(this).apply {
-            onTap = { try { packageManager.getLaunchIntentForPackage(NavState.MAPS)?.let { startActivity(it) } } catch (e: Exception) { } }
-        }
-        NavState.onChange = { if (::l2Nav.isInitialized) l2Nav.refresh() }
+        NavState.onChange = { for (ps in pageSets) ps.nav.refresh() }
         Thread { rootRun("cmd notification allow_listener " + NavListener.component(this)) }.start()
-        leftPager = PagerCardView(this).apply { setPages(listOf(compassCard, l2Trip, l2Nav)) }
+        leftPager = PagerCardView(this)
         rightPager = PagerCardView(this)
+        refreshShortcuts(true)
         val l2Cards = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             addView(leftPager, LinearLayout.LayoutParams(0, -1, 1f).apply { rightMargin = dp(5) })
@@ -2177,7 +2187,7 @@ class MainActivity : Activity() {
             setPadding(dp(9), 0, dp(9), 0)
             background = chipBg(12)
             setOnClickListener {
-                if (l2Applied && ::rightPager.isInitialized) { rightPager.show(0); return@setOnClickListener }   // Layout 2: the Media page of the card on the right
+                if (l2Applied && ::rightPager.isInitialized) { rightPager.show(3); return@setOnClickListener }   // Layout 2: the Media page of the card on the right
                 if (fullOrderNow) {
                     // full screen: the media card and the Climate panel toggle independently and never overlap
                     prefs().edit().putBoolean("fullMedia", !prefs().getBoolean("fullMedia", true)).apply()
@@ -2420,10 +2430,11 @@ class MainActivity : Activity() {
         if (!::mediaCard.isInitialized || !::mediaPopup.isInitialized) return
         val m = InApp.mode
         mediaCard.srcMode = m; mediaPopup.srcMode = m
-        if (::l2Media.isInitialized) {
-            l2Media.srcMode = m; l2Media.rhd = prefs().getBoolean("rhd", false)
-            if (m != InApp.EXTERNAL) l2Media.update(InApp.title, InApp.artist, InApp.art, InApp.playing, InApp.hasSession)
-            else mediaWatcher.let { w -> if (w != null) l2Media.update(w.title, w.artist, w.art, w.playing, w.hasSession) else l2Media.update(null, null, null, false, false) }
+        if (::pageSets.isInitialized) for (ps in pageSets) {
+            val lm = ps.media
+            lm.srcMode = m; lm.rhd = prefs().getBoolean("rhd", false)
+            if (m != InApp.EXTERNAL) lm.update(InApp.title, InApp.artist, InApp.art, InApp.playing, InApp.hasSession)
+            else mediaWatcher.let { w -> if (w != null) lm.update(w.title, w.artist, w.art, w.playing, w.hasSession) else lm.update(null, null, null, false, false) }
         }
         if (m != InApp.EXTERNAL) {
             mediaCard.update(InApp.title, InApp.artist, InApp.art, InApp.playing, InApp.hasSession)
@@ -2743,7 +2754,7 @@ class MainActivity : Activity() {
         val midLevel = if (gaugeH >= 300) 0 else if (gaugeH >= 235) 1 else 2
         // in a tall window (full screen) the gauges stay at the top instead of being centred in all the free height
         val gb = (if (t.showStrip) base + t.strip + 4 else base) + t.row + 8 + tripOff
-        val topM = if (l2) 44 else if (midLevel > 0) 20 else 8
+        val topM = if (l2) 58 else if (midLevel > 0) 20 else 8
         val wantH = maxOf((wDp - 16) * 1.15f / 3f * 1.1f, 340f)
         val tall = hDp - gb - topM > wantH + 24f
         // the trip readouts sit in the middle column under the traffic light; rows by the height left there
@@ -2828,9 +2839,12 @@ class MainActivity : Activity() {
         dashClock.alignRight = rhd
         (dashClock.layoutParams as FrameLayout.LayoutParams).apply {
             width = dp(gaugeWdp.toInt() - 6); height = dp(clockH)
-            gravity = Gravity.TOP or (if (rhd) Gravity.END else Gravity.START)
+            // Layout 2: the clock goes over the gauge that has no speed sign
+            val clockRight = if (l2) prefs().getBoolean("speedLeft", false) else rhd
+            dashClock.alignRight = clockRight
+            gravity = Gravity.TOP or (if (clockRight) Gravity.END else Gravity.START)
             val ct = if (third && clockH == 24) 2 else topM
-            if (rhd) setMargins(0, dp(ct), dp(14), 0) else setMargins(dp(14), dp(ct), 0, 0)
+            if (clockRight) setMargins(0, dp(ct), dp(14), 0) else setMargins(dp(14), dp(ct), 0, 0)
         }
         dashClock.requestLayout()
         tripPanel.visibility = if (midRows > 0) View.VISIBLE else View.GONE
@@ -2891,7 +2905,7 @@ class MainActivity : Activity() {
         if (dashShown && wasFullOrder && !showMedia) {
             // leaving full screen for split screen: the Climate panel closes, and the media card stays up as the floating card
             climateView.visibility = View.GONE
-            if (prefs().getBoolean("fullMedia", true)) ui.post {
+            if (!l2 && prefs().getBoolean("fullMedia", true)) ui.post {
                 if (dashShown && !fullOrderNow) {
                     ensureMediaWatcher(); mediaWatcher?.start()
                     placeMediaPopup()
@@ -3062,6 +3076,13 @@ class MainActivity : Activity() {
         dashBrake.textSize = if (midLevel == 2) 11f else if (short) 13f else 16f
         (dashBrake.layoutParams as? LinearLayout.LayoutParams)?.apply { topMargin = dp(if (brakeUnder) 1 else if (midLevel == 2) 3 else 8) }
         dashBrake.setPadding(dp(if (short) 10 else 18), dp(if (midLevel == 2) 1 else 4), dp(if (short) 10 else 18), dp(if (midLevel == 2) 1 else 4))
+        if (l2) {
+            // READY and the brake-light note sit one above the other at the top centre, clear of the car and the cards
+            dashReady.textSize = 15f; dashReady.letterSpacing = 0.18f
+            dashBrake.textSize = 12f; dashBrake.text = "Brake light on"; dashBrake.setPadding(dp(12), dp(2), dp(12), dp(2))
+            (dashReady.layoutParams as? FrameLayout.LayoutParams)?.apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(4) }
+            (dashBrake.layoutParams as? FrameLayout.LayoutParams)?.apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(30) }
+        }
         (dashSign.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 38 else if (short) 48 else 64); height = dp(if (midLevel == 2) 38 else if (short) 48 else 64) }
         poolBar.requestLayout(); lowerBox.requestLayout()
         dashSignSrc.visibility = if (midLevel == 0) View.VISIBLE else View.GONE
@@ -3665,7 +3686,7 @@ class MainActivity : Activity() {
                 .setStartDelay(if (wantSign && lightEnded) 700L else 0L)
                 .setDuration(if (wantSign) 300L else 250L).start()
         }
-        if (readyBeside) {
+        if (readyBeside && !l2Applied) {
             val rlp = dashReady.layoutParams as? FrameLayout.LayoutParams
             val g = if (!wantSign && !seen) Gravity.CENTER else (Gravity.CENTER_VERTICAL or Gravity.START)
             if (rlp != null && rlp.gravity != g) { rlp.gravity = g; rlp.leftMargin = if (g == Gravity.CENTER) 0 else dp(4); dashReady.layoutParams = rlp }
@@ -3683,9 +3704,15 @@ class MainActivity : Activity() {
             dashMode.visibility = View.VISIBLE
         }
         val hd = s.headingDeg
-        if (l2Applied) { compassCard.heading = hd; compassCard.day = dashDay; shortcutsCard.day = dashDay; carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true)
-            l2Trip.day = dashDay; l2Trip.setCells(tripCells(s, true).take(4)); leftPager.day = dashDay; rightPager.day = dashDay; l2Nav.day = dashDay
-            for (v in shortcutPages) v.day = dashDay }
+        if (l2Applied) {
+            carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true)
+            val cells = tripCells(s, true).take(4)
+            for (ps in pageSets) {
+                ps.compass.heading = hd; ps.compass.day = dashDay; ps.trip.day = dashDay; ps.trip.setCells(cells); ps.nav.day = dashDay; ps.actions.day = dashDay
+                for (v in ps.shorts) v.day = dashDay
+            }
+            leftPager.day = dashDay; rightPager.day = dashDay
+        }
         dashHeading.text = if (hd == null) "" else {
             val names = arrayOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
             "${names[((hd + 22.5) / 45.0).toInt() % 8]}  ${hd.toInt()}\u00B0"
