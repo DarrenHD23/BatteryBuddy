@@ -2057,6 +2057,7 @@ class MainActivity : Activity() {
             onToggle = { if (InApp.mode != InApp.EXTERNAL) InApp.toggle() else mediaWatcher?.toggle(); ui.removeCallbacks(hideMediaPopup) }
             onNext = { if (InApp.mode != InApp.EXTERNAL) InApp.next() else mediaWatcher?.next(); ui.removeCallbacks(hideMediaPopup) }
             onSources = { ui.removeCallbacks(hideMediaPopup); showSources() }
+            onFavs = { ui.removeCallbacks(hideMediaPopup); showFavorites() }
             onTap = { ui.removeCallbacks(hideMediaPopup); if (InApp.mode == InApp.EXTERNAL) openMusicApp(false) }   // the card stays on screen
         }
         f.addView(mediaPopup, FrameLayout.LayoutParams(-1, dp(132), Gravity.BOTTOM).apply { setMargins(dp(8), 0, dp(8), dp(66)) })
@@ -2066,6 +2067,7 @@ class MainActivity : Activity() {
             onToggle = { if (InApp.mode != InApp.EXTERNAL) InApp.toggle() else mediaWatcher?.toggle() }
             onNext = { if (InApp.mode != InApp.EXTERNAL) InApp.next() else mediaWatcher?.next() }
             onSources = { showSources() }
+            onFavs = { showFavorites() }
             onTap = { if (InApp.mode == InApp.EXTERNAL) openMusicApp(false) }
         }
         f.addView(mediaCard, FrameLayout.LayoutParams(-1, dp(132), Gravity.BOTTOM).apply { setMargins(dp(8), 0, dp(8), dp(200)) })
@@ -2313,6 +2315,57 @@ class MainActivity : Activity() {
         }.start()
     }
 
+
+    /** Rows of stations: a star (tap to make it a favourite), the logo, the name and details. */
+    private fun stationAdapter(getItems: () -> List<Station>, onStar: (Station) -> Unit): BaseAdapter = object : BaseAdapter() {
+        override fun getCount() = getItems().size
+        override fun getItem(i: Int): Any = getItems()[i]
+        override fun getItemId(i: Int) = i.toLong()
+        override fun getView(i: Int, convert: View?, parent: ViewGroup?): View {
+            val s = getItems()[i]
+            val row = (convert as? LinearLayout) ?: LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(0), dp(8), dp(4), dp(8))
+                val starView = TextView(this@MainActivity).apply { textSize = 26f; gravity = Gravity.CENTER }
+                addView(starView, LinearLayout.LayoutParams(dp(44), dp(52)))
+                val pic = ImageView(this@MainActivity).apply {
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    background = GradientDrawable().apply { setColor(Color.parseColor("#2F3A52")); cornerRadius = dp(8).toFloat() }
+                    clipToOutline = true
+                }
+                addView(pic, LinearLayout.LayoutParams(dp(52), dp(52)))
+                val col = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
+                col.addView(TextView(this@MainActivity).apply { setTextColor(Color.WHITE); textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.END })
+                col.addView(TextView(this@MainActivity).apply { setTextColor(Color.parseColor("#9AA5B8")); textSize = 12f; setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.END })
+                addView(col, LinearLayout.LayoutParams(0, -2, 1f).apply { setMargins(dp(12), 0, 0, 0) })
+            }
+            val starView = row.getChildAt(0) as TextView
+            val pic = row.getChildAt(1) as ImageView
+            val col = row.getChildAt(2) as LinearLayout
+            val fav = Favs.has(this@MainActivity, s)
+            starView.text = if (fav) "\u2605" else "\u2606"
+            starView.setTextColor(if (fav) Color.parseColor("#FFC83D") else Color.parseColor("#8A94A6"))
+            starView.setOnClickListener { onStar(s); notifyDataSetChanged() }
+            (col.getChildAt(0) as TextView).text = s.name
+            (col.getChildAt(1) as TextView).text = s.info
+            pic.setImageDrawable(null); pic.tag = s.logo
+            if (s.logo.isNotEmpty()) Logos.load(s.logo, 120) { b -> if (pic.tag == s.logo && b != null) pic.setImageBitmap(b) }
+            return row
+        }
+    }
+
+    /** The yellow star on the media card: a list of the favourite stations to play one from. */
+    private fun showFavorites() {
+        var favs = Favs.load(this)
+        if (favs.isEmpty()) { toast("No favourite stations yet. Open Internet Radio and tap the star beside a station."); return }
+        val list = ListView(this).apply { divider = ColorDrawable(Color.parseColor("#3A4150")); dividerHeight = 1; setPadding(dp(8), 0, dp(8), 0) }
+        list.adapter = stationAdapter({ favs }) { st -> Favs.toggle(this, st); favs = Favs.load(this) }
+        val dlg = darkDialog().setTitle("Favourite stations").setView(list).setNegativeButton("Close", null).showDark()
+        list.setOnItemClickListener { _, _, pos, _ ->
+            val pick = favs
+            if (pos < pick.size) { pauseExternalMusic(); InApp.playStations(pick, pos); refreshMediaCards(); dlg.dismiss() }
+        }
+    }
+
     /** The station list: the most popular stations first, a search box and a few genres, each with its logo. */
     private fun showRadioPicker() {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(4), dp(12), 0) }
@@ -2330,34 +2383,7 @@ class MainActivity : Activity() {
         box.addView(list, LinearLayout.LayoutParams(-1, (resources.displayMetrics.heightPixels * 0.5f).toInt()))
 
         var items: List<Station> = emptyList()
-        val adapter = object : BaseAdapter() {
-            override fun getCount() = items.size
-            override fun getItem(i: Int): Any = items[i]
-            override fun getItemId(i: Int) = i.toLong()
-            override fun getView(i: Int, convert: View?, parent: ViewGroup?): View {
-                val s = items[i]
-                val row = (convert as? LinearLayout) ?: LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(4), dp(8), dp(4), dp(8))
-                    val pic = ImageView(this@MainActivity).apply {
-                        scaleType = ImageView.ScaleType.CENTER_CROP
-                        background = GradientDrawable().apply { setColor(Color.parseColor("#2F3A52")); cornerRadius = dp(8).toFloat() }
-                        clipToOutline = true
-                    }
-                    addView(pic, LinearLayout.LayoutParams(dp(52), dp(52)))
-                    val col = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
-                    col.addView(TextView(this@MainActivity).apply { setTextColor(Color.WHITE); textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.END })
-                    col.addView(TextView(this@MainActivity).apply { setTextColor(Color.parseColor("#9AA5B8")); textSize = 12f; setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.END })
-                    addView(col, LinearLayout.LayoutParams(0, -2, 1f).apply { setMargins(dp(12), 0, 0, 0) })
-                }
-                val pic = row.getChildAt(0) as ImageView
-                val col = row.getChildAt(1) as LinearLayout
-                (col.getChildAt(0) as TextView).text = s.name
-                (col.getChildAt(1) as TextView).text = s.info
-                pic.setImageDrawable(null); pic.tag = s.logo
-                if (s.logo.isNotEmpty()) Logos.load(s.logo, 120) { b -> if (pic.tag == s.logo && b != null) pic.setImageBitmap(b) }
-                return row
-            }
-        }
+        val adapter = stationAdapter({ items }) { st -> Favs.toggle(this, st) }
         list.adapter = adapter
 
         var loadId = 0
@@ -6552,6 +6578,7 @@ class MediaCardView(ctx: Context) : View(ctx) {
     var onNext: (() -> Unit)? = null
     var onTap: (() -> Unit)? = null                  // a tap anywhere on the card that is not one of the three buttons
     var onSources: (() -> Unit)? = null              // the Sources button (wide card)
+    var onFavs: (() -> Unit)? = null                 // the yellow favourites star beside it
     var srcMode = 0                                  // 0 external player / Bluetooth, 1 local file, 2 internet radio
     var rhd = false                                   // right-hand drive: controls on the right
     private var title: String? = null
@@ -6566,7 +6593,7 @@ class MediaCardView(ctx: Context) : View(ctx) {
     private val rPrev = RectF(); private val rPlay = RectF(); private val rNext = RectF()
 
     // ---- visualizer (wide card only): on the right, tap it for the next style; the small button turns it on / off
-    private val vizRect = RectF(); private val vizBtn = RectF(); private val vizColBtn = RectF(); private val srcBtn = RectF()
+    private val vizRect = RectF(); private val vizBtn = RectF(); private val vizColBtn = RectF(); private val srcBtn = RectF(); private val favBtn = RectF()
     private var palNameAt = 0L
     private val painter = VizPainter(ctx.resources.displayMetrics.density)
     private val sp = ctx.getSharedPreferences("prefs", Context.MODE_PRIVATE)
@@ -6658,7 +6685,7 @@ class MediaCardView(ctx: Context) : View(ctx) {
             fitText(hint, tx, y2, 12f, Color.argb(150, 255, 255, 255), false, maxW)
         }
 
-        vizRect.setEmpty(); vizBtn.setEmpty(); vizColBtn.setEmpty(); srcBtn.setEmpty()
+        vizRect.setEmpty(); vizBtn.setEmpty(); vizColBtn.setEmpty(); srcBtn.setEmpty(); favBtn.setEmpty()
         if (wide) {
             val bs = dp(26f)
             if (rhd) vizRect.set(dp(12f), dp(12f), colX - dp(14f), h - dp(12f)) else vizRect.set(colX + colW + dp(14f), dp(12f), w - dp(12f), h - dp(12f))
@@ -6668,6 +6695,8 @@ class MediaCardView(ctx: Context) : View(ctx) {
             if (vizDraw) vizColBtn.set(vizBtn.left, vizBtn.bottom + dp(8f), vizBtn.right, vizBtn.bottom + dp(8f) + bs)
             // the Sources button is always in the third place, just below where the colour button is
             srcBtn.set(vizBtn.left, vizBtn.bottom + dp(16f) + bs, vizBtn.right, vizBtn.bottom + dp(16f) + 2 * bs)
+            // the favourites star sits beside it, on the visualizer side
+            if (rhd) favBtn.set(srcBtn.left - dp(6f) - bs, srcBtn.top, srcBtn.left - dp(6f), srcBtn.bottom) else favBtn.set(srcBtn.right + dp(6f), srcBtn.top, srcBtn.right + dp(6f) + bs, srcBtn.bottom)
             if (vizDraw) {
                 // real audio when the device allows it and sound is actually coming through, otherwise a simulated beat
                 var bands: FloatArray? = null
@@ -6716,6 +6745,20 @@ class MediaCardView(ctx: Context) : View(ctx) {
             path.reset(); path.moveTo(nx - bs * 0.02f, ny - bs * 0.24f); path.lineTo(nx + bs * 0.2f, ny - bs * 0.1f); path.lineTo(nx + bs * 0.2f, ny - bs * 0.02f); path.lineTo(nx - bs * 0.02f, ny - bs * 0.14f); path.close()
             c.drawPath(path, p)
             c.restore()
+            // the favourites button: a yellow star on a glass circle
+            c.saveLayerAlpha(RectF(favBtn.left - dp(8f), favBtn.top - dp(8f), favBtn.right + dp(8f), favBtn.bottom + dp(10f)), 190)
+            drawLiquidGlass(c, p, favBtn, bs / 2, dp(1f), null)
+            p.style = Paint.Style.FILL; p.shader = null; p.color = Color.parseColor("#FFC83D")
+            path.reset()
+            val sx = favBtn.centerX(); val sy = favBtn.centerY() + bs * 0.02f
+            for (k in 0 until 10) {
+                val ang = -Math.PI / 2 + k * Math.PI / 5
+                val rr = if (k % 2 == 0) bs * 0.31f else bs * 0.13f
+                val px = sx + (rr * Math.cos(ang)).toFloat(); val py = sy + (rr * Math.sin(ang)).toFloat()
+                if (k == 0) path.moveTo(px, py) else path.lineTo(px, py)
+            }
+            path.close(); c.drawPath(path, p)
+            c.restore()
         }
     }
 
@@ -6753,9 +6796,11 @@ class MediaCardView(ctx: Context) : View(ctx) {
             fun hit(r: RectF) = e.x >= r.left - s && e.x <= r.right + s && e.y >= r.top - s && e.y <= r.bottom + s
             when {
                 hit(rPlay) -> onToggle?.invoke(); hit(rPrev) -> onPrev?.invoke(); hit(rNext) -> onNext?.invoke()
+                !favBtn.isEmpty && favBtn.contains(e.x, e.y) -> onFavs?.invoke()
                 !srcBtn.isEmpty && srcBtn.contains(e.x, e.y) -> onSources?.invoke()
                 !vizColBtn.isEmpty && hit(vizColBtn) -> { vizPal = (vizPal + 1) % VizInfo.palettes.size; sp.edit().putInt("vizPal", vizPal).apply(); palNameAt = System.currentTimeMillis(); invalidate() }
                 !srcBtn.isEmpty && hit(srcBtn) -> onSources?.invoke()
+                !favBtn.isEmpty && hit(favBtn) -> onFavs?.invoke()
                 !vizBtn.isEmpty && hit(vizBtn) -> { vizOn = !vizOn; sp.edit().putBoolean("vizOn", vizOn).apply(); if (!vizOn) AudioViz.stop(); invalidate() }
                 !vizRect.isEmpty && vizOn && vizRect.contains(e.x, e.y) -> { vizStyle = (vizStyle + 1) % VizInfo.styles.size; sp.edit().putInt("vizStyle", vizStyle).apply(); invalidate() }
                 else -> onTap?.invoke()

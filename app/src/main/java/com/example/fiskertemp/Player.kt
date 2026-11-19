@@ -327,3 +327,35 @@ object Logos {
         }
     }
 }
+
+/** The user's favourite stations, kept in the app's settings. */
+object Favs {
+    private const val KEY = "radioFavs"
+
+    fun load(c: Context): MutableList<Station> {
+        val out = ArrayList<Station>()
+        try {
+            val arr = JSONArray(c.getSharedPreferences("prefs", Context.MODE_PRIVATE).getString(KEY, "[]"))
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                out.add(Station(o.optString("name"), o.optString("url"), o.optString("logo"), o.optString("info")))
+            }
+        } catch (e: Exception) { }
+        return out
+    }
+
+    private fun save(c: Context, list: List<Station>) {
+        val arr = JSONArray()
+        for (s in list) arr.put(org.json.JSONObject().put("name", s.name).put("url", s.url).put("logo", s.logo).put("info", s.info))
+        c.getSharedPreferences("prefs", Context.MODE_PRIVATE).edit().putString(KEY, arr.toString()).apply()
+    }
+
+    fun has(c: Context, s: Station): Boolean = load(c).any { it.url == s.url }
+
+    /** Adds the station, or takes it away if it is already a favourite. */
+    fun toggle(c: Context, s: Station) {
+        val l = load(c)
+        if (l.any { it.url == s.url }) l.removeAll { it.url == s.url } else l.add(s)
+        save(c, l)
+    }
+}
