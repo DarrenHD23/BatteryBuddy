@@ -6735,31 +6735,51 @@ class MediaCardView(ctx: Context) : View(ctx) {
                 p.alpha = 255
                 c.restore()
             }
-            // the Sources button: a music note on a glass circle, lit when our own player is the source
-            c.saveLayerAlpha(RectF(srcBtn.left - dp(8f), srcBtn.top - dp(8f), srcBtn.right + dp(8f), srcBtn.bottom + dp(10f)), 165)
-            drawLiquidGlass(c, p, srcBtn, bs / 2, dp(1f), if (srcMode != 0) Skins.look.accent else null)
-            p.style = Paint.Style.FILL; p.shader = null; p.color = Color.WHITE
-            val nx = srcBtn.centerX(); val ny = srcBtn.centerY()
-            c.drawOval(RectF(nx - bs * 0.22f, ny + bs * 0.06f, nx - bs * 0.02f, ny + bs * 0.22f), p)
-            c.drawRect(RectF(nx - bs * 0.06f, ny - bs * 0.24f, nx - bs * 0.02f, ny + bs * 0.14f), p)
-            path.reset(); path.moveTo(nx - bs * 0.02f, ny - bs * 0.24f); path.lineTo(nx + bs * 0.2f, ny - bs * 0.1f); path.lineTo(nx + bs * 0.2f, ny - bs * 0.02f); path.lineTo(nx - bs * 0.02f, ny - bs * 0.14f); path.close()
-            c.drawPath(path, p)
-            c.restore()
-            // the favourites button: a yellow star on a glass circle
-            c.saveLayerAlpha(RectF(favBtn.left - dp(8f), favBtn.top - dp(8f), favBtn.right + dp(8f), favBtn.bottom + dp(10f)), 190)
-            drawLiquidGlass(c, p, favBtn, bs / 2, dp(1f), null)
-            p.style = Paint.Style.FILL; p.shader = null; p.color = Color.parseColor("#FFC83D")
-            path.reset()
-            val sx = favBtn.centerX(); val sy = favBtn.centerY() + bs * 0.02f
-            for (k in 0 until 10) {
-                val ang = -Math.PI / 2 + k * Math.PI / 5
-                val rr = if (k % 2 == 0) bs * 0.31f else bs * 0.13f
-                val px = sx + (rr * Math.cos(ang)).toFloat(); val py = sy + (rr * Math.sin(ang)).toFloat()
-                if (k == 0) path.moveTo(px, py) else path.lineTo(px, py)
+            drawSrcFav(c, bs)
+        } else if (small) {
+            // a narrow card (split screen): the two buttons go on the right, in the free space beside the three round buttons; nothing else moves
+            val bs = dp(26f)
+            val free = w - rNext.right
+            if (free >= bs + dp(16f)) {
+                val mid = rNext.right + free / 2
+                if (free >= 2 * bs + dp(22f)) {
+                    favBtn.set(mid - dp(3f) - bs, cy - bs / 2, mid - dp(3f), cy + bs / 2)
+                    srcBtn.set(mid + dp(3f), cy - bs / 2, mid + dp(3f) + bs, cy + bs / 2)
+                } else {
+                    favBtn.set(mid - bs / 2, cy - bs - dp(2f), mid + bs / 2, cy - dp(2f))
+                    srcBtn.set(mid - bs / 2, cy + dp(2f), mid + bs / 2, cy + bs + dp(2f))
+                }
+                drawSrcFav(c, bs)
             }
-            path.close(); c.drawPath(path, p)
-            c.restore()
         }
+    }
+
+    /** The Sources button and the favourites star, drawn on their rectangles. [bs] is the button size. */
+    private fun drawSrcFav(c: Canvas, bs: Float) {
+        // the Sources button: a music note on a glass circle, lit when our own player is the source
+        c.saveLayerAlpha(RectF(srcBtn.left - dp(8f), srcBtn.top - dp(8f), srcBtn.right + dp(8f), srcBtn.bottom + dp(10f)), 165)
+        drawLiquidGlass(c, p, srcBtn, bs / 2, dp(1f), if (srcMode != 0) Skins.look.accent else null)
+        p.style = Paint.Style.FILL; p.shader = null; p.color = Color.WHITE
+        val nx = srcBtn.centerX(); val ny = srcBtn.centerY()
+        c.drawOval(RectF(nx - bs * 0.22f, ny + bs * 0.06f, nx - bs * 0.02f, ny + bs * 0.22f), p)
+        c.drawRect(RectF(nx - bs * 0.06f, ny - bs * 0.24f, nx - bs * 0.02f, ny + bs * 0.14f), p)
+        path.reset(); path.moveTo(nx - bs * 0.02f, ny - bs * 0.24f); path.lineTo(nx + bs * 0.2f, ny - bs * 0.1f); path.lineTo(nx + bs * 0.2f, ny - bs * 0.02f); path.lineTo(nx - bs * 0.02f, ny - bs * 0.14f); path.close()
+        c.drawPath(path, p)
+        c.restore()
+        // the favourites button: a yellow star on a glass circle
+        c.saveLayerAlpha(RectF(favBtn.left - dp(8f), favBtn.top - dp(8f), favBtn.right + dp(8f), favBtn.bottom + dp(10f)), 190)
+        drawLiquidGlass(c, p, favBtn, bs / 2, dp(1f), null)
+        p.style = Paint.Style.FILL; p.shader = null; p.color = Color.parseColor("#FFC83D")
+        path.reset()
+        val sx = favBtn.centerX(); val sy = favBtn.centerY() + bs * 0.02f
+        for (k in 0 until 10) {
+            val ang = -Math.PI / 2 + k * Math.PI / 5
+            val rr = if (k % 2 == 0) bs * 0.31f else bs * 0.13f
+            val px = sx + (rr * Math.cos(ang)).toFloat(); val py = sy + (rr * Math.sin(ang)).toFloat()
+            if (k == 0) path.moveTo(px, py) else path.lineTo(px, py)
+        }
+        path.close(); c.drawPath(path, p)
+        c.restore()
     }
 
     /** A transparent round glass button: soft drop shadow, a lit curved face, a bright top gloss and a rim lit from above. */
