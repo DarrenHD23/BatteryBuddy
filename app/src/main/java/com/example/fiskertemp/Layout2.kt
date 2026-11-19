@@ -142,7 +142,7 @@ class CarView(ctx: Context) : View(ctx) {
         lanePath.reset()
         lanePath.moveTo(cx - half * sTop, yTop); lanePath.lineTo(cx + half * sTop, yTop); lanePath.lineTo(cx + half, hh); lanePath.lineTo(cx - half, hh); lanePath.close()
         lanePaint.shader = if (ext > 0f) LinearGradient(0f, yTop, 0f, 0f, Color.argb(0, 200, 206, 216), Color.argb(48, 200, 206, 216), Shader.TileMode.CLAMP) else null
-        lanePaint.color = Color.argb(48, 200, 206, 216)
+        lanePaint.color = if (ext > 0f) Color.WHITE else Color.argb(48, 200, 206, 216)     // with the fade, the gradient carries the transparency
         c.drawPath(lanePath, lanePaint)
         lanePaint.shader = null
         for (side in intArrayOf(-1, 1)) {
