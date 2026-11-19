@@ -3167,11 +3167,20 @@ class MainActivity : Activity() {
         val l2GaugeH = gaugeWdp.toInt()
         val l2CircleB = topM + (l2GaugeH * 0.96f).toInt()
         val l2BarTop = l2CircleB + 4
-        val l2RowH = l2BarTop + 30 + 14 - topM + 70   // 70 dp taller: gauges, car and cards sit lower, the media card and Climate panel below them
+        var l2RowH = l2BarTop + 30 + 14 - topM + 70   // 70 dp taller: gauges, car and cards sit lower, the media card and Climate panel below them
+        // a third-height window (Layout 2 only): the cards end just above the stat rows, close under the car, and the gauges, battery bar and buttons move up with them
+        val l2Third = l2 && third
+        var l2CardsH = 145
+        if (l2Third) {
+            val limit = hDp - lowerBottom - 4
+            val cTop = maxOf(limit - 145, topM + 140)
+            l2CardsH = (limit - cTop).coerceIn(110, 145)
+            l2RowH = cTop + l2CardsH - topM
+        }
         for (gi in intArrayOf(0, 2)) (dashGaugeRow.getChildAt(gi).layoutParams as LinearLayout.LayoutParams).apply {
             height = if (l2) dp(l2GaugeH) else -1
             gravity = if (l2) Gravity.TOP else Gravity.NO_GRAVITY
-            topMargin = if (l2) dp(45) else 0
+            topMargin = if (l2) dp(if (third) 15 else 45) else 0
         }
         dashGaugeRow.getChildAt(1).let { (it.layoutParams as LinearLayout.LayoutParams).topMargin = if (l2) dp(2) else (if (brakeUnder) -dp(3) else 0) }
         dashPowerGauge.iconLevel = if (l2) (if (half) 2 else 1) else 0; dashPowerGauge.invalidate()
@@ -3181,7 +3190,7 @@ class MainActivity : Activity() {
         if (l2) {
             // middle column: the car and the road lines fill the top 162 dp (the car is drawn 114 x 104 dp inside it); the two cards 145 dp tall at the bottom of the row
             (carView.layoutParams as LinearLayout.LayoutParams).apply { width = -1; height = dp(162); weight = 0f; topMargin = 0 }
-            (l2Mid.getChildAt(1).layoutParams as LinearLayout.LayoutParams).apply { width = -1; height = dp(145); weight = 0f; topMargin = dp(maxOf(l2RowH - 162 - 145, 0)); bottomMargin = 0 }
+            (l2Mid.getChildAt(1).layoutParams as LinearLayout.LayoutParams).apply { width = -1; height = dp(l2CardsH); weight = 0f; topMargin = dp(if (l2Third) l2RowH - 162 - l2CardsH else maxOf(l2RowH - 162 - 145, 0)); bottomMargin = 0 }
             carView.requestLayout(); l2Mid.getChildAt(1).requestLayout()
         }
         dashGaugeRow.requestLayout()
@@ -3193,7 +3202,7 @@ class MainActivity : Activity() {
         }
         if (l2) {
             val speedLeft = prefs().getBoolean("speedLeft", false)
-            val rowBottomY = l2BarTop + 34 + 68      // battery bar and the Climate / Media buttons sit 68 dp lower
+            val rowBottomY = if (l2Third) topM + l2RowH - 12 else l2BarTop + 34 + 68      // battery bar and the Climate / Media buttons sit 68 dp lower
             (chargeBar.layoutParams as FrameLayout.LayoutParams).apply {
                 width = dp(maxOf(gaugeWdp.toInt() - 8, 100)); height = dp(30)
                 gravity = Gravity.TOP or (if (speedLeft) Gravity.END else Gravity.START)
@@ -3248,6 +3257,7 @@ class MainActivity : Activity() {
             val inline = l2 && climOn && room >= 110
             l2ClimTop = climTop; l2ClimH = room; l2ClimInline = inline
             l2FreeTop = top; l2FreeBottom = bottom; l2Room = bottom - top
+            if (l2Third) { l2FreeTop = topM + l2RowH - l2CardsH; l2FreeBottom = topM + l2RowH }   // third-height window: the media card takes the place of the two cards
             climateView.compact = inline && room < 300
             // Media is on the swipe cards; Climate only needs its button when the panel is not already showing
             climateBtn.visibility = if (l2 && (inline || !climOn)) View.GONE else View.VISIBLE
