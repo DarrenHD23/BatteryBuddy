@@ -158,6 +158,73 @@ class CompassCardView(ctx: Context) : View(ctx) {
     }
 }
 
+/** Navigation card: the next turn from Google Maps' notification (arrow, distance, instruction); tap to open Maps. */
+class NavCardView(ctx: Context) : View(ctx) {
+    var day = false
+        set(v) { if (field != v) { field = v; invalidate() } }
+    var onTap: (() -> Unit)? = null
+    private val d = ctx.resources.displayMetrics.density
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val dst = RectF()
+    fun refresh() { invalidate() }
+    private val gd = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onDown(e: MotionEvent) = true
+        override fun onSingleTapUp(e: MotionEvent): Boolean { onTap?.invoke(); return true }
+    })
+    override fun onTouchEvent(e: MotionEvent): Boolean = gd.onTouchEvent(e)
+
+    private fun fit(s: String, size: Float, maxW: Float): Float { p.textSize = size; val w = p.measureText(s); return if (w > maxW) size * maxW / w else size }
+
+    override fun onDraw(c: Canvas) {
+        val w = width.toFloat(); val h = height.toFloat()
+        if (w <= 0f || h <= 0f) return
+        val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
+        drawCardBg(c, p, RectF(0f, 0f, w, h), 22f * d, day, d)
+        p.style = Paint.Style.FILL; p.textAlign = Paint.Align.CENTER; p.color = ink; p.typeface = Typeface.DEFAULT_BOLD
+        p.textSize = min(20f * d, h * 0.11f)
+        c.drawText("Navigation", w / 2, 8f * d + p.textSize * 0.9f, p)
+        val top = 8f * d + p.textSize * 1.3f
+        if (!NavState.active) {
+            p.typeface = Typeface.DEFAULT; p.textSize = fit("No route in progress", min(18f * d, h * 0.09f), w - 20f * d)
+            c.drawText("No route in progress", w / 2, h * 0.5f, p)
+            p.textSize = fit("Start navigation in Google Maps", min(13f * d, h * 0.07f), w - 20f * d); p.alpha = 170
+            c.drawText("Start navigation in Google Maps", w / 2, h * 0.5f + p.textSize * 1.8f, p); p.alpha = 255
+            return
+        }
+        val pad = 10f * d
+        val aSize = min(h * 0.40f, w * 0.30f)
+        val arrow = NavState.arrow
+        if (arrow != null) {
+            dst.set(pad, top + 4f * d, pad + aSize, top + 4f * d + aSize)
+            // Maps' arrow can be dark on transparent: put it on a light tile so it shows either way
+            p.color = Color.argb(if (day) 0 else 200, 255, 255, 255)
+            if (!day) c.drawRoundRect(dst, 12f * d, 12f * d, p)
+            p.color = Color.WHITE
+            c.drawBitmap(arrow, null, dst, p)
+        }
+        val tx = pad + (if (arrow != null) aSize + 8f * d else 0f)
+        val tw = w - tx - pad
+        p.textAlign = Paint.Align.LEFT; p.color = ink; p.typeface = Typeface.DEFAULT_BOLD
+        val big = fit(NavState.distance, min(34f * d, h * 0.18f), tw)
+        p.textSize = big
+        c.drawText(NavState.distance, tx, top + big * 1.05f + 4f * d, p)
+        p.typeface = Typeface.DEFAULT
+        val ins = NavState.instruction
+        val isz = min(19f * d, h * 0.10f)
+        // wrap the instruction onto up to two lines
+        p.textSize = isz
+        val words = ins.split(" ")
+        var l1 = ""; var l2 = ""
+        for (wd in words) { if (l2.isEmpty() && p.measureText("$l1 $wd".trim()) <= tw) l1 = "$l1 $wd".trim() else l2 = "$l2 $wd".trim() }
+        var y = top + big * 1.05f + 4f * d + isz * 1.3f
+        c.drawText(l1, tx, y, p)
+        if (l2.isNotEmpty()) { p.textSize = fit(l2, isz, tw); c.drawText(l2, tx, y + isz * 1.2f, p) }
+        p.textAlign = Paint.Align.CENTER; p.alpha = 190; p.textSize = min(14f * d, h * 0.07f)
+        val foot = if (NavState.eta.isNotEmpty()) NavState.eta else "Google Maps"
+        c.drawText(foot, w / 2, h - 10f * d, p); p.alpha = 255
+    }
+}
+
 class ShortTile(val label: String, val icon: Drawable?, val slot: Int)
 
 /** Shortcuts card: app tiles, four to a page (2 x 2), swipe for more pages; the last tile adds an app. */

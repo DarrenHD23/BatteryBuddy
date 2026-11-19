@@ -58,5 +58,16 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/split_service" />
         </service>
+
+        <!-- reads Google Maps' navigation notification for the Navigation card; nothing else is read -->
+        <service
+            android:name=".NavListener"
+            android:exported="false"
+            android:label="Battery Buddy"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

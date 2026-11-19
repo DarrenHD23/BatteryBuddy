@@ -1675,6 +1675,7 @@ class MainActivity : Activity() {
     private lateinit var shortcutsCard: ShortcutsCardView
     private lateinit var l2Trip: TripPanelView
     private lateinit var l2Media: MediaCardView
+    private lateinit var l2Nav: NavCardView
     private lateinit var leftPager: PagerCardView
     private lateinit var rightPager: PagerCardView
     private val shortcutPages = ArrayList<ShortcutsCardView>()
@@ -2047,7 +2048,12 @@ class MainActivity : Activity() {
             onFavs = { showFavorites() }
             onTap = { if (InApp.mode == InApp.EXTERNAL) openMusicApp(false) }
         }
-        leftPager = PagerCardView(this).apply { setPages(listOf(compassCard, l2Trip)) }
+        l2Nav = NavCardView(this).apply {
+            onTap = { try { packageManager.getLaunchIntentForPackage(NavState.MAPS)?.let { startActivity(it) } } catch (e: Exception) { } }
+        }
+        NavState.onChange = { if (::l2Nav.isInitialized) l2Nav.refresh() }
+        Thread { rootRun("cmd notification allow_listener " + NavListener.component(this)) }.start()
+        leftPager = PagerCardView(this).apply { setPages(listOf(compassCard, l2Trip, l2Nav)) }
         rightPager = PagerCardView(this)
         val l2Cards = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -3618,7 +3624,7 @@ class MainActivity : Activity() {
         }
         val hd = s.headingDeg
         if (l2Applied) { compassCard.heading = hd; compassCard.day = dashDay; shortcutsCard.day = dashDay; carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true)
-            l2Trip.day = dashDay; l2Trip.setCells(tripCells(s, true).take(4)); leftPager.day = dashDay; rightPager.day = dashDay
+            l2Trip.day = dashDay; l2Trip.setCells(tripCells(s, true).take(4)); leftPager.day = dashDay; rightPager.day = dashDay; l2Nav.day = dashDay
             for (v in shortcutPages) v.day = dashDay }
         dashHeading.text = if (hd == null) "" else {
             val names = arrayOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
