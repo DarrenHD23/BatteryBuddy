@@ -6675,7 +6675,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val labH = dp(if (small) 16f else 20f)
         val carH = areaH - barsH - labH - dp(10f)
         overheadCar(cx, top - dp(10f), areaW, carH, s, s.climSeen && s.climFan > 0, s.climDrvMode)
-        seatButtons(cx, areaW, s)
+        if (!seatsPlaced) seatButtons(cx, areaW, s)
         // fan speed bars
         val bt = top + carH + dp(10f)
         val bw = minOf(dp(13f), areaW * 0.07f); val bg = dp(5f)
@@ -6699,6 +6699,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         text(label, cx + dp(8f), ly, if (small) 13f else 15f, Color.WHITE, true)
     }
 
+    private var seatsPlaced = false
     private fun seatLevel(who: Int, s: CanSnapshot): Int {
         if (seatOver[who] >= 0 && System.currentTimeMillis() - seatOverAt[who] < 3500) return seatOver[who]
         return (when (who) { 0 -> s.seatDrv; 1 -> s.seatPass; 2 -> s.seatRL; else -> s.seatRR }) ?: 0
@@ -6723,31 +6724,55 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             Triple(xr, yF, if (drvRight) 0 else 1), Triple(xr, yR, 3),
         )
         seatRects.clear(); seatWho.clear()
-        for ((x, y, who) in spec) {
-            val r = RectF(x - isz / 2f, y - isz / 2f, x + isz / 2f, y + isz / 2f)
-            val lvl = seatLevel(who, s)
-            val heat = Color.parseColor("#FF6A3D")
-            drawLiquidGlass(canvas, p, r, isz * 0.30f, dp(1f), if (lvl > 0) heat else null, glassBase)
-            // the wavy lines (one to three), then the seat under them
-            val lc = if (lvl > 0) Color.WHITE else Color.argb(0, 255, 255, 255)
-            if (lvl > 0) {
-                stroke(lc, 1.5f)
-                val h0 = r.top + isz * 0.10f; val hh = isz * 0.34f
-                val dx = isz * 0.17f
-                for (i in 0 until lvl) {
-                    val lx = r.centerX() + (i - (lvl - 1) / 2f) * dx
-                    path.reset(); path.moveTo(lx, h0)
-                    path.quadTo(lx + isz * 0.07f, h0 + hh * 0.25f, lx, h0 + hh * 0.5f)
-                    path.quadTo(lx - isz * 0.07f, h0 + hh * 0.75f, lx, h0 + hh)
-                    canvas.drawPath(path, p)
-                }
+        for ((x, y, who) in spec) drawSeat(RectF(x - isz / 2f, y - isz / 2f, x + isz / 2f, y + isz / 2f), who, s)
+    }
+
+    /** One seat heating button: a glass tile with the seat and 0 to 3 wavy lines above it. */
+    private fun drawSeat(r: RectF, who: Int, s: CanSnapshot) {
+        val isz = r.width()
+        val lvl = seatLevel(who, s)
+        val heat = Color.parseColor("#FF6A3D")
+        drawLiquidGlass(canvas, p, r, isz * 0.30f, dp(1f), if (lvl > 0) heat else null, glassBase)
+        if (lvl > 0) {
+            stroke(Color.WHITE, 1.5f)
+            val h0 = r.top + isz * 0.10f; val hh = isz * 0.34f
+            val dx = isz * 0.17f
+            for (i in 0 until lvl) {
+                val lx = r.centerX() + (i - (lvl - 1) / 2f) * dx
+                path.reset(); path.moveTo(lx, h0)
+                path.quadTo(lx + isz * 0.07f, h0 + hh * 0.25f, lx, h0 + hh * 0.5f)
+                path.quadTo(lx - isz * 0.07f, h0 + hh * 0.75f, lx, h0 + hh)
+                canvas.drawPath(path, p)
             }
-            p.style = Paint.Style.FILL; p.color = if (lvl > 0) Color.WHITE else Color.argb(170, 255, 255, 255)
-            val cxx = r.centerX()
-            canvas.drawRoundRect(RectF(cxx - isz * 0.20f, r.top + isz * 0.50f, cxx + isz * 0.20f, r.top + isz * 0.78f), isz * 0.09f, isz * 0.09f, p)
-            canvas.drawRoundRect(RectF(cxx - isz * 0.25f, r.top + isz * 0.80f, cxx + isz * 0.25f, r.top + isz * 0.92f), isz * 0.05f, isz * 0.05f, p)
-            seatRects.add(r); seatWho.add(who)
         }
+        p.style = Paint.Style.FILL; p.color = if (lvl > 0) Color.WHITE else Color.argb(170, 255, 255, 255)
+        val cxx = r.centerX()
+        canvas.drawRoundRect(RectF(cxx - isz * 0.20f, r.top + isz * 0.50f, cxx + isz * 0.20f, r.top + isz * 0.78f), isz * 0.09f, isz * 0.09f, p)
+        canvas.drawRoundRect(RectF(cxx - isz * 0.25f, r.top + isz * 0.80f, cxx + isz * 0.25f, r.top + isz * 0.92f), isz * 0.05f, isz * 0.05f, p)
+        seatRects.add(r); seatWho.add(who)
+    }
+
+    /** The full climate screen: the seat buttons go in the empty space under each dial, beside the car. False when that space is too small. */
+    private fun seatBesideCar(dialLeft: Float, dialW: Float, dialRight: Float, dialTop: Float, dialH: Float, s: CanSnapshot): Boolean {
+        val bs = (dialH * 0.20f).coerceIn(dp(34f), dp(52f))
+        val dd = minOf(dialH * 0.80f, dialW * 0.88f, (dialH - bs - dp(6f)) / 0.827f)
+        val freeTop = dialTop + dd * 0.827f + dp(6f) + bs + dp(10f)
+        val freeH = dialTop + dialH - freeTop
+        if (freeH < dp(44f)) return false
+        val gap = dp(12f)
+        val isz = minOf(freeH - dp(6f), (dialW - gap) / 2f - dp(6f), dp(88f))
+        if (isz < dp(30f)) return false
+        val cy = freeTop + freeH / 2f
+        seatRects.clear(); seatWho.clear()
+        val drvRight = l2 && rhd
+        val frontL = if (drvRight) 1 else 0; val frontR = if (drvRight) 0 else 1
+        val lc = dialLeft + dialW / 2f; val rc = dialRight + dialW / 2f
+        // outer seat, then the front seat nearer the car
+        drawSeat(RectF(lc - gap / 2f - isz * 1.0f - 0f, cy - isz / 2f, lc - gap / 2f, cy + isz / 2f), 2, s)
+        drawSeat(RectF(lc + gap / 2f, cy - isz / 2f, lc + gap / 2f + isz, cy + isz / 2f), frontL, s)
+        drawSeat(RectF(rc - gap / 2f - isz, cy - isz / 2f, rc - gap / 2f, cy + isz / 2f), frontR, s)
+        drawSeat(RectF(rc + gap / 2f, cy - isz / 2f, rc + gap / 2f + isz, cy + isz / 2f), 3, s)
+        return true
     }
 
     private fun pill(right: Float, cy: Float, ph: Float, label: String, value: String, small: Boolean): Float {
@@ -6814,6 +6839,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val cabinW = w * 0.30f
         val dialW = (w - cabinW - 3 * m) / 2f
         val drvRight = l2 && rhd
+        seatRects.clear(); seatWho.clear()
+        seatsPlaced = seatBesideCar(m, dialW, w - m - dialW, dialTop, dialH, s)
         dial(m, dialW, dialTop, dialH, if (drvRight) "PASSENGER" else "DRIVER", if (drvRight) s.climPassT else s.climDrvT, !drvRight)
         dial(w - m - dialW, dialW, dialTop, dialH, if (drvRight) "DRIVER" else "PASSENGER", if (drvRight) s.climDrvT else s.climPassT, drvRight)
         cabin(w / 2f, dialTop, cabinW, dialH, s, small)
