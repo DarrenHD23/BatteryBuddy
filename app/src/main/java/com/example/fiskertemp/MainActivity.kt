@@ -1749,6 +1749,8 @@ class MainActivity : Activity() {
         }
     }
     private lateinit var l2FlyBtn: TextView
+    private lateinit var l2ClimBtn: TextView
+    private lateinit var l2MediaBtn: TextView
     private var l2ClimTop = 0; private var l2ClimH = 0; private var l2ClimInline = false; private var wasL2Clim = false
     private var l2FlyOpen = false
     private val closeL2Fly = Runnable { l2FlyOpen = false; if (::btnBar.isInitialized && l2Applied) btnBar.visibility = View.GONE }
@@ -2117,6 +2119,29 @@ class MainActivity : Activity() {
                 btnBar.visibility = if (l2FlyOpen) View.VISIBLE else View.GONE
                 if (l2FlyOpen) { btnBar.bringToFront(); ui.postDelayed(closeL2Fly, 7000) }
             }
+        }
+        // Layout 2: bring the climate screen and the media card back after they were turned off (listed in the gear flyout)
+        fun flyChip(label: String, tap: () -> Unit) = TextView(this).apply {
+            text = label; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+            setPadding(dp(9), 0, dp(9), 0); background = chipBg(12)
+            setOnClickListener {
+                l2FlyOpen = false; ui.removeCallbacks(closeL2Fly); btnBar.visibility = View.GONE
+                tap()
+            }
+        }
+        l2ClimBtn = flyChip("Climate") {
+            if (prefs().getBoolean("l2Climate", true) && climateView.visibility == View.VISIBLE) climateView.visibility = View.GONE
+            else {
+                prefs().edit().putBoolean("l2Climate", true).apply()
+                relayoutDash()
+                if (climateView.visibility != View.VISIBLE) openClimate()
+            }
+        }
+        l2MediaBtn = flyChip("Media") {
+            val on = prefs().getBoolean("fullMedia", true) && mediaCard.visibility == View.VISIBLE
+            prefs().edit().putBoolean("fullMedia", !on).apply()
+            relayoutDash()
+            if (!on && mediaCard.visibility != View.VISIBLE) toast("No room for the media card at this screen size")
         }
         NavState.onChange = { for (ps in pageSets) ps.nav.refresh() }
         Thread { rootRun("cmd notification allow_listener " + NavListener.component(this)) }.start()
@@ -3055,7 +3080,7 @@ class MainActivity : Activity() {
                 if (rhd) setMargins(edgeOff, 0, 0, dp(16)) else setMargins(0, 0, dp(8), dp(16))
             }
         }
-        val barKids = (if (l2) listOf(resBtn) else emptyList()) + (if (showSkinBtn()) listOf(skinBtn, settingsBtn, dashBtn, exitBtn) else listOf(settingsBtn, dashBtn, exitBtn))
+        val barKids = (if (l2) listOf(l2ClimBtn, l2MediaBtn, resBtn) else emptyList()) + (if (showSkinBtn()) listOf(skinBtn, settingsBtn, dashBtn, exitBtn) else listOf(settingsBtn, dashBtn, exitBtn))
         btnBar.removeAllViews()
         if (l2) {
             btnBar.orientation = LinearLayout.VERTICAL
@@ -3335,6 +3360,7 @@ class MainActivity : Activity() {
         if (::settingsBtn.isInitialized) settingsBtn.background = chipBg(22)
         if (::exitBtn.isInitialized) exitBtn.background = chipBg(22)
         if (::resBtn.isInitialized) resBtn.background = chipBg(12)
+        if (::l2ClimBtn.isInitialized) { l2ClimBtn.background = chipBg(12); l2MediaBtn.background = chipBg(12) }
         if (::lowerAdd.isInitialized) lowerAdd.background = chipBg(18)
         if (::climateBtn.isInitialized) climateBtn.background = chipBg(12)
         if (::mediaBtn.isInitialized) mediaBtn.background = chipBg(12)
