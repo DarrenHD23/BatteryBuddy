@@ -2451,17 +2451,42 @@ class MainActivity : Activity() {
     /** Fit the dashboard to the window it is in. The window can be the whole screen or a part of a split screen, so the
      *  readouts under the gauges are stepped down (smaller, then fewer) until the gauges have enough room. */
     /** Full-screen mode: the Climate screen floats just under the battery bar and covers about the middle two thirds. Split windows: the whole window. */
+    private var btLink: BtLink? = null
+    private var lastSrcMode = -1
+    private var btReceiver: android.content.BroadcastReceiver? = null
+
+    /** Checks (in the background) that the Bluetooth link to FiskerOcean is connected, then has the media card look at the sessions again. */
+    private fun btCheckAndSync(reason: String) {
+        val w = mediaWatcher ?: return
+        if (w.carLinkActive) { EventLog.add("bluetooth: a CarLink session is active, so the FiskerOcean check is skipped ($reason)"); w.resync(); return }
+        val b = btLink ?: BtLink(this, ui) { m -> EventLog.add(m) }.also { btLink = it }
+        b.check(reason, true) { _ -> mediaWatcher?.resync(); refreshMediaCards() }
+    }
+
     private fun ensureMediaWatcher() {
         if (mediaWatcher != null) return
         mediaWatcher = MediaWatcher(this, ui, { Thread { rootRun("cmd notification allow_listener " + ComponentName(this, MainActivity::class.java).flattenToString()) }.start() }, { m -> EventLog.add(m) }).also { w ->
             w.onChange = { refreshMediaCards() }
+            w.onExternalPlay = { if (InApp.mode == InApp.EXTERNAL) btCheckAndSync("another app started playing") }
+        }
+        if (btReceiver == null) {
+            // a phone connecting or disconnecting: look at the media sessions again shortly after
+            val r = object : android.content.BroadcastReceiver() {
+                override fun onReceive(c: Context?, i: Intent?) { ui.removeCallbacks(btResync); ui.postDelayed(btResync, 1500) }
+            }
+            try {
+                registerReceiver(r, android.content.IntentFilter().apply { addAction(BluetoothDevice.ACTION_ACL_CONNECTED); addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED) })
+                btReceiver = r
+            } catch (e: Exception) { }
         }
     }
+    private val btResync = Runnable { mediaWatcher?.resync() }
 
     /** Shows what the card's source is playing: the external player / Bluetooth session, or our own player. */
     private fun refreshMediaCards() {
         if (!::mediaCard.isInitialized || !::mediaPopup.isInitialized) return
         val m = InApp.mode
+        if (m != lastSrcMode) { val first = lastSrcMode < 0; lastSrcMode = m; if (!first && mediaWatcher != null) ui.post { btCheckAndSync("source changed") } }
         mediaCard.srcMode = m; mediaPopup.srcMode = m
         if (::pageSets.isInitialized) for (ps in pageSets) {
             val lm = ps.media
@@ -2602,7 +2627,7 @@ class MainActivity : Activity() {
             val token = ++loadId
             status.text = "Loading stations..."; items = emptyList(); adapter.notifyDataSetChanged()
             Thread {
-                val l = fetch()
+                val l = try { fetch() } catch (e: Throwable) { null }
                 ui.post {
                     if (token != loadId) return@post
                     if (l == null) { status.text = "Could not reach the station list. Check the internet connection." }
@@ -4218,7 +4243,7 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onDestroy() { EventLog.add("app stopped"); InApp.useExternal(); mediaWatcher?.stop(); pulse?.stop(); ui.removeCallbacksAndMessages(null); close(); super.onDestroy() }
+    override fun onDestroy() { EventLog.add("app stopped"); InApp.useExternal(); mediaWatcher?.stop(); try { btReceiver?.let { unregisterReceiver(it) } } catch (e: Exception) { }; pulse?.stop(); ui.removeCallbacksAndMessages(null); close(); super.onDestroy() }
 
     /** Send an AT or OBD command; read until the ELM '>' prompt (3 s timeout). */
     @Synchronized
@@ -7132,6 +7157,10 @@ class MediaWatcher(private val ctx: Context, private val ui: Handler, private va
     var onChange: (() -> Unit)? = null
     /** The app whose media session the card follows. */
     val pkg: String? get() = ctl?.packageName
+    /** Android Auto / CarPlay (CarLink) is the session being followed: the Bluetooth link is not what carries that audio. */
+    val carLinkActive: Boolean get() = ctl?.packageName?.contains("carlink", true) == true
+    /** An app other than ours has just started playing. */
+    var onExternalPlay: (() -> Unit)? = null
 
     private val msm = ctx.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
     private val comp = ComponentName(ctx, MainActivity::class.java)
@@ -7142,7 +7171,12 @@ class MediaWatcher(private val ctx: Context, private val ui: Handler, private va
 
     private val cb = object : MediaController.Callback() {
         override fun onMetadataChanged(metadata: MediaMetadata?) { readMeta(metadata); push() }
-        override fun onPlaybackStateChanged(state: PlaybackState?) { playing = state?.state == PlaybackState.STATE_PLAYING; push() }
+        override fun onPlaybackStateChanged(state: PlaybackState?) {
+            val was = playing
+            playing = state?.state == PlaybackState.STATE_PLAYING
+            if (playing && !was) ui.post { onExternalPlay?.invoke() }
+            push()
+        }
         override fun onSessionDestroyed() { ui.post { refresh() } }
     }
     private val listener = MediaSessionManager.OnActiveSessionsChangedListener { list -> ui.post { pick(list ?: emptyList()) } }
@@ -7208,9 +7242,22 @@ class MediaWatcher(private val ctx: Context, private val ui: Handler, private va
             if (c != null) log("media: showing ${c.packageName}")
         }
         hasSession = c != null
+        val was = playing
         playing = c?.playbackState?.state == PlaybackState.STATE_PLAYING
+        if (playing && !was) ui.post { onExternalPlay?.invoke() }
         readMeta(c?.metadata)
         push()
+    }
+
+    /** Looks at the media sessions again from scratch (the listener is attached again, then the best session is picked). */
+    fun resync() {
+        ui.post {
+            if (started) {
+                try { msm.removeOnActiveSessionsChangedListener(listener) } catch (e: Exception) { }
+                try { msm.addOnActiveSessionsChangedListener(listener, comp, ui) } catch (e: Exception) { }
+            }
+            refresh()
+        }
     }
 
     // look again every few seconds: a Bluetooth session can start playing without any signal reaching the one being followed

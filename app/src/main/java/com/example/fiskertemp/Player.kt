@@ -43,6 +43,7 @@ object InApp {
 
     private val ui = Handler(Looper.getMainLooper())
     private val io = Executors.newFixedThreadPool(2)
+    private val mpx = Executors.newCachedThreadPool()     // MediaPlayer stop / release / setDataSource can wait on a stalled stream: never on the main thread
     private var ctx: Context? = null
     private var mp: MediaPlayer? = null
     private var gen = 0            // each start of the player gets a number; callbacks of older ones are ignored
@@ -63,8 +64,10 @@ object InApp {
         gen++
         val m = mp
         mp = null
-        try { m?.stop() } catch (e: Exception) { }
-        try { m?.release() } catch (e: Exception) { }
+        if (m != null) {
+            try { m.setOnPreparedListener(null); m.setOnCompletionListener(null); m.setOnErrorListener(null) } catch (e: Throwable) { }
+            mpx.execute { try { m.release() } catch (e: Throwable) { } }
+        }
         playing = false
     }
 
@@ -79,19 +82,22 @@ object InApp {
         changed()
     }
 
+    // one listener object for every request: a new one each time made Android tell the older one it had lost focus, which stopped the station just started
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { ch -> if (ch == AudioManager.AUDIOFOCUS_LOSS && mode != EXTERNAL) ui.post { pauseNow() } }
+
     @Suppress("DEPRECATION")
     private fun takeFocus() {
         val c = ctx ?: return
         try {
             val am = c.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            am.requestAudioFocus({ ch -> if (ch == AudioManager.AUDIOFOCUS_LOSS) ui.post { pauseNow() } }, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+            am.requestAudioFocus(focusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
         } catch (e: Exception) { }
     }
 
     @Suppress("DEPRECATION")
     private fun abandonFocus() {
         val c = ctx ?: return
-        try { (c.getSystemService(Context.AUDIO_SERVICE) as AudioManager).abandonAudioFocus(null) } catch (e: Exception) { }
+        try { (c.getSystemService(Context.AUDIO_SERVICE) as AudioManager).abandonAudioFocus(focusListener) } catch (e: Exception) { }
     }
 
     private fun pauseNow() {
@@ -120,13 +126,29 @@ object InApp {
                 }
                 true
             }
-            prep(m)
-            m.prepareAsync()
         } catch (e: Exception) {
             log("player: " + e.message)
             playing = false
             artist = "Could not play this"
             changed()
+            return
+        }
+        // opening the stream can wait on the network, so it is not done on the main thread
+        mpx.execute {
+            try {
+                if (gen != my) return@execute
+                prep(m)
+                if (gen != my) return@execute
+                m.prepareAsync()
+            } catch (e: Throwable) {
+                if (gen == my) ui.post {
+                    if (gen != my) return@post
+                    log("player: " + e.message)
+                    playing = false
+                    artist = "Could not play this"
+                    changed()
+                }
+            }
         }
     }
 
@@ -264,9 +286,9 @@ object Radio {
                 val conn = URL("https://$h.api.radio-browser.info$path").openConnection() as HttpURLConnection
                 conn.connectTimeout = 6000; conn.readTimeout = 12000
                 conn.setRequestProperty("User-Agent", "FiskerBatteryBuddy/1.0")
-                val txt = conn.inputStream.bufferedReader().use { it.readText() }
+                val txt = try { String(readCapped(conn.inputStream, 4_000_000), Charsets.UTF_8) } finally { try { conn.disconnect() } catch (e: Throwable) { } }
                 return parse(txt)
-            } catch (e: Exception) { }
+            } catch (e: Throwable) { }
         }
         return null
     }
@@ -298,6 +320,21 @@ object Radio {
     }
 }
 
+/** Reads a stream but gives up past [max] bytes, so a huge or endless answer cannot fill the memory. */
+fun readCapped(inp: java.io.InputStream, max: Int): ByteArray {
+    inp.use { s ->
+        val out = java.io.ByteArrayOutputStream()
+        val buf = ByteArray(16 * 1024)
+        while (true) {
+            val n = s.read(buf)
+            if (n < 0) break
+            out.write(buf, 0, n)
+            if (out.size() > max) throw java.io.IOException("too large")
+        }
+        return out.toByteArray()
+    }
+}
+
 /** Small station logos: loaded in the background and kept in memory. */
 object Logos {
     private val cache = android.util.LruCache<String, Bitmap>(120)
@@ -315,7 +352,7 @@ object Logos {
                 val conn = URL(url).openConnection() as HttpURLConnection
                 conn.connectTimeout = 5000; conn.readTimeout = 7000; conn.instanceFollowRedirects = true
                 conn.setRequestProperty("User-Agent", "FiskerBatteryBuddy/1.0")
-                val bytes = conn.inputStream.use { it.readBytes() }
+                val bytes = try { readCapped(conn.inputStream, 1_500_000) } finally { try { conn.disconnect() } catch (e: Throwable) { } }
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
                 var ss = 1
@@ -332,7 +369,10 @@ object Logos {
 object Favs {
     private const val KEY = "radioFavs"
 
+    @Volatile private var cache: List<Station>? = null
+
     fun load(c: Context): MutableList<Station> {
+        cache?.let { return ArrayList(it) }
         val out = ArrayList<Station>()
         try {
             val arr = JSONArray(c.getSharedPreferences("prefs", Context.MODE_PRIVATE).getString(KEY, "[]"))
@@ -341,16 +381,18 @@ object Favs {
                 out.add(Station(o.optString("name"), o.optString("url"), o.optString("logo"), o.optString("info")))
             }
         } catch (e: Exception) { }
+        cache = ArrayList(out)
         return out
     }
 
     private fun save(c: Context, list: List<Station>) {
+        cache = ArrayList(list)
         val arr = JSONArray()
         for (s in list) arr.put(org.json.JSONObject().put("name", s.name).put("url", s.url).put("logo", s.logo).put("info", s.info))
         c.getSharedPreferences("prefs", Context.MODE_PRIVATE).edit().putString(KEY, arr.toString()).apply()
     }
 
-    fun has(c: Context, s: Station): Boolean = load(c).any { it.url == s.url }
+    fun has(c: Context, s: Station): Boolean { val l = cache ?: load(c); return l.any { it.url == s.url } }
 
     /** Adds the station, or takes it away if it is already a favourite. */
     fun toggle(c: Context, s: Station) {
