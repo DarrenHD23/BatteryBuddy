@@ -132,6 +132,11 @@ class CarView(ctx: Context) : View(ctx) {
         c.scale(u, u)
         // road lines on both sides, wide at the rear of the car and narrow at the top
         val hh = 162f; val smin = 0.45f; val per = 0.3f; val len = 0.15f; val cx = 151f; val half = 86f
+        // the road between the lines: a light, transparent grey
+        lanePaint.color = Color.argb(48, 200, 206, 216)
+        lanePath.reset()
+        lanePath.moveTo(cx - half * smin, 0f); lanePath.lineTo(cx + half * smin, 0f); lanePath.lineTo(cx + half, hh); lanePath.lineTo(cx - half, hh); lanePath.close()
+        c.drawPath(lanePath, lanePaint)
         for (side in intArrayOf(-1, 1)) {
             for (k in -2..8) {
                 var z1 = 1f + k * per - (roadOff * 0.006f) % per

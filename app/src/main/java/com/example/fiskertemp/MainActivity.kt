@@ -2157,13 +2157,7 @@ class MainActivity : Activity() {
             }
         }
         l2MediaBtn = flyChip("Media") {
-            val shown = prefs().getBoolean("fullMedia", true) && mediaCard.visibility == View.VISIBLE
-            if (shown) { prefs().edit().putBoolean("fullMedia", false).apply(); relayoutDash() }
-            else {
-                if (!prefs().getBoolean("fullMedia", true)) { prefs().edit().putBoolean("fullMedia", true).apply(); relayoutDash() }
-                // no room for the full card (small window): show the Media page of the card on the right instead
-                if (mediaCard.visibility != View.VISIBLE && ::rightPager.isInitialized) rightPager.show(3)
-            }
+            l2MediaTap()
         }
         NavState.onChange = { for (ps in pageSets) ps.nav.refresh() }
         Thread { rootRun("cmd notification allow_listener " + NavListener.component(this)) }.start()
@@ -2275,7 +2269,7 @@ class MainActivity : Activity() {
             setPadding(dp(9), 0, dp(9), 0)
             background = chipBg(12)
             setOnClickListener {
-                if (l2Applied && ::rightPager.isInitialized) { rightPager.show(3); return@setOnClickListener }   // Layout 2: the Media page of the card on the right
+                if (l2Applied) { l2MediaTap(); return@setOnClickListener }
                 if (fullOrderNow) {
                     // full screen: the media card and the Climate panel toggle independently and never overlap
                     prefs().edit().putBoolean("fullMedia", !prefs().getBoolean("fullMedia", true)).apply()
@@ -2720,6 +2714,39 @@ class MainActivity : Activity() {
      * The Media pop-up card: it sits in the free space between the battery bar (or trip panel) and the stat rows,
      * never over the stat rows. With no usable space it goes just above the bottom buttons as before.
      */
+    private var l2FreeTop = 0           // Layout 2: free space under the cards, in dp
+    private var l2FreeBottom = 0
+    private var l2Room = 0
+
+    /** Layout 2 Media: the full media card when the window has room for it, else a card in the free space under the cards. */
+    private fun l2MediaTap() {
+        if (mediaCard.visibility == View.VISIBLE) { prefs().edit().putBoolean("fullMedia", false).apply(); relayoutDash(); return }
+        if (l2Room >= 470) { prefs().edit().putBoolean("fullMedia", true).apply(); relayoutDash(); return }
+        if (mediaPopup.visibility == View.VISIBLE) { ui.removeCallbacks(hideMediaPopup); mediaPopup.visibility = View.GONE; return }
+        ensureMediaWatcher(); mediaWatcher?.start()
+        placeMediaPopup()
+        mediaPopup.bringToFront(); mediaPopup.visibility = View.VISIBLE
+        lowerBox.bringToFront(); btnBar.bringToFront(); if (::cautionView.isInitialized && cautionView.visibility == View.VISIBLE) cautionView.bringToFront()
+        if (::l2FlyBtn.isInitialized) l2FlyBtn.bringToFront()
+        ui.removeCallbacks(hideMediaPopup)
+    }
+
+    /** Layout 2 clock: right beside the drive mode badge, with room for the compass heading between them only when there is one. */
+    private fun l2ClockMargin(): Int {
+        val modeW = maxOf(dashMode.width, dp(84))
+        val hasHeading = ::dashHeading.isInitialized && dashHeading.text.isNotEmpty()
+        return dp(8) + modeW + dp(14) + (if (hasHeading) dp(96) else 0)
+    }
+    private fun placeL2Clock() {
+        if (!l2Applied || !::dashClock.isInitialized) return
+        val lp = dashClock.layoutParams as FrameLayout.LayoutParams
+        val cm = l2ClockMargin()
+        if (if (!prefs().getBoolean("rhd", false)) lp.rightMargin != cm else lp.leftMargin != cm) {
+            if (!prefs().getBoolean("rhd", false)) lp.setMargins(0, dp(5), cm, 0) else lp.setMargins(cm, dp(5), 0, 0)
+            dashClock.requestLayout()
+        }
+    }
+
     private fun placeMediaPopup() {
         if (!::mediaPopup.isInitialized) return
         val lp = mediaPopup.layoutParams as FrameLayout.LayoutParams
@@ -2739,7 +2766,13 @@ class MainActivity : Activity() {
             val rowV: View? = if (dashRow.visibility == View.VISIBLE && dashRow.height > 0) dashRow else if (dashStrip.visibility == View.VISIBLE && dashStrip.height > 0) dashStrip else null
             val rhd = prefs().getBoolean("rhd", false)
             var placed = false
-            if (half && ref != null && ref.width > 0 && rowV != null && root.height > 0) {
+            if (l2Applied && l2FreeBottom - l2FreeTop >= 70 && root.height > 0) {
+                // Layout 2: in the free space under the cards, nothing else moves
+                hgt = dp(minOf(132, l2FreeBottom - l2FreeTop)); side = dp(8)
+                bottom = maxOf(root.height - dp(l2FreeTop) - hgt, 0)
+                grav = Gravity.BOTTOM; placed = true
+            }
+            if (!placed && half && ref != null && ref.width > 0 && rowV != null && root.height > 0) {
                 val a = IntArray(2); val b = IntArray(2); val c = IntArray(2)
                 ref.getLocationInWindow(a); root.getLocationInWindow(b); rowV.getLocationInWindow(c)
                 val freeW = if (rhd) root.width - (a[0] - b[0] + ref.width) - dp(28) else (a[0] - b[0]) - dp(28)
@@ -2961,7 +2994,8 @@ class MainActivity : Activity() {
                 width = dp(112); height = dp(26)
                 dashClock.alignRight = atRight
                 gravity = Gravity.TOP or (if (atRight) Gravity.END else Gravity.START)
-                if (atRight) setMargins(0, dp(5), dp(176), 0) else setMargins(dp(176), dp(5), 0, 0)
+                val cm = l2ClockMargin()
+                if (atRight) setMargins(0, dp(5), cm, 0) else setMargins(cm, dp(5), 0, 0)
             } else {
                 gravity = Gravity.TOP or (if (rhd) Gravity.END else Gravity.START)
                 val ct = if (third && clockH == 24) 2 else topM
@@ -3109,9 +3143,11 @@ class MainActivity : Activity() {
             btnBar.background = GradientDrawable().apply { setColor(Color.argb(215, 14, 20, 38)); cornerRadius = dp(16).toFloat(); setStroke(dp(1), Color.argb(130, 255, 255, 255)) }
             btnBar.setPadding(dp(8), dp(8), dp(8), dp(4))
             btnBar.visibility = if (l2FlyOpen) View.VISIBLE else View.GONE
+            l2FlyBtn.textSize = 17f
             (l2FlyBtn.layoutParams as? FrameLayout.LayoutParams)?.apply {
+                width = dp(36); height = dp(36)
                 gravity = Gravity.TOP or (if (rhd) Gravity.END else Gravity.START)
-                if (rhd) setMargins(0, dp(6), dp(8), 0) else setMargins(dp(8), dp(6), 0, 0)
+                if (rhd) setMargins(0, dp(1), dp(8), 0) else setMargins(dp(8), dp(1), 0, 0)
             }
         } else {
             btnBar.orientation = LinearLayout.HORIZONTAL; btnBar.background = null; btnBar.setPadding(0, 0, 0, 0)
@@ -3206,10 +3242,11 @@ class MainActivity : Activity() {
             if (::climateView.isInitialized) { climateView.l2 = l2; climateView.rhd = prefs().getBoolean("rhd", false) }
             val inline = l2 && climOn && room >= 110
             l2ClimTop = climTop; l2ClimH = room; l2ClimInline = inline
+            l2FreeTop = top; l2FreeBottom = bottom; l2Room = bottom - top
             climateView.compact = inline && room < 300
             // Media is on the swipe cards; Climate only needs its button when the panel is not already showing
-            mediaBtn.visibility = if (l2) View.GONE else View.VISIBLE
             climateBtn.visibility = if (l2 && (inline || !climOn)) View.GONE else View.VISIBLE
+            mediaBtn.visibility = if (l2) climateBtn.visibility else View.VISIBLE      // Layout 2: Media sits just beside Climate
             if (inline) edgeBox.post { if (dashShown && l2Applied) { if (climateView.visibility == View.VISIBLE) placeClimate() else openClimate() } }
             else if (wasL2Clim) { climateView.visibility = View.GONE }   // no longer room for it under the cards
             wasL2Clim = inline
@@ -3252,7 +3289,7 @@ class MainActivity : Activity() {
             (dashReady.layoutParams as? FrameLayout.LayoutParams)?.apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(2) }
             (dashBrake.layoutParams as? FrameLayout.LayoutParams)?.apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(28); leftMargin = 0 }
         }
-        (dashSign.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 38 else if (short) 48 else 64); height = dp(if (midLevel == 2) 38 else if (short) 48 else 64) }
+        (dashSign.layoutParams as FrameLayout.LayoutParams).apply { val sz = if (l2) 58 else if (midLevel == 2) 38 else if (short) 48 else 64; width = dp(sz); height = dp(sz) }
         poolBar.requestLayout(); lowerBox.requestLayout()
         dashSignSrc.visibility = if (midLevel == 0) View.VISIBLE else View.GONE
         dashStrip.requestLayout(); dashRow.requestLayout(); dashGaugeRow.requestLayout(); dashLight.requestLayout(); dashSign.requestLayout()
@@ -3882,10 +3919,12 @@ class MainActivity : Activity() {
             }
             leftPager.day = dashDay; rightPager.day = dashDay
         }
+        val hadHeading = dashHeading.text.isNotEmpty()
         dashHeading.text = if (hd == null) "" else {
             val names = arrayOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
             "${names[((hd + 22.5) / 45.0).toInt() % 8]}  ${hd.toInt()}\u00B0"
         }
+        if (hadHeading != dashHeading.text.isNotEmpty()) placeL2Clock()
         val demand = when (s.thermalDemand) { 0 -> "starting up"; 1 -> "heating"; 2 -> "cooling"; 3 -> "cycling"; else -> "--" }
         fun tc(c: Double?) = if (c == null) "--" else fmt(c, "\u00B0C", 0)
         pulse?.flipPower = prefs().getBoolean("flipPower", false)
