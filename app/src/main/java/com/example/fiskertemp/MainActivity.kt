@@ -6762,7 +6762,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         p.style = Paint.Style.FILL; p.strokeCap = Paint.Cap.BUTT
         for (i in 0 until 3) {
             p.color = if (i < lvl) white else Color.argb(90, 255, 255, 255)
-            canvas.drawCircle(px(0.34f + 0.16f * i), py(0.89f), isz * 0.042f, p)
+            canvas.drawCircle(px(0.34f + 0.16f * i), py(0.935f), isz * 0.036f, p)
         }
         seatRects.add(r); seatWho.add(who)
     }
