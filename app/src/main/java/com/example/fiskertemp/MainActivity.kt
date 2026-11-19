@@ -1524,6 +1524,9 @@ class MainActivity : Activity() {
         prefs().edit().putInt("layout", id).apply()
         EventLog.add("layout style: " + (if (id == 2) "Layout 2" else "Original"))
         relayoutDash()
+        // the views are re-parented by the first pass and only have their real sizes afterwards: run it again once they are laid out
+        // (this is what going to split screen and back was doing)
+        ui.post { relayoutDash(); ui.postDelayed({ relayoutDash(); if (::lowerBox.isInitialized) lowerBox.requestLayout() }, 350) }
     }
 
     private fun showLayoutPicker() {
