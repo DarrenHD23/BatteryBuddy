@@ -1219,6 +1219,10 @@ class MainActivity : Activity() {
             }
         }, 4)
         box.add(CheckBox(this).apply {
+            text = "Layout 2: hide the \"Brake light on\" message"; isChecked = prefs().getBoolean("hideBrakeNote", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideBrakeNote", on).apply() }
+        }, 4)
+        box.add(CheckBox(this).apply {
             text = "Climate screen: hide the heated seat buttons outside the car (use the seats in the car drawing instead)"; isChecked = prefs().getBoolean("hideSeatIcons", false)
             setOnCheckedChangeListener { _, on ->
                 prefs().edit().putBoolean("hideSeatIcons", on).apply()
@@ -3108,12 +3112,19 @@ class MainActivity : Activity() {
         val l2GaugeH = gaugeWdp.toInt()
         val l2CircleB = topM + (l2GaugeH * 0.96f).toInt()
         val l2BarTop = l2CircleB + 4
-        val l2RowH = l2BarTop + 30 + 14 - topM
+        val l2RowH = l2BarTop + 30 + 14 - topM + 70   // 70 dp taller: gauges, car and cards sit lower, the media card and Climate panel below them
         for (gi in intArrayOf(0, 2)) (dashGaugeRow.getChildAt(gi).layoutParams as LinearLayout.LayoutParams).apply {
             height = if (l2) dp(l2GaugeH) else -1
             gravity = if (l2) Gravity.TOP else Gravity.NO_GRAVITY
+            topMargin = if (l2) dp(45) else 0
         }
         dashGaugeRow.getChildAt(1).let { (it.layoutParams as LinearLayout.LayoutParams).topMargin = if (l2) dp(2) else (if (brakeUnder) -dp(3) else 0) }
+        if (l2) {
+            // middle column: the car drawing 140 x 90 dp centred, 50 dp under the top; the two cards 145 dp tall at the bottom of the row
+            (carView.layoutParams as LinearLayout.LayoutParams).apply { width = dp(140); height = dp(90); weight = 0f; topMargin = dp(50); gravity = Gravity.CENTER_HORIZONTAL }
+            (l2Mid.getChildAt(1).layoutParams as LinearLayout.LayoutParams).apply { width = -1; height = dp(145); weight = 0f; topMargin = dp(maxOf(l2RowH - 50 - 90 - 145, 0)); bottomMargin = 0 }
+            carView.requestLayout(); l2Mid.getChildAt(1).requestLayout()
+        }
         dashGaugeRow.requestLayout()
         (dashGaugeRow.layoutParams as FrameLayout.LayoutParams).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -3123,21 +3134,21 @@ class MainActivity : Activity() {
         }
         if (l2) {
             val speedLeft = prefs().getBoolean("speedLeft", false)
-            val rowBottomY = l2BarTop + 34
+            val rowBottomY = l2BarTop + 34 + 68      // battery bar and the Climate / Media buttons sit 68 dp lower
             (chargeBar.layoutParams as FrameLayout.LayoutParams).apply {
                 width = dp(maxOf(gaugeWdp.toInt() - 8, 100)); height = dp(30)
                 gravity = Gravity.TOP or (if (speedLeft) Gravity.END else Gravity.START)
                 setMargins(if (speedLeft) 0 else dp(12), dp(maxOf(rowBottomY - 34, 0)), if (speedLeft) dp(12) else 0, 0)
             }
-            val signSide = dp((gaugeWdp * 0.73f - 36f).toInt().coerceAtLeast(0) + 8)
+            val signSide = dp(gaugeWdp.toInt() + 16)      // the speed sign and its distance sit beside the speed gauge, not over it
             val sg = Gravity.TOP or (if (speedLeft) Gravity.START else Gravity.END)
             (dashSlot.layoutParams as FrameLayout.LayoutParams).apply {
                 width = dp(72); height = dp(92); gravity = sg
-                setMargins(if (speedLeft) signSide else 0, dp(maxOf(topM - 24, 6)), if (speedLeft) 0 else signSide, 0)
+                setMargins(if (speedLeft) signSide else 0, dp(maxOf(topM - 24, 6) + 30), if (speedLeft) 0 else signSide, 0)
             }
             (dashLightDist.layoutParams as FrameLayout.LayoutParams).apply {
                 width = dp(72); gravity = sg
-                setMargins(if (speedLeft) signSide else 0, dp(maxOf(topM - 24, 6) + 94), if (speedLeft) 0 else signSide, 0)
+                setMargins(if (speedLeft) signSide else 0, dp(maxOf(topM - 24, 6) + 124), if (speedLeft) 0 else signSide, 0)
             }
             // Climate and Media sit under the speed gauge, level with the battery bar under the power gauge
             val bw = maxOf((gaugeWdp.toInt() - 8 - 6) / 2, 60)
@@ -3158,7 +3169,7 @@ class MainActivity : Activity() {
         }
         // Layout 2: the Climate panel sits in the free space under the cards, when there is enough of it
         run {
-            val top = topM + l2RowH + 2
+            val top = topM + l2RowH + 8
             val bottom = hDp - lowerBottom - 4
             var room = bottom - top
             var climTop = top
@@ -3221,7 +3232,7 @@ class MainActivity : Activity() {
             dashReady.textSize = 14f; dashReady.letterSpacing = 0.18f; dashReady.setPadding(0, 0, 0, 0)
             dashBrake.textSize = 12f; dashBrake.text = "Brake light on"; dashBrake.setPadding(dp(12), dp(2), dp(12), dp(2))
             (dashReady.layoutParams as? FrameLayout.LayoutParams)?.apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(2) }
-            (dashBrake.layoutParams as? FrameLayout.LayoutParams)?.apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(6); leftMargin = dp(190) }
+            (dashBrake.layoutParams as? FrameLayout.LayoutParams)?.apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(28); leftMargin = 0 }
         }
         (dashSign.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 38 else if (short) 48 else 64); height = dp(if (midLevel == 2) 38 else if (short) 48 else 64) }
         poolBar.requestLayout(); lowerBox.requestLayout()
@@ -3782,7 +3793,7 @@ class MainActivity : Activity() {
         checkForUpdate(false)
         dashPowerGauge.refresh()
 
-        dashBrake.visibility = if (s.brakeBcm ?: s.brakeVcu ?: false) View.VISIBLE else View.INVISIBLE
+        dashBrake.visibility = if ((s.brakeBcm ?: s.brakeVcu ?: false) && !(l2Applied && prefs().getBoolean("hideBrakeNote", false))) View.VISIBLE else View.INVISIBLE
         updateDashTheme()
         fun t(c: Double?) = if (c == null) "--" else fmt(c, "\u00B0C", 0)
         val nowMs = System.currentTimeMillis()
