@@ -6736,28 +6736,37 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val x0 = r.left; val y0 = r.top
         fun px(v: Float) = x0 + v * isz
         fun py(v: Float) = y0 + v * isz
-        val seatCol = if (lvl > 0) Color.WHITE else Color.argb(185, 255, 255, 255)
-        p.shader = null; p.style = Paint.Style.FILL; p.color = seatCol
-        // headrest, then the tall back (a little wider at the shoulders), then the cushion reaching forward
-        canvas.drawRoundRect(RectF(px(0.31f), py(0.07f), px(0.53f), py(0.23f)), isz * 0.07f, isz * 0.07f, p)
+        val white = Color.WHITE
+        // a side view of the seat, facing right: tilted headrest, leaning back, cushion reaching forward
+        p.shader = null; p.style = Paint.Style.FILL; p.color = white
+        canvas.save(); canvas.rotate(-14f, px(0.27f), py(0.20f))
+        canvas.drawRoundRect(RectF(px(0.19f), py(0.11f), px(0.36f), py(0.27f)), isz * 0.06f, isz * 0.06f, p)
+        canvas.restore()
         path.reset()
-        path.moveTo(px(0.27f), py(0.27f)); path.lineTo(px(0.57f), py(0.27f)); path.lineTo(px(0.52f), py(0.72f)); path.lineTo(px(0.24f), py(0.72f)); path.close()
+        path.moveTo(px(0.17f), py(0.33f)); path.lineTo(px(0.35f), py(0.30f)); path.lineTo(px(0.46f), py(0.64f)); path.lineTo(px(0.27f), py(0.66f)); path.close()
         canvas.drawPath(path, p)
-        p.style = Paint.Style.STROKE; p.strokeWidth = isz * 0.05f; p.strokeJoin = Paint.Join.ROUND; canvas.drawPath(path, p)
+        p.style = Paint.Style.STROKE; p.strokeWidth = isz * 0.04f; p.strokeJoin = Paint.Join.ROUND; canvas.drawPath(path, p)
         p.style = Paint.Style.FILL
-        canvas.drawRoundRect(RectF(px(0.22f), py(0.74f), px(0.80f), py(0.88f)), isz * 0.06f, isz * 0.06f, p)
-        // the heat waves on the back of the seat, in the heat colour
+        canvas.drawRoundRect(RectF(px(0.25f), py(0.63f), px(0.74f), py(0.75f)), isz * 0.05f, isz * 0.05f, p)
+        canvas.drawRect(RectF(px(0.40f), py(0.74f), px(0.50f), py(0.79f)), p)
+        // heat waves rising from the cushion: one to three
         if (lvl > 0) {
-            stroke(Color.parseColor("#E8501F"), maxOf(1.4f, isz / d * 0.035f))
-            val dx = isz * 0.085f
+            stroke(white, maxOf(1.4f, isz / d * 0.04f))
+            val hh = isz * 0.36f
             for (i in 0 until lvl) {
-                val lx = px(0.395f) + (i - (lvl - 1) / 2f) * dx
-                val h0 = py(0.33f); val hh = isz * 0.34f
+                val lx = px(0.54f + 0.10f * i)
+                val h0 = py(0.15f)
                 path.reset(); path.moveTo(lx, h0)
-                path.quadTo(lx + isz * 0.04f, h0 + hh * 0.25f, lx, h0 + hh * 0.5f)
-                path.quadTo(lx - isz * 0.04f, h0 + hh * 0.75f, lx, h0 + hh)
+                path.quadTo(lx + isz * 0.045f, h0 + hh * 0.25f, lx, h0 + hh * 0.5f)
+                path.quadTo(lx - isz * 0.045f, h0 + hh * 0.75f, lx, h0 + hh)
                 canvas.drawPath(path, p)
             }
+        }
+        // three dots under the seat show the level
+        p.style = Paint.Style.FILL
+        for (i in 0 until 3) {
+            p.color = if (i < lvl) white else Color.argb(90, 255, 255, 255)
+            canvas.drawCircle(px(0.34f + 0.16f * i), py(0.89f), isz * 0.042f, p)
         }
         seatRects.add(r); seatWho.add(who)
     }
