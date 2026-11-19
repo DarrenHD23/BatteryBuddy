@@ -30,6 +30,7 @@
 
     <application
         android:allowBackup="false"
+        android:usesCleartextTraffic="true"
         android:icon="@mipmap/ic_launcher"
         android:label="Fisker Battery Buddy"
         android:theme="@android:style/Theme.Material.Light.DarkActionBar">

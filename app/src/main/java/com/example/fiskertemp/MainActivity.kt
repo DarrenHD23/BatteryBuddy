@@ -389,6 +389,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         EventLog.init(this)
         EventLog.add("app start")
+        InApp.init(this); InApp.log = { m -> EventLog.add(m) }; InApp.onChange = { refreshMediaCards() }
         logLastExits()
         logBootInfo()
         // a crash writes its stack trace to the event log before the app goes down
@@ -817,6 +818,7 @@ class MainActivity : Activity() {
     private val bgCount = 15
     private val CUSTOM_BG = 99                      // bgPic value for the user's own picture
     private val REQ_PICK_BG = 4711
+    private val REQ_PICK_AUDIO = 4712
     private fun customBgFile() = java.io.File(filesDir, "custom_bg.jpg")
     private var bgBitmap: android.graphics.Bitmap? = null
     private var bgBitmapIdx = 0
@@ -905,6 +907,18 @@ class MainActivity : Activity() {
     @Suppress("OVERRIDE_DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_PICK_AUDIO && resultCode == RESULT_OK) {
+            val au = data?.data ?: return
+            var nm = "Music file"
+            try {
+                contentResolver.query(au, null, null, null, null)?.use { c ->
+                    val ix = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (ix >= 0 && c.moveToFirst()) nm = c.getString(ix).substringBeforeLast('.')
+                }
+            } catch (e: Exception) { }
+            pauseExternalMusic(); InApp.playUri(au, nm); refreshMediaCards()
+            return
+        }
         if (requestCode != REQ_PICK_BG || resultCode != RESULT_OK) return
         val uri = data?.data ?: return
         Thread {
@@ -2039,18 +2053,20 @@ class MainActivity : Activity() {
         f.addView(flyBtn, FrameLayout.LayoutParams(dp(38), dp(38), Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(10), 0, 0, dp(190)) })
         mediaPopup = MediaCardView(this).apply {
             visibility = View.GONE
-            onPrev = { mediaWatcher?.prev(); ui.removeCallbacks(hideMediaPopup) }
-            onToggle = { mediaWatcher?.toggle(); ui.removeCallbacks(hideMediaPopup) }
-            onNext = { mediaWatcher?.next(); ui.removeCallbacks(hideMediaPopup) }
-            onTap = { ui.removeCallbacks(hideMediaPopup); openMusicApp(false) }   // the card stays on screen
+            onPrev = { if (InApp.mode != InApp.EXTERNAL) InApp.prev() else mediaWatcher?.prev(); ui.removeCallbacks(hideMediaPopup) }
+            onToggle = { if (InApp.mode != InApp.EXTERNAL) InApp.toggle() else mediaWatcher?.toggle(); ui.removeCallbacks(hideMediaPopup) }
+            onNext = { if (InApp.mode != InApp.EXTERNAL) InApp.next() else mediaWatcher?.next(); ui.removeCallbacks(hideMediaPopup) }
+            onSources = { ui.removeCallbacks(hideMediaPopup); showSources() }
+            onTap = { ui.removeCallbacks(hideMediaPopup); if (InApp.mode == InApp.EXTERNAL) openMusicApp(false) }   // the card stays on screen
         }
         f.addView(mediaPopup, FrameLayout.LayoutParams(-1, dp(132), Gravity.BOTTOM).apply { setMargins(dp(8), 0, dp(8), dp(66)) })
         mediaCard = MediaCardView(this).apply {
             visibility = View.GONE
-            onPrev = { mediaWatcher?.prev() }
-            onToggle = { mediaWatcher?.toggle() }
-            onNext = { mediaWatcher?.next() }
-            onTap = { openMusicApp(false) }
+            onPrev = { if (InApp.mode != InApp.EXTERNAL) InApp.prev() else mediaWatcher?.prev() }
+            onToggle = { if (InApp.mode != InApp.EXTERNAL) InApp.toggle() else mediaWatcher?.toggle() }
+            onNext = { if (InApp.mode != InApp.EXTERNAL) InApp.next() else mediaWatcher?.next() }
+            onSources = { showSources() }
+            onTap = { if (InApp.mode == InApp.EXTERNAL) openMusicApp(false) }
         }
         f.addView(mediaCard, FrameLayout.LayoutParams(-1, dp(132), Gravity.BOTTOM).apply { setMargins(dp(8), 0, dp(8), dp(200)) })
         f.addOnLayoutChangeListener { v, _, top, _, bottom, _, _, _, _ ->
@@ -2231,11 +2247,154 @@ class MainActivity : Activity() {
     private fun ensureMediaWatcher() {
         if (mediaWatcher != null) return
         mediaWatcher = MediaWatcher(this, ui, { Thread { rootRun("cmd notification allow_listener " + ComponentName(this, MainActivity::class.java).flattenToString()) }.start() }, { m -> EventLog.add(m) }).also { w ->
-            w.onChange = {
+            w.onChange = { refreshMediaCards() }
+        }
+    }
+
+    /** Shows what the card's source is playing: the external player / Bluetooth session, or our own player. */
+    private fun refreshMediaCards() {
+        if (!::mediaCard.isInitialized || !::mediaPopup.isInitialized) return
+        val m = InApp.mode
+        mediaCard.srcMode = m; mediaPopup.srcMode = m
+        if (m != InApp.EXTERNAL) {
+            mediaCard.update(InApp.title, InApp.artist, InApp.art, InApp.playing, InApp.hasSession)
+            mediaPopup.update(InApp.title, InApp.artist, InApp.art, InApp.playing, InApp.hasSession)
+        } else {
+            val w = mediaWatcher
+            if (w != null) {
                 mediaCard.update(w.title, w.artist, w.art, w.playing, w.hasSession)
                 mediaPopup.update(w.title, w.artist, w.art, w.playing, w.hasSession)
+            } else { mediaCard.update(null, null, null, false, false); mediaPopup.update(null, null, null, false, false) }
+        }
+    }
+
+    /** Our own player is about to start: stop the phone's music so the two do not play together. */
+    private fun pauseExternalMusic() { if (mediaWatcher?.playing == true) mediaWatcher?.toggle() }
+
+    /** The Sources button on the media card. */
+    private fun showSources() {
+        val names = arrayOf("External Player / Bluetooth", "Local MP3 file", "Streaming Internet Radio / Shoutcast")
+        darkDialog().setTitle("Music source")
+            .setSingleChoiceItems(names, InApp.mode) { dlg, i ->
+                dlg.dismiss()
+                when (i) {
+                    0 -> { InApp.useExternal(); refreshMediaCards() }
+                    1 -> pickLocalMusic()
+                    else -> showRadioPicker()
+                }
+            }.setNegativeButton("Cancel", null).showDark()
+    }
+
+    private fun openAudioPicker() {
+        try {
+            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("audio/*"), REQ_PICK_AUDIO)
+        } catch (e: Exception) {
+            toast("This device has no file picker app, so a music file can't be chosen here.")
+        }
+    }
+
+    /** Lists the music files on the device inside the app (needs root, as for pictures); without root it uses Android's file picker. */
+    private fun pickLocalMusic() {
+        toast("Looking for music files...")
+        Thread {
+            val found = ArrayList<String>()
+            if (Updater.rootAvailable()) {
+                val r = Root.exec("find /storage -maxdepth 8 -type f \\( -iname '*.mp3' -o -iname '*.m4a' -o -iname '*.flac' -o -iname '*.ogg' -o -iname '*.wav' -o -iname '*.aac' \\) ! -path '*/Android/*' ! -path '*/.*' -size +50k 2>/dev/null | head -1500", 30)
+                for (l in r.out.lines()) { val t = l.trim(); if (t.startsWith("/") && found.none { it.substringAfterLast('/') == t.substringAfterLast('/') && it.length == t.length }) found.add(t) }
+            }
+            ui.post {
+                if (found.isEmpty()) { openAudioPicker(); return@post }
+                found.sortWith(compareBy({ it.substringBeforeLast('/').lowercase() }, { it.substringAfterLast('/').lowercase() }))
+                val labels = Array(found.size) { i -> found[i].substringAfterLast('/') + "\n" + found[i].substringBeforeLast('/').removePrefix("/storage/") }
+                darkDialog().setTitle("Choose a music file").setItems(labels) { _, i ->
+                    pauseExternalMusic(); InApp.playFiles(found, i); refreshMediaCards()
+                }.setNeutralButton("Other...") { _, _ -> openAudioPicker() }.setNegativeButton("Cancel", null).showDark()
+            }
+        }.start()
+    }
+
+    /** The station list: the most popular stations first, a search box and a few genres, each with its logo. */
+    private fun showRadioPicker() {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(4), dp(12), 0) }
+        val search = EditText(this).apply {
+            hint = "Search stations"; setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.parseColor("#8A94A6"))
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+        }
+        box.addView(search, LinearLayout.LayoutParams(-1, -2))
+        val chipRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val chipScroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(chipRow) }
+        box.addView(chipScroll, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dp(6), 0, 0) })
+        val status = TextView(this).apply { setTextColor(Color.parseColor("#9AA5B8")); textSize = 13f; setPadding(dp(4), dp(6), dp(4), dp(6)) }
+        box.addView(status, LinearLayout.LayoutParams(-1, -2))
+        val list = ListView(this).apply { divider = ColorDrawable(Color.parseColor("#3A4150")); dividerHeight = 1 }
+        box.addView(list, LinearLayout.LayoutParams(-1, (resources.displayMetrics.heightPixels * 0.5f).toInt()))
+
+        var items: List<Station> = emptyList()
+        val adapter = object : BaseAdapter() {
+            override fun getCount() = items.size
+            override fun getItem(i: Int): Any = items[i]
+            override fun getItemId(i: Int) = i.toLong()
+            override fun getView(i: Int, convert: View?, parent: ViewGroup?): View {
+                val s = items[i]
+                val row = (convert as? LinearLayout) ?: LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(4), dp(8), dp(4), dp(8))
+                    val pic = ImageView(this@MainActivity).apply {
+                        scaleType = ImageView.ScaleType.CENTER_CROP
+                        background = GradientDrawable().apply { setColor(Color.parseColor("#2F3A52")); cornerRadius = dp(8).toFloat() }
+                        clipToOutline = true
+                    }
+                    addView(pic, LinearLayout.LayoutParams(dp(52), dp(52)))
+                    val col = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
+                    col.addView(TextView(this@MainActivity).apply { setTextColor(Color.WHITE); textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.END })
+                    col.addView(TextView(this@MainActivity).apply { setTextColor(Color.parseColor("#9AA5B8")); textSize = 12f; setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.END })
+                    addView(col, LinearLayout.LayoutParams(0, -2, 1f).apply { setMargins(dp(12), 0, 0, 0) })
+                }
+                val pic = row.getChildAt(0) as ImageView
+                val col = row.getChildAt(1) as LinearLayout
+                (col.getChildAt(0) as TextView).text = s.name
+                (col.getChildAt(1) as TextView).text = s.info
+                pic.setImageDrawable(null); pic.tag = s.logo
+                if (s.logo.isNotEmpty()) Logos.load(s.logo, 120) { b -> if (pic.tag == s.logo && b != null) pic.setImageBitmap(b) }
+                return row
             }
         }
+        list.adapter = adapter
+
+        var loadId = 0
+        fun load(fetch: () -> List<Station>?) {
+            val token = ++loadId
+            status.text = "Loading stations..."; items = emptyList(); adapter.notifyDataSetChanged()
+            Thread {
+                val l = fetch()
+                ui.post {
+                    if (token != loadId) return@post
+                    if (l == null) { status.text = "Could not reach the station list. Check the internet connection." }
+                    else { items = l; status.text = if (l.isEmpty()) "No stations found." else "" }
+                    adapter.notifyDataSetChanged()
+                }
+            }.start()
+        }
+        fun chip(label: String, go: () -> Unit) {
+            val t = TextView(this).apply {
+                text = label; setTextColor(Color.WHITE); textSize = 14f; setPadding(dp(14), dp(7), dp(14), dp(7))
+                background = GradientDrawable().apply { setColor(Color.parseColor("#394255")); cornerRadius = dp(18).toFloat() }
+                setOnClickListener { go() }
+            }
+            chipRow.addView(t, LinearLayout.LayoutParams(-2, -2).apply { setMargins(0, 0, dp(8), 0) })
+        }
+        chip("Top") { load { Radio.top() } }
+        for (g in listOf("pop", "rock", "jazz", "classical", "country", "electronic", "hiphop", "oldies", "news", "talk")) chip(g.replaceFirstChar { it.uppercase() }) { load { Radio.byTag(g) } }
+        search.setOnEditorActionListener { v, _, _ ->
+            val q = v.text.toString().trim()
+            if (q.isNotEmpty()) load { Radio.search(q) }
+            true
+        }
+        val dlg = darkDialog().setTitle("Internet radio").setView(box).setNegativeButton("Close", null).showDark()
+        dlg.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
+        list.setOnItemClickListener { _, _, pos, _ ->
+            pauseExternalMusic(); InApp.playStations(items, pos); refreshMediaCards(); dlg.dismiss()
+        }
+        load { Radio.top() }
     }
 
     private val hideMediaPopup = Runnable { if (::mediaPopup.isInitialized) mediaPopup.visibility = View.GONE }
@@ -3687,7 +3846,7 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onDestroy() { EventLog.add("app stopped"); mediaWatcher?.stop(); pulse?.stop(); ui.removeCallbacksAndMessages(null); close(); super.onDestroy() }
+    override fun onDestroy() { EventLog.add("app stopped"); InApp.useExternal(); mediaWatcher?.stop(); pulse?.stop(); ui.removeCallbacksAndMessages(null); close(); super.onDestroy() }
 
     /** Send an AT or OBD command; read until the ELM '>' prompt (3 s timeout). */
     @Synchronized
@@ -6392,6 +6551,8 @@ class MediaCardView(ctx: Context) : View(ctx) {
     var onToggle: (() -> Unit)? = null
     var onNext: (() -> Unit)? = null
     var onTap: (() -> Unit)? = null                  // a tap anywhere on the card that is not one of the three buttons
+    var onSources: (() -> Unit)? = null              // the Sources button (wide card)
+    var srcMode = 0                                  // 0 external player / Bluetooth, 1 local file, 2 internet radio
     var rhd = false                                   // right-hand drive: controls on the right
     private var title: String? = null
     private var artist: String? = null
@@ -6405,7 +6566,7 @@ class MediaCardView(ctx: Context) : View(ctx) {
     private val rPrev = RectF(); private val rPlay = RectF(); private val rNext = RectF()
 
     // ---- visualizer (wide card only): on the right, tap it for the next style; the small button turns it on / off
-    private val vizRect = RectF(); private val vizBtn = RectF(); private val vizColBtn = RectF()
+    private val vizRect = RectF(); private val vizBtn = RectF(); private val vizColBtn = RectF(); private val srcBtn = RectF()
     private var palNameAt = 0L
     private val painter = VizPainter(ctx.resources.displayMetrics.density)
     private val sp = ctx.getSharedPreferences("prefs", Context.MODE_PRIVATE)
@@ -6489,10 +6650,15 @@ class MediaCardView(ctx: Context) : View(ctx) {
             if (!artist.isNullOrEmpty()) fitText(artist!!, tx, y2, s2, Color.argb(210, 255, 255, 255), false, maxW)
         } else {
             fitText("Nothing playing", tx, y1, if (small) 14f else 18f, Color.argb(220, 255, 255, 255), true, maxW)
-            fitText(if (small) "Bluetooth music shows here" else "Music from the phone over Bluetooth shows here", tx, y2, 12f, Color.argb(150, 255, 255, 255), false, maxW)
+            val hint = when (srcMode) {
+                1 -> "Choose a music file with the Sources button"
+                2 -> "Choose a radio station with the Sources button"
+                else -> if (small) "Bluetooth music shows here" else "Music from the phone over Bluetooth shows here"
+            }
+            fitText(hint, tx, y2, 12f, Color.argb(150, 255, 255, 255), false, maxW)
         }
 
-        vizRect.setEmpty(); vizBtn.setEmpty(); vizColBtn.setEmpty()
+        vizRect.setEmpty(); vizBtn.setEmpty(); vizColBtn.setEmpty(); srcBtn.setEmpty()
         if (wide) {
             val bs = dp(26f)
             if (rhd) vizRect.set(dp(12f), dp(12f), colX - dp(14f), h - dp(12f)) else vizRect.set(colX + colW + dp(14f), dp(12f), w - dp(12f), h - dp(12f))
@@ -6500,6 +6666,8 @@ class MediaCardView(ctx: Context) : View(ctx) {
             val bcx = if (rhd) vizRect.right + dp(23f) else vizRect.left - dp(23f); val bcy = vizRect.top + dp(15f)
             vizBtn.set(bcx - bs / 2, bcy - bs / 2, bcx + bs / 2, bcy + bs / 2)
             if (vizDraw) vizColBtn.set(vizBtn.left, vizBtn.bottom + dp(8f), vizBtn.right, vizBtn.bottom + dp(8f) + bs)
+            // the Sources button is always in the third place, just below where the colour button is
+            srcBtn.set(vizBtn.left, vizBtn.bottom + dp(16f) + bs, vizBtn.right, vizBtn.bottom + dp(16f) + 2 * bs)
             if (vizDraw) {
                 // real audio when the device allows it and sound is actually coming through, otherwise a simulated beat
                 var bands: FloatArray? = null
@@ -6538,6 +6706,16 @@ class MediaCardView(ctx: Context) : View(ctx) {
                 p.alpha = 255
                 c.restore()
             }
+            // the Sources button: a music note on a glass circle, lit when our own player is the source
+            c.saveLayerAlpha(RectF(srcBtn.left - dp(8f), srcBtn.top - dp(8f), srcBtn.right + dp(8f), srcBtn.bottom + dp(10f)), 165)
+            drawLiquidGlass(c, p, srcBtn, bs / 2, dp(1f), if (srcMode != 0) Skins.look.accent else null)
+            p.style = Paint.Style.FILL; p.shader = null; p.color = Color.WHITE
+            val nx = srcBtn.centerX(); val ny = srcBtn.centerY()
+            c.drawOval(RectF(nx - bs * 0.22f, ny + bs * 0.06f, nx - bs * 0.02f, ny + bs * 0.22f), p)
+            c.drawRect(RectF(nx - bs * 0.06f, ny - bs * 0.24f, nx - bs * 0.02f, ny + bs * 0.14f), p)
+            path.reset(); path.moveTo(nx - bs * 0.02f, ny - bs * 0.24f); path.lineTo(nx + bs * 0.2f, ny - bs * 0.1f); path.lineTo(nx + bs * 0.2f, ny - bs * 0.02f); path.lineTo(nx - bs * 0.02f, ny - bs * 0.14f); path.close()
+            c.drawPath(path, p)
+            c.restore()
         }
     }
 
@@ -6575,7 +6753,9 @@ class MediaCardView(ctx: Context) : View(ctx) {
             fun hit(r: RectF) = e.x >= r.left - s && e.x <= r.right + s && e.y >= r.top - s && e.y <= r.bottom + s
             when {
                 hit(rPlay) -> onToggle?.invoke(); hit(rPrev) -> onPrev?.invoke(); hit(rNext) -> onNext?.invoke()
+                !srcBtn.isEmpty && srcBtn.contains(e.x, e.y) -> onSources?.invoke()
                 !vizColBtn.isEmpty && hit(vizColBtn) -> { vizPal = (vizPal + 1) % VizInfo.palettes.size; sp.edit().putInt("vizPal", vizPal).apply(); palNameAt = System.currentTimeMillis(); invalidate() }
+                !srcBtn.isEmpty && hit(srcBtn) -> onSources?.invoke()
                 !vizBtn.isEmpty && hit(vizBtn) -> { vizOn = !vizOn; sp.edit().putBoolean("vizOn", vizOn).apply(); if (!vizOn) AudioViz.stop(); invalidate() }
                 !vizRect.isEmpty && vizOn && vizRect.contains(e.x, e.y) -> { vizStyle = (vizStyle + 1) % VizInfo.styles.size; sp.edit().putInt("vizStyle", vizStyle).apply(); invalidate() }
                 else -> onTap?.invoke()
