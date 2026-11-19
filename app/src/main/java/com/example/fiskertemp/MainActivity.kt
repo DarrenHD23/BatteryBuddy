@@ -773,7 +773,7 @@ class MainActivity : Activity() {
             }
             hideSeatIcons = prefs().getBoolean("hideSeatIcons", false)
             paintIdx = prefs().getInt("carPaint", 3)
-            onPaint = { i -> prefs().edit().putInt("carPaint", i).apply() }
+            onPaint = { i -> setCarPaint(i) }
             onFan = { level ->
                 val was = climateView.snap.climFan
                 val msg = pulse?.sendFan(level) ?: "CAN reader is not running"
@@ -1015,6 +1015,13 @@ class MainActivity : Activity() {
     }
 
     /** Dialogs use a dark theme so they are not glaring at night. */
+    /** One car colour for both car drawings (the Climate screen and Layout 2's car). */
+    private fun setCarPaint(i: Int) {
+        prefs().edit().putInt("carPaint", i).apply()
+        if (::climateView.isInitialized) climateView.paintIdx = i
+        if (::carView.isInitialized) carView.paintIdx = i
+    }
+
     private fun darkDialog() = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
 
     /** Dark background, light title / message, readable buttons: set explicitly so no theme can leave black text. */
@@ -2112,7 +2119,15 @@ class MainActivity : Activity() {
             addView(chargeBar, LinearLayout.LayoutParams(-1, dp(30)).apply { bottomMargin = dp(2) })
         }
         dashMid = mid
-        carView = CarView(this)
+        carView = CarView(this).apply {
+            paintIdx = prefs().getInt("carPaint", 3)
+            setOnClickListener {
+                val cur = prefs().getInt("carPaint", 3).coerceIn(0, CAR_PAINTS.size - 1)
+                darkDialog().setTitle("Car colour").setSingleChoiceItems(CAR_PAINTS.map { it.first }.toTypedArray(), cur) { dlg, i ->
+                    setCarPaint(i); dlg.dismiss()
+                }.setNegativeButton("Close", null).showDark()
+            }
+        }
         pageSets = listOf(PageSet(), PageSet())
         l2FlyBtn = TextView(this).apply {
             text = "\u2699"; textSize = 20f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
@@ -6532,11 +6547,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
 
     private val tmpR = RectF()
     // ---- paint colour: tap the car to pick one of Fisker's paints
-    private val paints = listOf(
-        "Big Sur Blue" to 0xFF1A2130.toInt(), "Black Pearl" to 0xFF17181D.toInt(), "Blue Planet" to 0xFF2A4163.toInt(), "Great White" to 0xFFE6E8EA.toInt(),
-        "Horizon Grey" to 0xFF2F3038.toInt(), "Mariana" to 0xFF1D4F7E.toInt(), "Marine Layer" to 0xFFE0E1DA.toInt(), "Night Drive" to 0xFF1A1A1A.toInt(),
-        "Red Planet" to 0xFF7F1510.toInt(), "Sea Grass" to 0xFF222B27.toInt(), "Silver Lining" to 0xFF9DB1C9.toInt(), "Solar Orange" to 0xFFC4502A.toInt(),
-        "Stealth Green" to 0xFF161F1B.toInt(), "Sun Soaked" to 0xFFC9B0A3.toInt())
+    private val paints = CAR_PAINTS
     var paintIdx = 3
         set(v) { field = v.coerceIn(0, 13); invalidate() }
     var onPaint: ((Int) -> Unit)? = null
@@ -7247,7 +7258,12 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         if (!rearRect.isEmpty() && rearRect.contains(e.x, e.y)) { showNotice("Please use the button bar below the screen to adjust Rear Defrost"); return true }
         val cz = carZones.indexOfFirst { it.first.contains(e.x, e.y) }
         if (cz >= 0) { carZoneTap(carZones[cz].second); invalidate(); return true }
-        if (!carRect.isEmpty() && carRect.contains(e.x, e.y)) { paintOpen = true; invalidate(); return true }
+        if (!carRect.isEmpty()) {
+            // the paint colour is picked by touching the hood (the seats, windows and wheel have their own touches)
+            val hk = carRect.width() / 300f
+            val hood = RectF(carRect.left + 60f * hk, carRect.top + 6f * hk * 0.88f, carRect.left + 240f * hk, carRect.top + 138f * hk * 0.88f)
+            if (hood.contains(e.x, e.y)) { paintOpen = true; invalidate(); return true }
+        }
         return true
     }
 }
@@ -7724,3 +7740,10 @@ private val SEAT_WAVES = arrayOf(
     floatArrayOf(0.629f, 0.187f, 0.627f, 0.199f, 0.623f, 0.211f, 0.618f, 0.224f, 0.612f, 0.236f, 0.606f, 0.249f, 0.602f, 0.261f, 0.599f, 0.274f, 0.599f, 0.286f, 0.601f, 0.298f, 0.605f, 0.311f, 0.609f, 0.323f, 0.614f, 0.336f, 0.618f, 0.348f, 0.620f, 0.361f, 0.619f, 0.373f, 0.617f, 0.385f, 0.612f, 0.398f, 0.606f, 0.410f, 0.600f, 0.423f, 0.595f, 0.435f, 0.591f, 0.448f, 0.589f, 0.460f, 0.590f, 0.472f, 0.593f, 0.485f, 0.597f, 0.497f, 0.602f, 0.510f, 0.607f, 0.522f, 0.610f, 0.535f, 0.611f, 0.547f, 0.609f, 0.559f),
     floatArrayOf(0.741f, 0.169f, 0.739f, 0.181f, 0.735f, 0.194f, 0.729f, 0.206f, 0.723f, 0.219f, 0.718f, 0.231f, 0.713f, 0.244f, 0.711f, 0.256f, 0.711f, 0.268f, 0.713f, 0.281f, 0.716f, 0.293f, 0.721f, 0.306f, 0.726f, 0.318f, 0.729f, 0.331f, 0.731f, 0.343f, 0.731f, 0.355f, 0.728f, 0.368f, 0.723f, 0.380f, 0.718f, 0.393f, 0.711f, 0.405f, 0.706f, 0.418f, 0.702f, 0.430f, 0.701f, 0.442f, 0.702f, 0.455f, 0.705f, 0.467f, 0.709f, 0.480f, 0.714f, 0.492f, 0.718f, 0.505f, 0.721f, 0.517f, 0.722f, 0.529f, 0.721f, 0.542f)
 )
+
+/** Fisker's 14 paint colours: name and the colour the car drawings use. */
+val CAR_PAINTS = listOf(
+        "Big Sur Blue" to 0xFF1A2130.toInt(), "Black Pearl" to 0xFF17181D.toInt(), "Blue Planet" to 0xFF2A4163.toInt(), "Great White" to 0xFFE6E8EA.toInt(),
+        "Horizon Grey" to 0xFF2F3038.toInt(), "Mariana" to 0xFF1D4F7E.toInt(), "Marine Layer" to 0xFFE0E1DA.toInt(), "Night Drive" to 0xFF1A1A1A.toInt(),
+        "Red Planet" to 0xFF7F1510.toInt(), "Sea Grass" to 0xFF222B27.toInt(), "Silver Lining" to 0xFF9DB1C9.toInt(), "Solar Orange" to 0xFFC4502A.toInt(),
+        "Stealth Green" to 0xFF161F1B.toInt(), "Sun Soaked" to 0xFFC9B0A3.toInt())

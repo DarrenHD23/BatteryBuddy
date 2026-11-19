@@ -61,7 +61,35 @@ class CarView(ctx: Context) : View(ctx) {
     private fun load(id: Int): Bitmap? = try {
         BitmapFactory.decodeResource(res, id, BitmapFactory.Options().apply { inScaled = false })
     } catch (e: Throwable) { null }
-    private val base by lazy { load(R.drawable.car_base) }
+    private val base0 by lazy { load(R.drawable.car_base) }
+    /** Fisker paint colour (index into CAR_PAINTS); the silver body of the photo is recoloured, the glass, trim, lights and badge are left alone. */
+    var paintIdx = 3
+        set(v) { val n = v.coerceIn(0, CAR_PAINTS.size - 1); if (field != n) { field = n; tinted = null; invalidate() } }
+    private var tinted: Bitmap? = null
+    private val base: Bitmap? get() {
+        val b0 = base0 ?: return null
+        tinted?.let { return it }
+        val w = b0.width; val h = b0.height
+        val px = IntArray(w * h); b0.getPixels(px, 0, w, 0, 0, w, h)
+        val pc = CAR_PAINTS[paintIdx].second
+        val pr = Color.red(pc); val pg = Color.green(pc); val pb = Color.blue(pc)
+        for (i in px.indices) {
+            val c = px[i]; val a = c ushr 24
+            if (a == 0) continue
+            val r = Color.red(c); val g = Color.green(c); val b = Color.blue(c)
+            val mx = maxOf(r, g, b); val mn = minOf(r, g, b)
+            val sat = if (mx == 0) 0f else (mx - mn) / mx.toFloat()
+            val lum = (0.299f * r + 0.587f * g + 0.114f * b) / 255f
+            if (sat > 0.2f || lum < 0.3f) continue                       // glass, bumper, lights, badge
+            val wgt = (((lum - 0.3f) / 0.12f).coerceIn(0f, 1f)) * (1f - ((sat - 0.1f) / 0.1f).coerceIn(0f, 1f))
+            val shade = (lum / 0.62f).coerceIn(0.2f, 1.45f)
+            val nr = (pr * shade).coerceIn(0f, 255f); val ng = (pg * shade).coerceIn(0f, 255f); val nb = (pb * shade).coerceIn(0f, 255f)
+            px[i] = (a shl 24) or ((r + (nr - r) * wgt).toInt() shl 16) or ((g + (ng - g) * wgt).toInt() shl 8) or (b + (nb - b) * wgt).toInt()
+        }
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888); out.setPixels(px, 0, w, 0, 0, w, h)
+        tinted = out
+        return out
+    }
     private val dipped by lazy { load(R.drawable.car_dipped) }
     private val beam by lazy { load(R.drawable.car_highbeam) }
     private val left by lazy { load(R.drawable.car_left) }
