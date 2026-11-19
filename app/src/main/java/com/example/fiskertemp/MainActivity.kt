@@ -1445,7 +1445,7 @@ class MainActivity : Activity() {
 
     /** Layout 2 takes the middle column and the corners over; Original puts everything back where it was. */
     private fun fillMid(l2: Boolean) {
-        for (v in listOf<View>(dashReady, dashSlot, dashLightDist, dashBrake, tripSpacer, tripPanel, chargeBar, l2Mid)) (v.parent as? ViewGroup)?.removeView(v)
+        for (v in listOf<View>(dashReady, dashSlot, dashLightDist, dashBrake, tripSpacer, tripPanel, chargeBar, l2Mid, mediaBtn, climateBtn)) (v.parent as? ViewGroup)?.removeView(v)
         if (l2) {
             dashMid.addView(l2Mid, LinearLayout.LayoutParams(-1, -1))
             dashRoot.addView(dashSlot, FrameLayout.LayoutParams(dp(72), dp(92), Gravity.TOP or Gravity.END))
@@ -1453,6 +1453,8 @@ class MainActivity : Activity() {
             dashRoot.addView(chargeBar, FrameLayout.LayoutParams(dp(200), dp(30), Gravity.TOP or Gravity.START))
             dashRoot.addView(dashReady, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(4) })
             dashRoot.addView(dashBrake, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(30) })
+            dashRoot.addView(climateBtn, FrameLayout.LayoutParams(dp(90), dp(30), Gravity.TOP or Gravity.END))
+            dashRoot.addView(mediaBtn, FrameLayout.LayoutParams(dp(90), dp(30), Gravity.TOP or Gravity.END))
             refreshShortcuts()
         } else {
             dashMid.addView(dashReady, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
@@ -1699,7 +1701,7 @@ class MainActivity : Activity() {
     private fun applyLowerVisibility() {
         if (!::lowerBox.isInitialized || !::flyBtn.isInitialized) return
         flyBtn.visibility = View.GONE
-        lowerBox.visibility = View.VISIBLE
+        lowerBox.visibility = if (l2Applied) View.GONE else View.VISIBLE
     }
 
     private fun updateResText() {
@@ -2041,6 +2043,7 @@ class MainActivity : Activity() {
             onReset = { pulse?.resetDrive(); Toast.makeText(context, "Trip reset", Toast.LENGTH_SHORT).show() }
         }
         l2Media = MediaCardView(this).apply {
+            fullBleed = true
             onPrev = { if (InApp.mode != InApp.EXTERNAL) InApp.prev() else mediaWatcher?.prev() }
             onToggle = { if (InApp.mode != InApp.EXTERNAL) InApp.toggle() else mediaWatcher?.toggle() }
             onNext = { if (InApp.mode != InApp.EXTERNAL) InApp.next() else mediaWatcher?.next() }
@@ -2160,6 +2163,7 @@ class MainActivity : Activity() {
             setPadding(dp(9), 0, dp(9), 0)
             background = chipBg(12)
             setOnClickListener {
+                if (l2Applied && ::rightPager.isInitialized) { rightPager.show(0); return@setOnClickListener }   // Layout 2: the Media page of the card on the right
                 if (fullOrderNow) {
                     // full screen: the media card and the Climate panel toggle independently and never overlap
                     prefs().edit().putBoolean("fullMedia", !prefs().getBoolean("fullMedia", true)).apply()
@@ -2709,7 +2713,7 @@ class MainActivity : Activity() {
             DashTier(0, 34, false, false, false),
         )
         val need = (wDp * 0.30f).coerceIn(150f, 300f)
-        val base = 62                                // the strip sits above the bottom bar (app buttons on the left, Hide / Exit on the right)
+        val base = if (l2) 8 else 62                 // the strip sits above the bottom bar (app buttons on the left, Hide / Exit on the right)
         fun stack(t: DashTier): Int {
             var s = base + 8
             if (t.showStrip) s += t.strip + 4
@@ -2725,7 +2729,7 @@ class MainActivity : Activity() {
         val midLevel = if (gaugeH >= 300) 0 else if (gaugeH >= 235) 1 else 2
         // in a tall window (full screen) the gauges stay at the top instead of being centred in all the free height
         val gb = (if (t.showStrip) base + t.strip + 4 else base) + t.row + 8 + tripOff
-        val topM = if (midLevel > 0) 20 else 8
+        val topM = if (l2) 44 else if (midLevel > 0) 20 else 8
         val wantH = maxOf((wDp - 16) * 1.15f / 3f * 1.1f, 340f)
         val tall = hDp - gb - topM > wantH + 24f
         // the trip readouts sit in the middle column under the traffic light; rows by the height left there
@@ -2909,8 +2913,8 @@ class MainActivity : Activity() {
         updateResText()
         lowerBox.orientation = LinearLayout.HORIZONTAL
         lowerBox.gravity = Gravity.CENTER_VERTICAL
-        (resBtn.layoutParams as LinearLayout.LayoutParams).apply { rightMargin = dp(6) }
-        (lowerScroll.layoutParams as LinearLayout.LayoutParams).apply { topMargin = 0 }
+        (resBtn.layoutParams as? LinearLayout.LayoutParams)?.apply { rightMargin = dp(6) }
+        (lowerScroll.layoutParams as? LinearLayout.LayoutParams)?.apply { topMargin = 0 }
         resBtn.visibility = View.VISIBLE
         lowerBox.background = null
         lowerBox.setPadding(0, 0, 0, 0)
@@ -2927,20 +2931,27 @@ class MainActivity : Activity() {
             if (rhd) setMargins(0, 0, dp(8), dp(lowerBoxBottomM)) else setMargins(edgeOff, 0, 0, dp(lowerBoxBottomM))
         }
         // children in mirrored order for right-hand drive
-        val lowerKids = listOf(climateBtn, mediaBtn, resBtn, tripBtn, lowerScroll, lowerAdd)
         lowerBox.removeAllViews()
+        if (!l2) (resBtn.parent as? ViewGroup)?.removeView(resBtn)
+        val lowerKids = if (l2) emptyList() else listOf(climateBtn, mediaBtn, resBtn, tripBtn, lowerScroll, lowerAdd)
         for (v in if (rhd) lowerKids.reversed() else lowerKids) lowerBox.addView(v)
-        (mediaBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
-        (climateBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
+        (mediaBtn.layoutParams as? LinearLayout.LayoutParams)?.apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
+        (climateBtn.layoutParams as? LinearLayout.LayoutParams)?.apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
         (resBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
-        (tripBtn.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
-        (lowerAdd.layoutParams as LinearLayout.LayoutParams).apply { leftMargin = if (rhd) 0 else dp(6); rightMargin = if (rhd) dp(6) else 0; height = dp(42); topMargin = 0 }
+        (tripBtn.layoutParams as? LinearLayout.LayoutParams)?.apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
+        (lowerAdd.layoutParams as? LinearLayout.LayoutParams)?.apply { leftMargin = if (rhd) 0 else dp(6); rightMargin = if (rhd) dp(6) else 0; height = dp(42); topMargin = 0 }
         (btnBar.layoutParams as FrameLayout.LayoutParams).apply {
-            gravity = Gravity.BOTTOM or (if (rhd) Gravity.START else Gravity.END)
-            if (rhd) setMargins(edgeOff, 0, 0, dp(16)) else setMargins(0, 0, dp(8), dp(16))
+            if (l2) {
+                gravity = Gravity.TOP or (if (rhd) Gravity.START else Gravity.END)
+                if (rhd) setMargins(dp(8), dp(4), 0, 0) else setMargins(0, dp(4), dp(8), 0)
+            } else {
+                gravity = Gravity.BOTTOM or (if (rhd) Gravity.START else Gravity.END)
+                if (rhd) setMargins(edgeOff, 0, 0, dp(16)) else setMargins(0, 0, dp(8), dp(16))
+            }
         }
-        val barKids = if (showSkinBtn()) listOf(skinBtn, settingsBtn, dashBtn, exitBtn) else listOf(settingsBtn, dashBtn, exitBtn)
+        val barKids = (if (l2) listOf(resBtn) else emptyList()) + (if (showSkinBtn()) listOf(skinBtn, settingsBtn, dashBtn, exitBtn) else listOf(settingsBtn, dashBtn, exitBtn))
         btnBar.removeAllViews()
+        for (v in barKids) (v.parent as? ViewGroup)?.removeView(v)
         for ((i, v) in (if (rhd) barKids.reversed() else barKids).withIndex()) {
             btnBar.addView(v, LinearLayout.LayoutParams(-2, dp(36)).apply { if (i < barKids.size - 1) rightMargin = dp(8) })
         }
@@ -2971,8 +2982,24 @@ class MainActivity : Activity() {
                 width = dp(72); gravity = sg
                 setMargins(if (speedLeft) signSide else 0, dp(topM + 98), if (speedLeft) 0 else signSide, 0)
             }
+            // Climate and Media sit under the speed gauge, level with the battery bar under the power gauge
+            val bw = maxOf((gaugeWdp.toInt() - 8 - 6) / 2, 60)
+            val bg2 = Gravity.TOP or (if (speedLeft) Gravity.START else Gravity.END)
+            val edge = dp(12)
+            val by = dp(maxOf(rowBottomY - 34, 0))
+            (mediaBtn.layoutParams as FrameLayout.LayoutParams).apply {
+                width = dp(bw); height = dp(30); gravity = bg2; topMargin = by
+                if (speedLeft) { leftMargin = edge; rightMargin = 0 } else { rightMargin = edge + dp(bw) + dp(6); leftMargin = 0 }
+            }
+            (climateBtn.layoutParams as FrameLayout.LayoutParams).apply {
+                width = dp(bw); height = dp(30); gravity = bg2; topMargin = by
+                if (speedLeft) { leftMargin = edge + dp(bw) + dp(6); rightMargin = 0 } else { rightMargin = edge; leftMargin = 0 }
+            }
+            mediaBtn.textSize = 13f; climateBtn.textSize = 13f
+            mediaBtn.requestLayout(); climateBtn.requestLayout()
             chargeBar.requestLayout(); dashSlot.requestLayout(); dashLightDist.requestLayout()
         }
+        if (!l2) { mediaBtn.textSize = 12f; climateBtn.textSize = 12f }
         (dashLight.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 22 else if (short) 26 else 42); height = dp(if (midLevel == 2) 46 else if (short) 56 else 88) }
         dashReady.textSize = if (midLevel == 2 || (midLevel == 1 && brakeUnder)) 11f else if (midLevel == 1) 12f else 15f
         dashReady.letterSpacing = if (midLevel == 1 && brakeUnder && !readyUnderPanel) 0.06f else 0.18f
@@ -2981,11 +3008,12 @@ class MainActivity : Activity() {
         dashMode.minWidth = dp(if (short) 60 else 84)
         dashMode.setPadding(dp(if (short) 6 else 10), dp(if (short) 1 else 3), dp(if (short) 6 else 10), dp(if (short) 1 else 3))
         (dashTop.layoutParams as FrameLayout.LayoutParams).apply {
-            gravity = Gravity.TOP or (if (rhd) Gravity.START else Gravity.END)
-            if (rhd) setMargins(dp(8), dp(if (short) 2 else 6), 0, 0) else setMargins(0, dp(if (short) 2 else 6), dp(8), 0)
+            val topAtRight = if (l2) rhd else !rhd
+            gravity = Gravity.TOP or (if (topAtRight) Gravity.END else Gravity.START)
+            if (topAtRight) setMargins(0, dp(if (short) 2 else 6), dp(8), 0) else setMargins(dp(8), dp(if (short) 2 else 6), 0, 0)
         }
         dashTop.removeAllViews()
-        if (rhd) {
+        if (if (l2) !rhd else rhd) {
             dashTop.addView(dashMode, LinearLayout.LayoutParams(-2, -2).apply { rightMargin = dp(10) })
             dashTop.addView(dashHeading, LinearLayout.LayoutParams(-2, -2))
         } else {
@@ -6044,7 +6072,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         canvas.drawText(s, x, y + p.textSize * 0.35f, p)
     }
     /** Like text(), but shrinks the size so the string never wider than maxW pixels. */
-    private fun fitText(s: String, x: Float, y: Float, sizeDp: Float, color: Int, bold: Boolean, maxW: Float) {
+    private fun fitText(s: String, x: Float, y: Float, sizeDp: Float, color: Int, bold: Boolean, maxW: Float, center: Boolean = false) {
         p.textSize = dp(sizeDp); p.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
         val wd = p.measureText(s)
         text(s, x, y, if (wd > maxW && wd > 0f) sizeDp * maxW / wd else sizeDp, color, bold)
@@ -6845,6 +6873,7 @@ class MediaCardView(ctx: Context) : View(ctx) {
     var onFavs: (() -> Unit)? = null                 // the yellow favourites star beside it
     var srcMode = 0                                  // 0 external player / Bluetooth, 1 local file, 2 internet radio
     var rhd = false                                   // right-hand drive: controls on the right
+    var fullBleed = false                             // Layout 2: the art fills the card, the text sits centred over its lower part
     private var title: String? = null
     private var artist: String? = null
     private var art: Bitmap? = null
@@ -6885,7 +6914,7 @@ class MediaCardView(ctx: Context) : View(ctx) {
             while (out.length > 1 && p.measureText("$out\u2026") > maxW) out = out.dropLast(1)
             out = "$out\u2026"
         }
-        canvas0.drawText(out, x, y + p.textSize * 0.35f, p)
+        canvas0.drawText(out, if (center) x + (maxW - p.measureText(out)) / 2 else x, y + p.textSize * 0.35f, p)
     }
     private lateinit var canvas0: Canvas
 
@@ -6903,7 +6932,10 @@ class MediaCardView(ctx: Context) : View(ctx) {
             val sc = maxOf(w / bmp.width, h / bmp.height)
             val dw = bmp.width * sc; val dh = bmp.height * sc
             c.drawBitmap(bmp, null, RectF((w - dw) / 2, (h - dh) / 2, (w + dw) / 2, (h + dh) / 2), p)
-            p.color = Color.argb(150, 0, 0, 0); c.drawRect(card, p)
+            if (fullBleed) {
+                p.shader = LinearGradient(0f, h * 0.32f, 0f, h, Color.argb(0, 0, 0, 0), Color.argb(215, 0, 0, 0), Shader.TileMode.CLAMP)
+                c.drawRect(card, p); p.shader = null
+            } else { p.color = Color.argb(150, 0, 0, 0); c.drawRect(card, p) }
         } else {
             p.shader = LinearGradient(0f, 0f, w, h, Color.parseColor("#26334D"), Color.parseColor("#111827"), Shader.TileMode.CLAMP)
             c.drawRect(card, p); p.shader = null
@@ -6934,11 +6966,12 @@ class MediaCardView(ctx: Context) : View(ctx) {
         // title and artist on the other side
         val tx = if (small) dp(14f) else if (vz) colX else if (rhd) dp(20f) else rNext.right + dp(24f)
         val maxW = if (small) w - dp(28f) else if (vz) colW - dp(26f) else if (rhd) rPrev.left - tx - dp(24f) else w - tx - dp(20f)
-        val y1 = if (small) h * 0.17f else if (vz) h * 0.25f else h * 0.38f; val y2 = if (small) h * 0.35f else if (vz) h * 0.45f else h * 0.64f
+        val bleed = fullBleed && small && hasSession && !title.isNullOrEmpty()
+        val y1 = if (bleed) h * 0.52f else if (small) h * 0.17f else if (vz) h * 0.25f else h * 0.38f; val y2 = if (bleed) h * 0.64f else if (small) h * 0.35f else if (vz) h * 0.45f else h * 0.64f
         val s1 = if (small) 15f else if (vz) 17f else 20f; val s2 = if (small) 12f else if (vz) 13f else 14f
         if (hasSession && !title.isNullOrEmpty()) {
-            fitText(title!!, tx, y1, s1, Color.WHITE, true, maxW)
-            if (!artist.isNullOrEmpty()) fitText(artist!!, tx, y2, s2, Color.argb(210, 255, 255, 255), false, maxW)
+            fitText(title!!, tx, y1, s1, Color.WHITE, true, maxW, bleed)
+            if (!artist.isNullOrEmpty()) fitText(artist!!, tx, y2, s2, Color.argb(210, 255, 255, 255), false, maxW, bleed)
         } else {
             fitText("Nothing playing", tx, y1, if (small) 14f else 18f, Color.argb(220, 255, 255, 255), true, maxW)
             val hint = when (srcMode) {
