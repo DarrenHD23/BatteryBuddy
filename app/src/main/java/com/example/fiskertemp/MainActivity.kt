@@ -1602,7 +1602,7 @@ class MainActivity : Activity() {
         val live = System.currentTimeMillis() - p.lastChangeAt < 3000
         canDot.background = dotDrawable(live)
         canInfoView.text = if (!live) "No changing frames from the car yet (car asleep, or the reader isn't running)"
-            else if (s.packVolts == null) "Car awake. Voltage and current not received (the Pulse's CAN filters may need root)"
+            else if (s.packKw == null) "Car awake. Battery power not received (the Pulse's CAN filters may need root)"
             else "Car awake: frames are updating"
         if (s.avgTempC != lastTempC) { lastTempC = s.avgTempC; showTemp(s.avgTempC, useFahrenheit) }
         val demand = when (s.thermalDemand) { 0 -> "starting up"; 1 -> "heating"; 2 -> "cooling"; 3 -> "cycling"; else -> "--" }
@@ -3686,9 +3686,7 @@ class MainActivity : Activity() {
         dashReady.visibility = if (s.ready == true && !drivenSinceReady) View.VISIBLE else View.INVISIBLE
         dashSpeedGauge.refresh()
 
-        val v = s.packVolts
-        val a = s.packAmps
-        val kw = if (v != null && a != null) v * a / 1000.0 * (if (prefs().getBoolean("flipPower", false)) -1 else 1) else null
+        val kw = s.packKw?.let { it * (if (prefs().getBoolean("flipPower", false)) -1 else 1) }
         dashPowerGauge.valueText = kw?.let { String.format("%.1f", it) } ?: "--"
         dashPowerGauge.setFraction(kw?.let {
             // square-root scale so everyday power fills a good part of the arc; zero sits at 20%

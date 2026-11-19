@@ -90,6 +90,7 @@ data class CanSnapshot(
     val climRemote: Int = 0,               // 0 standby, 1 remote A/C working, 2 fault
     val rearDefrost: Boolean? = null,      // rear window heater on (0x335 BCM_ReDefrstHeatgCmd, IBUS1), status only
     val wheelHeat: Boolean? = null,        // heated steering wheel on (0x386 BCM_HeatedSteerWhlSt, IBUS1); null = not received
+    val packKw: Double? = null,            // battery power, kW, positive = drawing (0xE9 on IBUS2, or 0x2F4 on IBUS1 when 0xE9 is filtered out)
     val seatDrv: Int? = null,              // seat heating level 0 off, 1 low, 2 medium, 3 high (0x518 / 0x512, IBUS1); null = not received
     val seatPass: Int? = null,
     val seatRL: Int? = null,
@@ -121,6 +122,8 @@ class PulseCan(
     // energy put back while the car is moving (so plugging in to charge does not count)
     @Volatile private var regenWh = 0.0
     private var lastE9Nanos = 0L
+    private var lastE9Ms = 0L
+    private var lastP2F4Nanos = 0L
     // trip counters (reader thread adds to them)
     @Volatile private var tripKm = 0.0
     @Volatile private var tripWh = 0.0
@@ -523,7 +526,7 @@ class PulseCan(
                     onStatus(if (why == null) "CAN filters: $filterReadback" else "CAN filters not changed: $why")
                 }
                 txActive = context.getSharedPreferences("prefs", Context.MODE_PRIVATE).getBoolean("climateTx", false)
-                val base = listOf(bin, "$b1=382,2F5,318,179,234,335,2AC,373,507,6DD,1A9,5EA,505,530,534,386,528,512,518", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534,528,313")
+                val base = listOf(bin, "$b1=382,2F5,2F4,318,179,234,335,2AC,373,507,6DD,1A9,5EA,505,530,534,386,528,512,518", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534,528,313")
                 // transmit is allowed only for 0x530, 0x528 and 0x534 and only when the test is ticked in Settings; otherwise the helper is receive-only
                 val args = if (txActive) base + listOf("tx:$b1=530,528,534", "tx:$b2=530,528,534") else base
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
@@ -661,6 +664,21 @@ class PulseCan(
                 socRealRaw = b[6],
             )
         }
+        // 0x2F4 BMS_0x2F4 (IBUS1, every 100 ms): BMS_Bat_measure_Power, signed 16-bit x 0.1 kW (bytes 4-5).
+        // The Pulse's newer CAN filters no longer let 0xE9 through, so this is the power source when 0xE9 is silent.
+        if (bus == 1 && id == 0x2F4) {
+            val raw = (b[4] shl 8) or b[5]
+            val kw = (if (raw >= 0x8000) raw - 0x10000 else raw) * 0.1
+            val nowN = System.nanoTime()
+            val dt = if (lastP2F4Nanos == 0L) 0.0 else (nowN - lastP2F4Nanos) / 1e9
+            lastP2F4Nanos = nowN
+            if (System.currentTimeMillis() - lastE9Ms < 1500) return null     // 0xE9 is arriving: it does the counting
+            val watts = kw * 1000.0 * (if (flipPower) -1 else 1)
+            val moving = (s.speedKmh ?: 0.0) > 1.0
+            if (moving && watts < 0 && dt in 0.0..0.5) regenWh += -watts * dt / 3600.0
+            if (dt in 0.0..0.5 && (moving || (s.ready == true && watts > 0))) tripWh += watts * dt / 3600.0
+            return s.copy(packKw = kw, regenKwh = regenWh / 1000.0, tripKwh = tripWh / 1000.0)
+        }
         // 0xE9 BMS_ActualPack_U_I (IBUS2, every 20 ms): current signed 16-bit x 0.05 A, voltage x 0.01 V
         if (bus == 2 && id == 0xE9) {
             val rawCur = (b[4] shl 8) or b[5]
@@ -669,13 +687,14 @@ class PulseCan(
             val nowN = System.nanoTime()
             val dt = if (lastE9Nanos == 0L) 0.0 else (nowN - lastE9Nanos) / 1e9
             lastE9Nanos = nowN
+            lastE9Ms = System.currentTimeMillis()
             var watts = volts * cur * 0.05
             if (flipPower) watts = -watts
             val moving = (s.speedKmh ?: 0.0) > 1.0
             if (moving && watts < 0 && dt in 0.0..0.5) regenWh += -watts * dt / 3600.0
             // net energy of the trip: everything while moving, and the draw while stopped but READY (not charging)
             if (dt in 0.0..0.5 && (moving || (s.ready == true && watts > 0))) tripWh += watts * dt / 3600.0
-            return s.copy(packAmps = cur * 0.05, packVolts = volts, regenKwh = regenWh / 1000.0, tripKwh = tripWh / 1000.0)
+            return s.copy(packKw = volts * cur * 0.05 / 1000.0, packAmps = cur * 0.05, packVolts = volts, regenKwh = regenWh / 1000.0, tripKwh = tripWh / 1000.0)
         }
         // 0x210 ADAS_0x210 (IBUS2, 50 ms): ego-lane traffic light colour (byte 1 low nibble) and light shape (byte 1 bits 6-4);
         // 1 red, 2 amber, 3 green; 4-7 are red/orange variants; 0 = none, 7/8 = unknown
