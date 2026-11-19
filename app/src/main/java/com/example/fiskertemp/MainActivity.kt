@@ -1344,6 +1344,12 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("flipPower", on).apply() }
         }, 0)
 
+        box.add(CheckBox(this).apply {
+            text = "Pulse version 2821 or older: use the previous CAN filters (power from pack voltage and current, 0xE9)"
+            isChecked = prefs().getBoolean("legacyCan", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("legacyCan", on).apply() }
+        }, 0)
+
         // pack size when new: the total capacity is this times the battery health
         val packRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val packTv = TextView(this).apply { textSize = 14f; setTextColor(Color.parseColor("#F0F3F8")); text = "Usable pack size when new: ${prefs().getFloat("packKwh", 106.5f)} kWh" }
