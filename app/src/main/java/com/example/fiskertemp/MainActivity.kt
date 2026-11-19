@@ -4452,11 +4452,11 @@ class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Fl
     }
 
     /** Working values shared by the skin drawings. */
-    private inner class Geo(w: Float, h: Float) {
+    private inner class Geo(w: Float, h: Float, startAt: Float? = null) {
         val cx = w / 2
         val cy = h / 2
         val r = minOf(w, h) / 2 * 0.92f
-        val start = if (mirrored) 75f else 105f
+        val start = startAt ?: if (mirrored) 75f else 105f
         val dir = if (mirrored) -1f else 1f
         val sweep = 210f
         val ink = if (day) Color.parseColor("#14202E") else Color.parseColor("#F2F6FB")
@@ -4780,7 +4780,7 @@ class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Fl
 
     /** Skin "glass": a thick frosted-glass band, tick marks on its outer edge, numbers on the band and a small marker. */
     private fun drawGlass(c: Canvas, w: Float, h: Float) {
-        val g = Geo(w, h)
+        val g = Geo(w, h, if (mirrored) 137f else 43f)
         arc.style = Paint.Style.STROKE; arc.strokeCap = Paint.Cap.BUTT
         // ticks on the outside
         for (i in 0..40) {
@@ -4831,6 +4831,32 @@ class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Fl
             arc.style = Paint.Style.STROKE
         }
         drawReadouts(c, g, 0.42f, 0.04f, 0.30f, 0.66f)
+        if (title == "POWER") drawBatteryChartIcon(c, g.cx + g.r * 0.12f, g.cy - g.r * 0.86f, g.r * 0.44f)
+    }
+
+    /** A rounded glass tile holding a battery with a rising line, above the power gauge in the Glass skin. */
+    private fun drawBatteryChartIcon(c: Canvas, cx: Float, cy: Float, s: Float) {
+        val line = if (day) Color.parseColor("#0B7C95") else Color.parseColor("#7FE6F5")
+        arc.style = Paint.Style.FILL
+        arc.color = if (day) Color.argb(90, 255, 255, 255) else Color.argb(60, 200, 235, 245)
+        rect.set(cx - s / 2, cy - s / 2, cx + s / 2, cy + s / 2)
+        c.drawRoundRect(rect, s * 0.22f, s * 0.22f, arc)
+        arc.style = Paint.Style.STROKE
+        arc.strokeWidth = maxOf(1.5f, s * 0.03f); arc.color = line
+        c.drawRoundRect(rect, s * 0.22f, s * 0.22f, arc)
+        arc.strokeWidth = maxOf(1.5f, s * 0.045f); arc.strokeJoin = Paint.Join.ROUND; arc.strokeCap = Paint.Cap.ROUND
+        val bl = cx - s * 0.30f; val br = cx + s * 0.30f; val bt = cy - s * 0.18f; val bb = cy + s * 0.28f
+        rect2.set(bl, bt, br, bb)
+        c.drawRoundRect(rect2, s * 0.06f, s * 0.06f, arc)
+        c.drawLine(cx - s * 0.17f, bt - s * 0.07f, cx - s * 0.17f, bt, arc)
+        c.drawLine(cx + s * 0.17f, bt - s * 0.07f, cx + s * 0.17f, bt, arc)
+        needle.reset()
+        needle.moveTo(bl + s * 0.07f, bb - s * 0.10f)
+        needle.lineTo(cx - s * 0.10f, cy + s * 0.04f)
+        needle.lineTo(cx + s * 0.02f, cy + s * 0.12f)
+        needle.lineTo(br - s * 0.06f, bt + s * 0.10f)
+        c.drawPath(needle, arc)
+        arc.strokeJoin = Paint.Join.MITER; arc.strokeCap = Paint.Cap.BUTT
     }
 
     /** Skin "wedge bars": radial bars that get taller towards the high end; the lit ones show the value. */
