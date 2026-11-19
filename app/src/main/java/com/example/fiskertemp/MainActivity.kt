@@ -1042,7 +1042,7 @@ class MainActivity : Activity() {
         box.add(Button(this).apply {
             isAllCaps = false
             text = "Skin: ${Skins.name(Skins.current)}   \u203A"
-            setOnClickListener { dialog.dismiss(); showSkinPicker() }
+            setOnClickListener { dialog.dismiss(); showSkinPicker(true) }
         }, 6)
 
         // --- Layout
@@ -1050,7 +1050,7 @@ class MainActivity : Activity() {
         box.add(Button(this).apply {
             isAllCaps = false
             text = "Layout: ${if (prefs().getInt("layout", 1) == 2) "Layout 2" else "Original"}   \u203A"
-            setOnClickListener { dialog.dismiss(); showLayoutPicker() }
+            setOnClickListener { dialog.dismiss(); showLayoutPicker(true) }
         }, 6)
 
         box.add(TextView(this).apply { text = "Dashboard theme"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
@@ -1529,7 +1529,7 @@ class MainActivity : Activity() {
         ui.post { relayoutDash(); ui.postDelayed({ relayoutDash(); if (::lowerBox.isInitialized) lowerBox.requestLayout() }, 350) }
     }
 
-    private fun showLayoutPicker() {
+    private fun showLayoutPicker(backToSettings: Boolean = false) {
         val cur = prefs().getInt("layout", 1)
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), dp(8)) }
         lateinit var d: AlertDialog
@@ -1555,11 +1555,12 @@ class MainActivity : Activity() {
             col.addView(card, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(12) })
         }
         d = darkDialog().setTitle("Layout").setView(ScrollView(this).apply { addView(col) }).setNegativeButton("Close", null).create()
+        if (backToSettings) d.setOnDismissListener { ui.post { showSettings() } }   // opened from Settings: go back there, not to the dashboard
         d.show()
         styleDark(d)
     }
 
-    private fun showSkinPicker() {
+    private fun showSkinPicker(backToSettings: Boolean = false) {
         val cur = Skins.current
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), dp(8)) }
         lateinit var d: AlertDialog
@@ -1581,6 +1582,7 @@ class MainActivity : Activity() {
             col.addView(card, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(12) })
         }
         d = darkDialog().setTitle("Skin").setView(ScrollView(this).apply { addView(col) }).setNegativeButton("Close", null).create()
+        if (backToSettings) d.setOnDismissListener { ui.post { showSettings() } }
         d.show()
         styleDark(d)
     }
@@ -2993,6 +2995,8 @@ class MainActivity : Activity() {
         lowerBox.removeAllViews()
         if (!l2) (resBtn.parent as? ViewGroup)?.removeView(resBtn)
         val lowerKids = if (l2) emptyList() else listOf(climateBtn, mediaBtn, resBtn, tripBtn, lowerScroll, lowerAdd)
+        // Climate / Media come back from Layout 2 carrying its FrameLayout margins (a big top margin): give them fresh ones
+        for (b in listOf(climateBtn, mediaBtn)) if (!l2 && b.layoutParams !is LinearLayout.LayoutParams) b.layoutParams = LinearLayout.LayoutParams(-2, dp(42)).apply { rightMargin = dp(6) }
         for (v in if (rhd) lowerKids.reversed() else lowerKids) lowerBox.addView(v)
         (mediaBtn.layoutParams as? LinearLayout.LayoutParams)?.apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
         (climateBtn.layoutParams as? LinearLayout.LayoutParams)?.apply { leftMargin = if (rhd) dp(6) else 0; rightMargin = if (rhd) 0 else dp(6) }
