@@ -1040,6 +1040,14 @@ class MainActivity : Activity() {
             setOnClickListener { dialog.dismiss(); showSkinPicker() }
         }, 6)
 
+        // --- Layout
+        box.add(TextView(this).apply { text = "Layout"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
+        box.add(Button(this).apply {
+            isAllCaps = false
+            text = "Layout: ${if (prefs().getInt("layout", 1) == 2) "Layout 2" else "Original"}   \u203A"
+            setOnClickListener { dialog.dismiss(); showLayoutPicker() }
+        }, 6)
+
         box.add(TextView(this).apply { text = "Dashboard theme"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
         val cur = prefs().getString("dispTheme", "night")
         val rn = RadioButton(this).apply { text = "Night (dark)"; id = View.generateViewId(); isChecked = cur == "night" }
@@ -1435,6 +1443,85 @@ class MainActivity : Activity() {
         return bmp
     }
 
+    /** Layout 2 takes the middle column and the corners over; Original puts everything back where it was. */
+    private fun fillMid(l2: Boolean) {
+        for (v in listOf<View>(dashReady, dashSlot, dashLightDist, dashBrake, tripSpacer, tripPanel, chargeBar, l2Mid)) (v.parent as? ViewGroup)?.removeView(v)
+        if (l2) {
+            dashMid.addView(l2Mid, LinearLayout.LayoutParams(-1, -1))
+            dashRoot.addView(dashSlot, FrameLayout.LayoutParams(dp(72), dp(92), Gravity.TOP or Gravity.END))
+            dashRoot.addView(dashLightDist, FrameLayout.LayoutParams(dp(72), -2, Gravity.TOP or Gravity.END))
+            dashRoot.addView(chargeBar, FrameLayout.LayoutParams(dp(200), dp(30), Gravity.TOP or Gravity.START))
+            dashRoot.addView(dashReady, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(4) })
+            dashRoot.addView(dashBrake, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(30) })
+            refreshShortcuts()
+        } else {
+            dashMid.addView(dashReady, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+            dashMid.addView(dashSlot, LinearLayout.LayoutParams(-1, dp(92)).apply { topMargin = dp(4) })
+            dashMid.addView(dashLightDist, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+            dashMid.addView(dashBrake, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
+            dashMid.addView(tripSpacer, LinearLayout.LayoutParams(-1, 0, 0f))
+            dashMid.addView(tripPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(4); bottomMargin = dp(3) })
+            dashMid.addView(chargeBar, LinearLayout.LayoutParams(-1, dp(30)).apply { bottomMargin = dp(2) })
+        }
+        dashMid.requestLayout(); dashRoot.requestLayout()
+    }
+
+    /** The shortcut tiles are the apps chosen for the lower buttons, plus an Add app tile. */
+    private fun refreshShortcuts() {
+        if (!::shortcutsCard.isInitialized) return
+        val tiles = ArrayList<ShortTile>()
+        for (i in 0 until maxSlots) {
+            val pkg = slotPkg(i)
+            if (pkg.isNotEmpty()) tiles.add(ShortTile(appLabelOf(pkg), try { packageManager.getApplicationIcon(pkg) } catch (e: Exception) { null }, i))
+        }
+        tiles.add(ShortTile("Add app", null, -1))
+        shortcutsCard.setTiles(tiles)
+    }
+
+    private fun addShortcutApp() {
+        val n = (0 until maxSlots).firstOrNull { slotPkg(it).isEmpty() }
+        if (n == null) { toast("All 25 app spots are in use. Long-press a tile to change it."); return }
+        if (prefs().getBoolean("iconBtns", false) && n >= slotCount) prefs().edit().putInt("slotN", n + 1).apply()
+        refreshLowerLabels(); paintLowerTabs()
+        pickLowerApp(n)
+    }
+
+    private fun chooseLayout(id: Int) {
+        prefs().edit().putInt("layout", id).apply()
+        EventLog.add("layout style: " + (if (id == 2) "Layout 2" else "Original"))
+        relayoutDash()
+    }
+
+    private fun showLayoutPicker() {
+        val cur = prefs().getInt("layout", 1)
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), dp(8)) }
+        lateinit var d: AlertDialog
+        val items = listOf(
+            Triple(1, "Original", "Gauges either side, trip information in the middle."),
+            Triple(2, "Layout 2", "Car, compass and app shortcuts in the middle, speed limit sign by the speed gauge, battery bar under the power gauge. Used when the window is at least about 640 dp wide; narrower windows keep Original."),
+        )
+        for ((id, name, note) in items) {
+            val sel = id == cur
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(10), dp(10), dp(10), dp(10))
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#1D2128")); cornerRadius = dp(12).toFloat()
+                    setStroke(dp(if (sel) 3 else 1), Color.parseColor(if (sel) "#2AA8FF" else "#3A4150"))
+                }
+                addView(ImageView(context).apply { adjustViewBounds = true; scaleType = ImageView.ScaleType.FIT_CENTER; setImageBitmap(LayoutThumbs.make(id)) },
+                    LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+                addView(TextView(context).apply { text = name + if (sel) "  \u2713" else ""; textSize = 16f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD; setPadding(0, dp(8), 0, 0) })
+                addView(TextView(context).apply { text = note; textSize = 12f; setTextColor(Color.parseColor("#B8C2D0")) })
+                setOnClickListener { chooseLayout(id); d.dismiss() }
+            }
+            col.addView(card, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(12) })
+        }
+        d = darkDialog().setTitle("Layout").setView(ScrollView(this).apply { addView(col) }).setNegativeButton("Close", null).create()
+        d.show()
+        styleDark(d)
+    }
+
     private fun showSkinPicker() {
         val cur = Skins.current
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), dp(8)) }
@@ -1571,6 +1658,12 @@ class MainActivity : Activity() {
     private var tripMidRows = 0
     private var statusMode: String? = null
     private lateinit var tripSpacer: View
+    // Layout 2: the middle column holds the car, a compass card and a shortcuts card
+    private lateinit var l2Mid: LinearLayout
+    private lateinit var carView: CarView
+    private lateinit var compassCard: CompassCardView
+    private lateinit var shortcutsCard: ShortcutsCardView
+    private var l2Applied = false
     private var ovLeftDp = 0
     private var ovRightDp = 0
     private var edgeLeftDp = 0
@@ -1921,6 +2014,22 @@ class MainActivity : Activity() {
             addView(chargeBar, LinearLayout.LayoutParams(-1, dp(30)).apply { bottomMargin = dp(2) })
         }
         dashMid = mid
+        carView = CarView(this)
+        compassCard = CompassCardView(this)
+        shortcutsCard = ShortcutsCardView(this).apply {
+            onTile = { t -> if (t.slot < 0) addShortcutApp() else openLower(t.slot) }
+            onLong = { t -> pickLowerApp(t.slot) }
+        }
+        val l2Cards = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(compassCard, LinearLayout.LayoutParams(0, -1, 1f).apply { rightMargin = dp(5) })
+            addView(shortcutsCard, LinearLayout.LayoutParams(0, -1, 1f).apply { leftMargin = dp(5) })
+        }
+        l2Mid = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(carView, LinearLayout.LayoutParams(-1, 0, 0.40f))
+            addView(l2Cards, LinearLayout.LayoutParams(-1, 0, 0.60f).apply { topMargin = dp(4); bottomMargin = dp(4) })
+        }
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; clipChildren = false }
         dashGaugeRow = row
         applyGaugeSides()
@@ -2542,6 +2651,7 @@ class MainActivity : Activity() {
     private fun adaptDashLayout(wDp: Int, hDp: Int) {
         if (wDp <= 0 || hDp <= 0) return
         val narrow = wDp < 800
+        val l2 = prefs().getInt("layout", 1) == 2 && wDp >= 640 && hDp >= 300
         // a third-height split window (not half or full) keeps the bottom buttons at the left edge
         val third = try {
             if (android.os.Build.VERSION.SDK_INT >= 30) windowManager.currentWindowMetrics.bounds.height() < windowManager.maximumWindowMetrics.bounds.height() * 0.42 else false
@@ -2590,11 +2700,12 @@ class MainActivity : Activity() {
         // the gauge circles are limited by the row height, so any spare width goes to the middle column (bigger trip text)
         val gwDefault = (wDp - 16) * 1.15f / 3.0f
         var gaugeWdp = maxOf(minOf(gwDefault, rowHdp), gwDefault * 0.85f)
+        if (l2) gaugeWdp = minOf((wDp - 16) * 0.28f, rowHdp)
         val wInner = (wDp - 16).toFloat()
         val arcMode = prefs().getString("arcStyle", "mirror")
         val ovL: Int; val ovR: Int
         var edgeL = 0; var edgeR = 0; var sameMid = -1f
-        if (arcMode == "left" || arcMode == "right") {
+        if (!l2 && (arcMode == "left" || arcMode == "right")) {
             // both arcs curve the same way: the middle column is centred on the window, with a clear gap to each arc.
             // The gauge on the far side from the "free" side moves outward (its box may reach past the window edge, it is empty there)
             val gapDp = 10f
@@ -2626,10 +2737,11 @@ class MainActivity : Activity() {
         val band = rowHdp / 2f - minOf(gaugeWdp, rowHdp) / 2f * 0.92f - 6f - up
         val clockH = if (band >= 30f) band.toInt().coerceAtMost(110) else if (third) 24 else 0
         val rhd = prefs().getBoolean("rhd", false)
-        val key = "$hDp/$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$edgeL/$edgeR/$up/$rhd/$hideBar/$hideTrip/${prefs().getBoolean("fullMedia", true)}/${prefs().getBoolean("iconBtns", false)}/${prefs().getBoolean("moreBtns", false)}/${showSkinBtn()}"
+        val key = "$hDp/$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$edgeL/$edgeR/$up/$rhd/$hideBar/$hideTrip/${prefs().getBoolean("fullMedia", true)}/${prefs().getBoolean("iconBtns", false)}/${prefs().getBoolean("moreBtns", false)}/${showSkinBtn()}/$l2"
         if (key == layoutKey) return
         layoutKey = key
-        EventLog.add("layout ${wDp}x${hDp}dp tier=$ti trip=$midRows third=$third half=$half tall=$tall")
+        EventLog.add("layout ${wDp}x${hDp}dp tier=$ti trip=$midRows third=$third half=$half tall=$tall l2=$l2")
+        if (l2 != l2Applied) { l2Applied = l2; fillMid(l2); statusMode = null }
         compact = ti > 0 || third
         val short = midLevel > 0
         // a third-height window (1/3 split): the brake text goes back under the speed limit sign, with its full wording
@@ -2665,8 +2777,10 @@ class MainActivity : Activity() {
         dashClock.requestLayout()
         tripPanel.visibility = if (midRows > 0) View.VISIBLE else View.GONE
         tripBtn.visibility = if (midRows > 0 || hideTrip) View.GONE else View.VISIBLE
-        (dashSlot.layoutParams as LinearLayout.LayoutParams).apply { height = dp(if (midLevel == 2) 48 else if (short) 58 else 92); topMargin = dp(if (brakeUnder) 0 else 4) }
-        dashSlot.requestLayout()
+        if (!l2) {
+            (dashSlot.layoutParams as LinearLayout.LayoutParams).apply { height = dp(if (midLevel == 2) 48 else if (short) 58 else 92); topMargin = dp(if (brakeUnder) 0 else 4) }
+            dashSlot.requestLayout()
+        }
         // short windows: READY, the light distance and the brake pill sit beside the sign instead of stacking, so the trip panel gets the height
         // READY / light distance / brake placement by how much height the middle column has
         //  level 0 (roomy): READY under the battery bar when tall, light distance beside the sign, brake pill in the column
@@ -2677,7 +2791,7 @@ class MainActivity : Activity() {
         val readyUnderPanel = midLevel == 1 && hideBar && !readyBelow
         val modeKey = "$midLevel/$readyBelow/$readyUnderPanel/$brakeUnder"
         readyBeside = midLevel == 1 && brakeUnder && !readyBelow && !readyUnderPanel
-        if (statusMode != modeKey) {
+        if (!l2 && statusMode != modeKey) {
             statusMode = modeKey
             dashMid.removeView(dashReady); dashMid.removeView(dashLightDist); dashMid.removeView(dashBrake)
             dashSlot.removeView(dashReady); dashSlot.removeView(dashLightDist); dashSlot.removeView(dashBrake)
@@ -2695,7 +2809,7 @@ class MainActivity : Activity() {
             else dashMid.addView(dashBrake, 1, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
             if (readyUnderPanel) dashMid.addView(dashReady, dashMid.indexOfChild(tripPanel) + 1, LinearLayout.LayoutParams(-1, -2).apply { topMargin = 0; bottomMargin = dp(2) })
         }
-        if (readyBelow) {
+        if (readyBelow && !l2) {
             (dashReady.layoutParams as FrameLayout.LayoutParams).topMargin = dp(topM + wantH.toInt() + 4)
             dashReady.requestLayout()
         }
@@ -2799,6 +2913,26 @@ class MainActivity : Activity() {
             if (tall) { height = dp(wantH.toInt()); setMargins(dp(8), dp(topM), dp(8), 0) }
             else { height = FrameLayout.LayoutParams.MATCH_PARENT; setMargins(dp(8), dp(topM - up), dp(8), dp(gaugeBottom + up)) }
         }
+        if (l2) {
+            val speedLeft = prefs().getBoolean("speedLeft", false)
+            val rowBottomY = if (tall) topM + wantH.toInt() else hDp - (gaugeBottom + up)
+            (chargeBar.layoutParams as FrameLayout.LayoutParams).apply {
+                width = dp(maxOf(gaugeWdp.toInt() - 8, 100)); height = dp(30)
+                gravity = Gravity.TOP or (if (speedLeft) Gravity.END else Gravity.START)
+                setMargins(if (speedLeft) 0 else dp(12), dp(maxOf(rowBottomY - 34, 0)), if (speedLeft) dp(12) else 0, 0)
+            }
+            val signSide = dp((gaugeWdp * 0.73f - 36f).toInt().coerceAtLeast(0) + 8)
+            val sg = Gravity.TOP or (if (speedLeft) Gravity.START else Gravity.END)
+            (dashSlot.layoutParams as FrameLayout.LayoutParams).apply {
+                width = dp(72); height = dp(92); gravity = sg
+                setMargins(if (speedLeft) signSide else 0, dp(topM + 4), if (speedLeft) 0 else signSide, 0)
+            }
+            (dashLightDist.layoutParams as FrameLayout.LayoutParams).apply {
+                width = dp(72); gravity = sg
+                setMargins(if (speedLeft) signSide else 0, dp(topM + 98), if (speedLeft) 0 else signSide, 0)
+            }
+            chargeBar.requestLayout(); dashSlot.requestLayout(); dashLightDist.requestLayout()
+        }
         (dashLight.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 22 else if (short) 26 else 42); height = dp(if (midLevel == 2) 46 else if (short) 56 else 88) }
         dashReady.textSize = if (midLevel == 2 || (midLevel == 1 && brakeUnder)) 11f else if (midLevel == 1) 12f else 15f
         dashReady.letterSpacing = if (midLevel == 1 && brakeUnder && !readyUnderPanel) 0.06f else 0.18f
@@ -2890,6 +3024,7 @@ class MainActivity : Activity() {
             val lp = lowerScroll.layoutParams
             if (lp != null && lp.width != w) { lp.width = w; lowerScroll.layoutParams = lp }
         }
+        if (l2Applied) refreshShortcuts()
     }
 
     /** Let the user choose which installed app a lower button opens (long press on a button changes it later). */
@@ -3448,6 +3583,7 @@ class MainActivity : Activity() {
             dashMode.visibility = View.VISIBLE
         }
         val hd = s.headingDeg
+        if (l2Applied) { compassCard.heading = hd; compassCard.day = dashDay; shortcutsCard.day = dashDay; carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false) }
         dashHeading.text = if (hd == null) "" else {
             val names = arrayOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
             "${names[((hd + 22.5) / 45.0).toInt() % 8]}  ${hd.toInt()}\u00B0"
