@@ -156,9 +156,7 @@ class CarView(ctx: Context) : View(ctx) {
         val cw = 114f; val ch = cw * b.height / b.width
         val cl = cx - cw / 2f; val ct = 26f
         dst.set(cl, ct, cl + cw, ct + ch)
-        val sh = 1f + 0.07f * f
-        val topW = 0.94f - 0.02f * f
-        val botW = 1.06f + 0.02f * f
+        val sh = 1f; val topW = 1f; val botW = 1f      // no tilt: the car stays in its normal pose
         val cyc = ct + ch / 2f
         quadDst[0] = cx - cw * topW / 2f; quadDst[1] = cyc - ch * sh / 2f
         quadDst[2] = cx + cw * topW / 2f; quadDst[3] = quadDst[1]
@@ -167,8 +165,6 @@ class CarView(ctx: Context) : View(ctx) {
         quadSrc[0] = cl; quadSrc[1] = ct; quadSrc[2] = cl + cw; quadSrc[3] = ct
         quadSrc[4] = cl + cw; quadSrc[5] = ct + ch; quadSrc[6] = cl; quadSrc[7] = ct + ch
         mat.setPolyToPoly(quadSrc, 0, quadDst, 0, 4)
-        if (g < 1f) drawTopDown(c, cx, (1f - g))
-        if (g > 0f) c.saveLayerAlpha(0f, 0f, 302f, 162f, (g * 255).toInt())
         c.save()
         c.concat(mat)
         c.drawBitmap(b, null, dst, p)
@@ -190,7 +186,7 @@ class CarView(ctx: Context) : View(ctx) {
             }
         }
         // small grey lines on the strip of rear tyre that shows, turning with the road
-        if (shown > 0f && g > 0f) {
+        if (shown > 0f) {
             val sx = cw / 114f; val sy = ch / 104f
             tyrePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(2f, 1.6f), (roadOff * 0.2f) % 4f)
             val xs = floatArrayOf(17.4f, 19.6f, 94.4f, 96.6f); val ds = floatArrayOf(-1f, -1f, 1f, 1f)
@@ -200,7 +196,6 @@ class CarView(ctx: Context) : View(ctx) {
             c.restore()
         }
         c.restore()
-        if (g > 0f) c.restore()
         c.restore()
         if (leftInd || rightInd) postInvalidateDelayed(120)
         animating = shown > 0f || target > 0f
