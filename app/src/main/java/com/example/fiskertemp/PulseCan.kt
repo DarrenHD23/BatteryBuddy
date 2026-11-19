@@ -215,6 +215,9 @@ class PulseCan(
                 var m = mask[1]
                 if (slot == null && (nf[1] and mask[0]) == (nf[0] and mask[0])) { slot = 1; m = mask[0] }
                 if (slot == null) { unfit.add(id); continue }
+                // a slot lets through a whole block of IDs (everything that matches under the mask): never open a wide one, it floods the chip
+                val block = 1 shl (11 - Integer.bitCount(m and 0x7FF))
+                if (block > 16) { unfit.add(id); continue }
                 nf[slot] = id and m
                 added.add(id)
             }
@@ -240,7 +243,7 @@ class PulseCan(
         val changes = plans.filter { it.newFilt != it.filt }
         val left = plans.flatMap { p -> p.unfit.map { "chip${p.chip}:0x" + Integer.toHexString(it).uppercase() } }
         if (changes.isEmpty()) {
-            filterReadback = "as found, nothing written. $found. $gaps" + (if (left.isNotEmpty()) " (no spare slot for ${left.joinToString(",")})" else "")
+            filterReadback = "as found, nothing written. $found. $gaps" + (if (left.isNotEmpty()) " (no safe slot for ${left.joinToString(",")}: none spare, or the slot would let through too many IDs)" else "")
             return null
         }
         val sb = StringBuilder()
@@ -253,7 +256,7 @@ class PulseCan(
             val out = r.out
             val addedTxt = changes.joinToString("; ") { "chip${it.chip} added ${hex(it.added)}" }
             filterReadback = "$addedTxt. Before: $found. Now: " + out.substringAfter("--", "").trim().replace('\n', ' ') +
-                (if (left.isNotEmpty()) " (no spare slot for ${left.joinToString(",")})" else "")
+                (if (left.isNotEmpty()) " (no safe slot for ${left.joinToString(",")}: none spare, or the slot would let through too many IDs)" else "")
             if (out.contains("denied", true) || out.contains("not found", true) || r.code != 0) "root command failed: ${out.trim()}" else null
         } catch (e: Exception) {
             "no root shell (${e.message})"

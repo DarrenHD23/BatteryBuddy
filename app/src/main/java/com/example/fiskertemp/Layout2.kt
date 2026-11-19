@@ -99,10 +99,13 @@ class CarView(ctx: Context) : View(ctx) {
 
     /** Speed in km/h; the car tilts forward, the road lines run past on both sides and the rear tyre lines turn. */
     var speedKmh = 0f
+        set(v) { field = v; if (v >= 1f && !animating) postInvalidateOnAnimation() }
+    private var animating = false
     private var shown = 0f              // smoothed speed
     private var roadOff = 0f            // how far the road has run
     private var lastMs = 0L
-    private val cam = android.graphics.Camera()
+    private val quadSrc = FloatArray(8)
+    private val quadDst = FloatArray(8)
     private val mat = android.graphics.Matrix()
     private val lanePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val lanePath = Path()
@@ -122,7 +125,7 @@ class CarView(ctx: Context) : View(ctx) {
         val target = if (speedKmh < 1f) 0f else speedKmh.coerceAtMost(220f)
         shown += (target - shown) * min(1f, dt * 4f)
         if (target == 0f && shown < 0.5f) shown = 0f
-        roadOff += 200f * Math.pow((shown / 200f).toDouble(), 0.3).toFloat() * dt * 1.1f
+        roadOff += 200f * Math.pow((shown / 200f).toDouble(), 0.4).toFloat() * dt * 1.1f
         val u = h / 162f
         c.save()
         c.translate((w - 302f * u) / 2f, 0f)
@@ -146,21 +149,26 @@ class CarView(ctx: Context) : View(ctx) {
                 c.drawPath(lanePath, lanePaint)
             }
         }
-        // the car: 114 x 104 units, tilted forward up to about 8 degrees at 200 km/h
+        // the car: 114 x 104 units. At rest it is seen almost from above (squashed, parallel sides); once moving it leans
+        // forward like it is driving (taller, rear wider), a little more as it gets faster
         val f = (shown / 200f).coerceIn(0f, 1f)
+        val g0 = (shown / 35f).coerceIn(0f, 1f); val g = g0 * g0 * (3f - 2f * g0)
         val cw = 114f; val ch = cw * b.height / b.width
         val cl = cx - cw / 2f; val ct = 26f
         dst.set(cl, ct, cl + cw, ct + ch)
+        val sh = 0.78f + 0.22f * g + 0.07f * f
+        val topW = 1.02f - 0.08f * g - 0.02f * f
+        val botW = 0.96f + 0.10f * g + 0.02f * f
+        val cyc = ct + ch / 2f
+        quadDst[0] = cx - cw * topW / 2f; quadDst[1] = cyc - ch * sh / 2f
+        quadDst[2] = cx + cw * topW / 2f; quadDst[3] = quadDst[1]
+        quadDst[4] = cx + cw * botW / 2f; quadDst[5] = cyc + ch * sh / 2f
+        quadDst[6] = cx - cw * botW / 2f; quadDst[7] = quadDst[5]
+        quadSrc[0] = cl; quadSrc[1] = ct; quadSrc[2] = cl + cw; quadSrc[3] = ct
+        quadSrc[4] = cl + cw; quadSrc[5] = ct + ch; quadSrc[6] = cl; quadSrc[7] = ct + ch
+        mat.setPolyToPoly(quadSrc, 0, quadDst, 0, 4)
         c.save()
-        if (f > 0.001f) {
-            cam.save()
-            cam.setLocation(0f, 0f, -260f / 72f)
-            cam.rotateX(f * 8f)
-            cam.getMatrix(mat)
-            cam.restore()
-            mat.preTranslate(-cx, -(ct + ch * 0.6f)); mat.postTranslate(cx, ct + ch * 0.6f - f * 2f)
-            c.concat(mat)
-        }
+        c.concat(mat)
         c.drawBitmap(b, null, dst, p)
         if (highBeam) beam?.let { c.drawBitmap(it, null, dst, p) } else if (headlights) dipped?.let { c.drawBitmap(it, null, dst, p) }
         if (braking) {
@@ -192,7 +200,8 @@ class CarView(ctx: Context) : View(ctx) {
         c.restore()
         c.restore()
         if (leftInd || rightInd) postInvalidateDelayed(120)
-        if (shown > 0f || target > 0f) postInvalidateOnAnimation()
+        animating = shown > 0f || target > 0f
+        if (animating) postInvalidateDelayed(30)
     }
 
     private fun tyreLine(c: Canvas, cl: Float, ct: Float, sx: Float, sy: Float, x: Float, d: Float) {
