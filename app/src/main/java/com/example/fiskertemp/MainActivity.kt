@@ -6157,7 +6157,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         // ---- function tiles
         val cols = 7
         tile(0, cols, m, tilesTop, w - 2 * m, tileH, "A/C", s.climAc, on, small) { x, yy, r, col -> snowflake(x, yy, r, col) }
-        tile(1, cols, m, tilesTop, w - 2 * m, tileH, "Heated wheel", s.climWheelOn(), warm, small) { x, yy, r, col -> wheel(x, yy, r, col) }
+        tile(1, cols, m, tilesTop, w - 2 * m, tileH, "Heated wheel", s.climWheelOn(), Color.parseColor("#F23A32"), small) { x, yy, r, col -> wheel(x, yy, r, col) }
         tile(2, cols, m, tilesTop, w - 2 * m, tileH, "Defrost", s.climMaxDefrost, warm, small) { x, yy, r, col -> defrost(x, yy, r, col) }
         tile(3, cols, m, tilesTop, w - 2 * m, tileH, "Rear Defrost", s.rearDefrost == true, warm, small) { x, yy, r, col -> rearDefrost(x, yy, r, col) }
         tile(4, cols, m, tilesTop, w - 2 * m, tileH, "Recirc", s.climSeen && !s.climOuterAir, cool, small) { x, yy, r, col -> recirc(x, yy, r, col, s.climOuterAir) }
