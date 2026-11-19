@@ -1445,7 +1445,7 @@ class MainActivity : Activity() {
 
     /** Layout 2 takes the middle column and the corners over; Original puts everything back where it was. */
     private fun fillMid(l2: Boolean) {
-        for (v in listOf<View>(dashReady, dashSlot, dashLightDist, dashBrake, tripSpacer, tripPanel, chargeBar, l2Mid, mediaBtn, climateBtn)) (v.parent as? ViewGroup)?.removeView(v)
+        for (v in listOf<View>(dashReady, dashSlot, dashLightDist, dashBrake, tripSpacer, tripPanel, chargeBar, l2Mid, mediaBtn, climateBtn, l2FlyBtn)) (v.parent as? ViewGroup)?.removeView(v)
         if (l2) {
             dashMid.addView(l2Mid, LinearLayout.LayoutParams(-1, -1))
             dashRoot.addView(dashSlot, FrameLayout.LayoutParams(dp(72), dp(92), Gravity.TOP or Gravity.END))
@@ -1453,6 +1453,7 @@ class MainActivity : Activity() {
             dashRoot.addView(chargeBar, FrameLayout.LayoutParams(dp(200), dp(30), Gravity.TOP or Gravity.START))
             dashRoot.addView(dashReady, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(4) })
             dashRoot.addView(dashBrake, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(30) })
+            dashRoot.addView(l2FlyBtn, FrameLayout.LayoutParams(dp(40), dp(40), Gravity.TOP or Gravity.END))
             dashRoot.addView(climateBtn, FrameLayout.LayoutParams(dp(90), dp(30), Gravity.TOP or Gravity.END))
             dashRoot.addView(mediaBtn, FrameLayout.LayoutParams(dp(90), dp(30), Gravity.TOP or Gravity.END))
             refreshShortcuts()
@@ -1678,6 +1679,9 @@ class MainActivity : Activity() {
     private lateinit var l2Trip: TripPanelView
     private lateinit var l2Media: MediaCardView
     private lateinit var l2Nav: NavCardView
+    private lateinit var l2FlyBtn: TextView
+    private var l2FlyOpen = false
+    private val closeL2Fly = Runnable { l2FlyOpen = false; if (::btnBar.isInitialized && l2Applied) btnBar.visibility = View.GONE }
     private lateinit var leftPager: PagerCardView
     private lateinit var rightPager: PagerCardView
     private val shortcutPages = ArrayList<ShortcutsCardView>()
@@ -2050,6 +2054,16 @@ class MainActivity : Activity() {
             onSources = { showSources() }
             onFavs = { showFavorites() }
             onTap = { if (InApp.mode == InApp.EXTERNAL) openMusicApp(false) }
+        }
+        l2FlyBtn = TextView(this).apply {
+            text = "\u2699"; textSize = 20f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+            background = GradientDrawable().apply { setColor(Color.argb(150, 20, 24, 44)); shape = GradientDrawable.OVAL; setStroke(dp(1), Color.argb(150, 255, 255, 255)) }
+            setOnClickListener {
+                l2FlyOpen = !l2FlyOpen
+                ui.removeCallbacks(closeL2Fly)
+                btnBar.visibility = if (l2FlyOpen) View.VISIBLE else View.GONE
+                if (l2FlyOpen) { btnBar.bringToFront(); ui.postDelayed(closeL2Fly, 7000) }
+            }
         }
         l2Nav = NavCardView(this).apply {
             onTap = { try { packageManager.getLaunchIntentForPackage(NavState.MAPS)?.let { startActivity(it) } } catch (e: Exception) { } }
@@ -2942,8 +2956,9 @@ class MainActivity : Activity() {
         (lowerAdd.layoutParams as? LinearLayout.LayoutParams)?.apply { leftMargin = if (rhd) 0 else dp(6); rightMargin = if (rhd) dp(6) else 0; height = dp(42); topMargin = 0 }
         (btnBar.layoutParams as FrameLayout.LayoutParams).apply {
             if (l2) {
+                // Layout 2: the buttons live in a flyout under a round gear handle at the top right
                 gravity = Gravity.TOP or (if (rhd) Gravity.START else Gravity.END)
-                if (rhd) setMargins(dp(8), dp(4), 0, 0) else setMargins(0, dp(4), dp(8), 0)
+                if (rhd) setMargins(dp(8), dp(50), 0, 0) else setMargins(0, dp(50), dp(8), 0)
             } else {
                 gravity = Gravity.BOTTOM or (if (rhd) Gravity.START else Gravity.END)
                 if (rhd) setMargins(edgeOff, 0, 0, dp(16)) else setMargins(0, 0, dp(8), dp(16))
@@ -2951,9 +2966,23 @@ class MainActivity : Activity() {
         }
         val barKids = (if (l2) listOf(resBtn) else emptyList()) + (if (showSkinBtn()) listOf(skinBtn, settingsBtn, dashBtn, exitBtn) else listOf(settingsBtn, dashBtn, exitBtn))
         btnBar.removeAllViews()
+        if (l2) {
+            btnBar.orientation = LinearLayout.VERTICAL
+            btnBar.background = GradientDrawable().apply { setColor(Color.argb(215, 14, 20, 38)); cornerRadius = dp(16).toFloat(); setStroke(dp(1), Color.argb(130, 255, 255, 255)) }
+            btnBar.setPadding(dp(8), dp(8), dp(8), dp(4))
+            btnBar.visibility = if (l2FlyOpen) View.VISIBLE else View.GONE
+            (l2FlyBtn.layoutParams as? FrameLayout.LayoutParams)?.apply {
+                gravity = Gravity.TOP or (if (rhd) Gravity.START else Gravity.END)
+                if (rhd) setMargins(dp(8), dp(6), 0, 0) else setMargins(0, dp(6), dp(8), 0)
+            }
+        } else {
+            btnBar.orientation = LinearLayout.HORIZONTAL; btnBar.background = null; btnBar.setPadding(0, 0, 0, 0)
+            btnBar.visibility = View.VISIBLE; l2FlyOpen = false; ui.removeCallbacks(closeL2Fly)
+        }
         for (v in barKids) (v.parent as? ViewGroup)?.removeView(v)
         for ((i, v) in (if (rhd) barKids.reversed() else barKids).withIndex()) {
-            btnBar.addView(v, LinearLayout.LayoutParams(-2, dp(36)).apply { if (i < barKids.size - 1) rightMargin = dp(8) })
+            if (l2) btnBar.addView(v, LinearLayout.LayoutParams(-1, dp(36)).apply { if (i < barKids.size - 1) bottomMargin = dp(6) })
+            else btnBar.addView(v, LinearLayout.LayoutParams(-2, dp(36)).apply { if (i < barKids.size - 1) rightMargin = dp(8) })
         }
         if (showSkinBtn()) skinBtn.visibility = if (dashShown) View.VISIBLE else View.GONE
         btnBar.requestLayout(); lowerBox.requestLayout()
