@@ -526,7 +526,7 @@ class PulseCan(
                     onStatus(if (why == null) "CAN filters: $filterReadback" else "CAN filters not changed: $why")
                 }
                 txActive = context.getSharedPreferences("prefs", Context.MODE_PRIVATE).getBoolean("climateTx", false)
-                val base = listOf(bin, "$b1=382,2F5,2F4,318,179,234,335,2AC,373,507,6DD,1A9,5EA,505,530,534,386,528,512,518", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534,528,313")
+                val base = listOf(bin, "$b1=382,2F5,2F4,554,318,179,234,335,2AC,373,507,6DD,1A9,5EA,505,530,534,386,528,512,518", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534,528,313")
                 // transmit is allowed only for 0x530, 0x528 and 0x534 and only when the test is ticked in Settings; otherwise the helper is receive-only
                 val args = if (txActive) base + listOf("tx:$b1=530,528,534", "tx:$b2=530,528,534") else base
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
@@ -664,11 +664,13 @@ class PulseCan(
                 socRealRaw = b[6],
             )
         }
-        // 0x2F4 BMS_0x2F4 (IBUS1, every 100 ms): BMS_Bat_measure_Power, signed 16-bit x 0.1 kW (bytes 4-5).
+        // 0x554 VCU_0x554 (IBUS1, every 100 ms): VCU_HVBattActPwr, actual HV battery power, 14 bits (byte 4 low 6 bits, byte 5) x 0.1 kW - 600.
         // The Pulse's newer CAN filters no longer let 0xE9 through, so this is the power source when 0xE9 is silent.
-        if (bus == 1 && id == 0x2F4) {
-            val raw = (b[4] shl 8) or b[5]
-            val kw = (if (raw >= 0x8000) raw - 0x10000 else raw) * 0.1
+        if (id == 0x2F4 && seenFirst.add("raw/2F4")) onStatus("0x2F4 raw " + b.joinToString("") { String.format("%02X", it and 0xFF) })
+        if (bus == 1 && id == 0x554) {
+            val raw = ((b[4] and 0x3F) shl 8) or b[5]
+            val kw = raw * 0.1 - 600.0
+            if (seenFirst.add("raw/554")) onStatus("0x554 raw " + b.joinToString("") { String.format("%02X", it and 0xFF) } + " = " + String.format("%.1f", kw) + " kW")
             val nowN = System.nanoTime()
             val dt = if (lastP2F4Nanos == 0L) 0.0 else (nowN - lastP2F4Nanos) / 1e9
             lastP2F4Nanos = nowN
