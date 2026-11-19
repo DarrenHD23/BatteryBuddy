@@ -2995,7 +2995,10 @@ class MainActivity : Activity() {
         }
         if (l2) {
             val speedLeft = prefs().getBoolean("speedLeft", false)
-            val rowBottomY = if (tall) topM + wantH.toInt() else hDp - (gaugeBottom + up)
+            val rowBottomY0 = if (tall) topM + wantH.toInt() else hDp - (gaugeBottom + up)
+            // the gauge circle is centred in its row; lift the bar and buttons into the free space under the circle
+            val circleGap = ((rowHdp - minOf(gaugeWdp, rowHdp) * 0.92f) / 2f).toInt().coerceIn(0, 70)
+            val rowBottomY = minOf(rowBottomY0, rowBottomY0 - circleGap + 40)
             (chargeBar.layoutParams as FrameLayout.LayoutParams).apply {
                 width = dp(maxOf(gaugeWdp.toInt() - 8, 100)); height = dp(30)
                 gravity = Gravity.TOP or (if (speedLeft) Gravity.END else Gravity.START)
