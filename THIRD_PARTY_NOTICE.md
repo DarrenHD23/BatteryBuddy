@@ -28,3 +28,5 @@ Contact sunnypilot Support <support@sunnypilot.ai> for permission requests.
 ---
 
 Haibin Wen, SUNNYPILOT LLC
+
+"Fisker Ocean (low-poly)" (https://skfb.ly/oR7xy) by LagzDesign is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).
