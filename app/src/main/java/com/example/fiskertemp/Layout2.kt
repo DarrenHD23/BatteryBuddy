@@ -48,6 +48,9 @@ class CarView(ctx: Context) : View(ctx) {
         set(v) { if (field != v) { field = v; invalidate() } }
     var highBeam = false
         set(v) { if (field != v) { field = v; invalidate() } }
+    /** Low or high beam on: two soft straight-sided beams of light are drawn on the road ahead of the car. */
+    var beamsOn = false
+        set(v) { if (field != v) { field = v; invalidate() } }
     var reverse = false
         set(v) { if (field != v) { field = v; invalidate() } }
     var leftInd = false
@@ -129,6 +132,8 @@ class CarView(ctx: Context) : View(ctx) {
     private val tyrePath = Path()
     private val brakePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
     private val brakePath = Path()
+    private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val glowPath = Path()
 
     /** Draws in a 302 x 162 unit space (the middle column); the car is 114 x 104 units, 15% bigger than before. */
     override fun onDraw(c: Canvas) {
@@ -163,6 +168,20 @@ class CarView(ctx: Context) : View(ctx) {
         quadSrc[0] = cl; quadSrc[1] = ct; quadSrc[2] = cl + cw; quadSrc[3] = ct
         quadSrc[4] = cl + cw; quadSrc[5] = ct + ch; quadSrc[6] = cl; quadSrc[7] = ct + ch
         mat.setPolyToPoly(quadSrc, 0, quadDst, 0, 4)
+        if (beamsOn) {
+            // headlight beams: from just inside the car's width at its front, leaning in toward the centre line, fading out up the road
+            // (drawn before the car so the car stays on top; the view's parents do not clip, so it may reach above the view)
+            val front = ct + 3f; val len = 150f; val top = front - len
+            glowPaint.maskFilter = android.graphics.BlurMaskFilter(2.4f, android.graphics.BlurMaskFilter.Blur.NORMAL)
+            glowPaint.shader = LinearGradient(0f, front, 0f, top, intArrayOf(Color.argb(82, 255, 240, 205), Color.argb(40, 255, 238, 200), Color.argb(0, 255, 238, 200)), floatArrayOf(0f, 0.4f, 1f), Shader.TileMode.CLAMP)
+            for (d in intArrayOf(-1, 1)) {
+                val x0 = cx + d * 26f; val x1 = cx + d * 13f; val wb = 20.5f; val wt = 22.5f
+                glowPath.reset()
+                glowPath.moveTo(x0 - wb, front); glowPath.lineTo(x0 + wb, front); glowPath.lineTo(x1 + wt, top); glowPath.lineTo(x1 - wt, top); glowPath.close()
+                c.drawPath(glowPath, glowPaint)
+            }
+            glowPaint.shader = null; glowPaint.maskFilter = null
+        }
         c.save()
         c.concat(mat)
         c.drawBitmap(b, null, dst, p)
