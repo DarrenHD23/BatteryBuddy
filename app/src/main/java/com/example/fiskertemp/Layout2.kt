@@ -591,7 +591,9 @@ class ShortcutsCardView(ctx: Context) : View(ctx) {
     private var downTile: ShortTile? = null
     private var downX = 0f; private var downY = 0f
     private var longDone = false
-    private val slopPx = android.view.ViewConfiguration.get(ctx).scaledTouchSlop
+    // a press only counts as a tap if the finger barely moves sideways (swipes are sideways, so 4 dp), a little more up and down
+    private val tapSlopX = 4f * ctx.resources.displayMetrics.density
+    private val tapSlopY = 8f * ctx.resources.displayMetrics.density
     private val longRun = Runnable {
         val t = downTile
         if (t != null && t.slot >= 0) { longDone = true; onLong?.invoke(t) }
@@ -612,14 +614,14 @@ class ShortcutsCardView(ctx: Context) : View(ctx) {
                 invalidate()
                 return true
             }
-            MotionEvent.ACTION_MOVE -> if (downTile != null && (Math.abs(e.x - downX) > slopPx || Math.abs(e.y - downY) > slopPx)) {
+            MotionEvent.ACTION_MOVE -> if (downTile != null && (Math.abs(e.x - downX) > tapSlopX || Math.abs(e.y - downY) > tapSlopY)) {
                 removeCallbacks(longRun); downTile = null; invalidate()
             }
             MotionEvent.ACTION_UP -> {
                 removeCallbacks(longRun)
                 val t = downTile; downTile = null
                 invalidate()
-                if (t != null && !longDone && tileAt(e.x, e.y) === t) onTile?.invoke(t)
+                if (t != null && !longDone && tileAt(e.x, e.y) === t && Math.abs(e.x - downX) <= tapSlopX && Math.abs(e.y - downY) <= tapSlopY) onTile?.invoke(t)
                 return true
             }
             MotionEvent.ACTION_CANCEL -> { removeCallbacks(longRun); downTile = null; invalidate() }
