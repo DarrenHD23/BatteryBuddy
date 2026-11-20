@@ -171,11 +171,11 @@ class CarView(ctx: Context) : View(ctx) {
         if (beamsOn) {
             // headlight beams: from just inside the car's width at its front, leaning in toward the centre line, fading out up the road
             // (drawn before the car so the car stays on top; the view's parents do not clip, so it may reach above the view)
-            val front = ct + 3f; val len = 150f; val top = front - len
+            val front = ct + 3f; val len = 117f; val top = front - len
             glowPaint.maskFilter = android.graphics.BlurMaskFilter(2.4f, android.graphics.BlurMaskFilter.Blur.NORMAL)
-            glowPaint.shader = LinearGradient(0f, front, 0f, top, intArrayOf(Color.argb(82, 255, 240, 205), Color.argb(40, 255, 238, 200), Color.argb(0, 255, 238, 200)), floatArrayOf(0f, 0.4f, 1f), Shader.TileMode.CLAMP)
+            glowPaint.shader = LinearGradient(0f, front, 0f, top, intArrayOf(Color.argb(95, 255, 240, 205), Color.argb(47, 255, 238, 200), Color.argb(0, 255, 238, 200)), floatArrayOf(0f, 0.4f, 1f), Shader.TileMode.CLAMP)
             for (d in intArrayOf(-1, 1)) {
-                val x0 = cx + d * 26f; val x1 = cx + d * 13f; val wb = 20.5f; val wt = 22.5f
+                val x0 = cx + d * 26f; val x1 = cx + d * 25f; val wb = 20.5f; val wt = 43f
                 glowPath.reset()
                 glowPath.moveTo(x0 - wb, front); glowPath.lineTo(x0 + wb, front); glowPath.lineTo(x1 + wt, top); glowPath.lineTo(x1 - wt, top); glowPath.close()
                 c.drawPath(glowPath, glowPaint)
