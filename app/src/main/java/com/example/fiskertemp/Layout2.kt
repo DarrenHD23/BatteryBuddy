@@ -146,17 +146,18 @@ class CarView(ctx: Context) : View(ctx) {
         c.drawPath(lanePath, lanePaint)
         lanePaint.shader = null
         for (side in intArrayOf(-1, 1)) {
-            for (k in -2..8) {
+            for (k in -2..(if (ext > 0f) 22 else 8)) {
                 var z1 = 1f + k * per - (roadOff * 0.006f) % per
                 var z2 = z1 + len
                 z1 = Math.max(z1, 1f)
-                if (z2 <= 1f || z1 >= 1f / smin) continue
-                z2 = Math.min(z2, 1f / smin)
+                if (z2 <= 1f || z1 >= 1f / sTop) continue
+                z2 = Math.min(z2, 1f / sTop)
                 val s1 = 1f / z1; val s2 = 1f / z2
                 val y1 = hh * (s1 - smin) / (1f - smin); val y2 = hh * (s2 - smin) / (1f - smin)
                 val w1 = 3.4f * s1; val w2 = 3.4f * s2
                 val x1 = cx + side * half * s1; val x2 = cx + side * half * s2
-                lanePaint.color = Color.argb(((0.35f + 0.4f * s1) * 255).toInt().coerceIn(0, 255), 255, 255, 255)
+                val fade = if (ext > 0f) (((y1 + y2) / 2f + ext) / ext).coerceIn(0f, 1f) else 1f      // the lines fade out towards the top of the screen
+                lanePaint.color = Color.argb(((0.35f + 0.4f * s1) * 255 * fade).toInt().coerceIn(0, 255), 255, 255, 255)
                 lanePath.reset()
                 lanePath.moveTo(x1 - w1 / 2, y1); lanePath.lineTo(x1 + w1 / 2, y1); lanePath.lineTo(x2 + w2 / 2, y2); lanePath.lineTo(x2 - w2 / 2, y2); lanePath.close()
                 c.drawPath(lanePath, lanePaint)

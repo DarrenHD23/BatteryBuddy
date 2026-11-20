@@ -3185,7 +3185,7 @@ class MainActivity : Activity() {
         dashGaugeRow.getChildAt(1).let { (it.layoutParams as LinearLayout.LayoutParams).topMargin = if (l2) dp(2) else (if (brakeUnder) -dp(3) else 0) }
         dashPowerGauge.iconLevel = if (l2) (if (half) 2 else 1) else 0; dashPowerGauge.invalidate()
         // Layout 2 in a 50/50 window: the grey road fades out upward to the top of the screen, under READY
-        carView.roadAbovePx = if (l2 && half) dp(topM).toFloat() else 0f
+        carView.roadAbovePx = if (l2) dp(topM).toFloat() else 0f
         l2Mid.clipChildren = false; dashRoot.clipChildren = false; dashGaugeRow.clipChildren = false
         if (l2) {
             // middle column: the car and the road lines fill the top 162 dp (the car is drawn 114 x 104 dp inside it); the two cards 145 dp tall at the bottom of the row
@@ -3257,7 +3257,7 @@ class MainActivity : Activity() {
             val inline = l2 && climOn && room >= 110
             l2ClimTop = climTop; l2ClimH = room; l2ClimInline = inline
             l2FreeTop = top; l2FreeBottom = bottom; l2Room = bottom - top
-            if (l2Third) { l2FreeTop = topM + l2RowH - l2CardsH; l2FreeBottom = topM + l2RowH }   // third-height window: the media card takes the place of the two cards
+            if (l2Third) { l2FreeTop = hDp - lowerBottom - 4; l2FreeBottom = hDp - 4 }   // third-height window: the media card covers the stat rows
             climateView.compact = inline && room < 300
             // Media is on the swipe cards; Climate only needs its button when the panel is not already showing
             climateBtn.visibility = if (l2 && (inline || !climOn)) View.GONE else View.VISIBLE
