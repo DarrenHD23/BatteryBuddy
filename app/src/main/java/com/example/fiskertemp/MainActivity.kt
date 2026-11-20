@@ -1041,15 +1041,18 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(8), dp(20), dp(8))
         }
-        // --- Temperature unit (first, so it is always visible)
-        box.add(TextView(this).apply { text = "Temperature unit"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 0)
-        val rc = RadioButton(this).apply { text = "Celsius (\u00B0C)"; id = View.generateViewId(); isChecked = !useFahrenheit }
-        val rf = RadioButton(this).apply { text = "Fahrenheit (\u00B0F)"; id = View.generateViewId(); isChecked = useFahrenheit }
-        val rg = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL; addView(rc); addView(rf) }
-        rg.setOnCheckedChangeListener { _, checkedId -> setFahrenheit(checkedId == rf.id) }
-        box.add(rg, 6)
-
         lateinit var dialog: AlertDialog
+        fun relayout() { layoutKey = ""; if (::dashRoot.isInitialized && dashRoot.width > 0) { val dn = resources.displayMetrics.density; adaptDashLayout((dashRoot.width / dn).toInt(), (dashRoot.height / dn).toInt()) } }
+        box.add(TextView(this).apply { text = "UPDATES AND BETA"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
+        box.add(Button(this).apply {
+            text = "Check for updates (this is build ${Updater.installedBuild(this@MainActivity)})"; isAllCaps = false
+            setOnClickListener { checkForUpdate(true) }
+        }, 8)
+        box.add(Button(this).apply {
+            text = "Join the Beta"; isAllCaps = false
+            setOnClickListener { showBetaGate() }
+        }, 8)
+        box.add(TextView(this).apply { text = "SKIN AND LAYOUT"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
         // --- Skin
         box.add(TextView(this).apply { text = "Skin"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
         box.add(Button(this).apply {
@@ -1057,7 +1060,6 @@ class MainActivity : Activity() {
             text = "Skin: ${Skins.name(Skins.current)}   \u203A"
             setOnClickListener { dialog.dismiss(); showSkinPicker(true) }
         }, 6)
-
         // --- Layout
         box.add(TextView(this).apply { text = "Layout"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
         box.add(Button(this).apply {
@@ -1065,7 +1067,6 @@ class MainActivity : Activity() {
             text = "Layout: ${if (prefs().getInt("layout", 1) == 2) "Layout 2" else "Original"}   \u203A"
             setOnClickListener { dialog.dismiss(); showLayoutPicker(true) }
         }, 6)
-
         box.add(TextView(this).apply { text = "Dashboard theme"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
         val cur = prefs().getString("dispTheme", "night")
         val rn = RadioButton(this).apply { text = "Night (dark)"; id = View.generateViewId(); isChecked = cur == "night" }
@@ -1077,6 +1078,35 @@ class MainActivity : Activity() {
             updateDashTheme(true)
         }
         box.add(rtg, 6)
+        box.add(CheckBox(this).apply {
+            text = "Show the Skin button on the dashboard"; isChecked = showSkinBtn()
+            setOnCheckedChangeListener { _, on ->
+                prefs().edit().putBoolean("showSkin", on).apply()
+                relayoutDash(); refreshLowerLabels(); paintLowerTabs()
+            }
+        }, 4)
+        box.add(CheckBox(this).apply {
+            text = "Right-hand drive layout (clock, compass, drive mode and the buttons swap sides)"; isChecked = prefs().getBoolean("rhd", false)
+            setOnCheckedChangeListener { _, on ->
+                prefs().edit().putBoolean("rhd", on).apply()
+                layoutKey = ""
+                if (::dashRoot.isInitialized && dashRoot.width > 0) {
+                    val dn = resources.displayMetrics.density
+                    adaptDashLayout((dashRoot.width / dn).toInt(), (dashRoot.height / dn).toInt())
+                }
+            }
+        }, 4)
+        box.add(Button(this).apply {
+            text = "Visualizer colours (media card)"; isAllCaps = false
+            setOnClickListener {
+                val cur = prefs().getInt("vizPal", 0).coerceIn(0, VizInfo.palettes.size - 1)
+                darkDialog().setTitle("Visualizer colours").setSingleChoiceItems(VizInfo.palettes.toTypedArray(), cur) { dlg, i ->
+                    prefs().edit().putInt("vizPal", i).apply(); dlg.dismiss()
+                    if (::mediaPopup.isInitialized) mediaPopup.invalidate(); if (::mediaCard.isInitialized) mediaCard.invalidate()
+                }.setNegativeButton("Close", null).showDark()
+            }
+        }, 8)
+        box.add(TextView(this).apply { text = "BACKGROUNDS"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
         // --- Background colour
         box.add(TextView(this).apply { text = "Background colour"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
         THEMES.forEachIndexed { i, t ->
@@ -1089,7 +1119,6 @@ class MainActivity : Activity() {
             }
             box.add(b, 10)
         }
-
         // --- Background picture
         box.add(TextView(this).apply { text = "Background picture"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
         val picRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -1131,13 +1160,14 @@ class MainActivity : Activity() {
                 applyTheme(themeIndex); dialog.dismiss()
             }
         }, 8)
-        box.add(TextView(this).apply { text = "Speed limit sign style"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
-        val curSign = prefs().getString("signStyle", "us")
-        val sus = RadioButton(this).apply { text = "USA / Canada (rectangle)"; id = View.generateViewId(); isChecked = curSign != "eu" }
-        val seu = RadioButton(this).apply { text = "Europe / UK (round, red ring)"; id = View.generateViewId(); isChecked = curSign == "eu" }
-        val sgp = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL; addView(sus); addView(seu) }
-        sgp.setOnCheckedChangeListener { _, checkedId -> prefs().edit().putString("signStyle", if (checkedId == seu.id) "eu" else "us").apply() }
-        box.add(sgp, 6)
+        box.add(TextView(this).apply { text = "UNITS"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
+        // --- Temperature unit (first, so it is always visible)
+        box.add(TextView(this).apply { text = "Temperature unit"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 0)
+        val rc = RadioButton(this).apply { text = "Celsius (\u00B0C)"; id = View.generateViewId(); isChecked = !useFahrenheit }
+        val rf = RadioButton(this).apply { text = "Fahrenheit (\u00B0F)"; id = View.generateViewId(); isChecked = useFahrenheit }
+        val rg = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL; addView(rc); addView(rf) }
+        rg.setOnCheckedChangeListener { _, checkedId -> setFahrenheit(checkedId == rf.id) }
+        box.add(rg, 6)
         box.add(TextView(this).apply { text = "Speed unit"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
         val kmh = RadioButton(this).apply { text = "km/h"; id = View.generateViewId(); isChecked = !speedMph() }
         val mph = RadioButton(this).apply { text = "mph"; id = View.generateViewId(); isChecked = speedMph() }
@@ -1157,7 +1187,14 @@ class MainActivity : Activity() {
             val u = if (checkedId == mph.id) "mi" else "km"
             ef1.text = "Wh/$u  (Wh used per $u)"; ef2.text = "$u/kWh  ($u per kWh)"; ef3.text = "kWh/$u  (kWh used per $u)"
         }
-        box.add(TextView(this).apply { text = "Dashboard"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
+        box.add(TextView(this).apply { text = "Speed limit sign style"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
+        val curSign = prefs().getString("signStyle", "us")
+        val sus = RadioButton(this).apply { text = "USA / Canada (rectangle)"; id = View.generateViewId(); isChecked = curSign != "eu" }
+        val seu = RadioButton(this).apply { text = "Europe / UK (round, red ring)"; id = View.generateViewId(); isChecked = curSign == "eu" }
+        val sgp = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL; addView(sus); addView(seu) }
+        sgp.setOnCheckedChangeListener { _, checkedId -> prefs().edit().putString("signStyle", if (checkedId == seu.id) "eu" else "us").apply() }
+        box.add(sgp, 6)
+        box.add(TextView(this).apply { text = "DASHBOARD"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
         box.add(CheckBox(this).apply {
             text = "Show the dashboard when the app starts"; isChecked = prefs().getBoolean("dashDefault", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("dashDefault", on).apply() }
@@ -1172,17 +1209,6 @@ class MainActivity : Activity() {
             prefs().edit().putString("startSplit", when (checkedId) { ssSpotify.id -> "spotify"; ssMaps.id -> "maps"; else -> "" }).apply()
         }
         box.add(ssg, 4)
-        box.add(CheckBox(this).apply {
-            text = "Right-hand drive layout (clock, compass, drive mode and the buttons swap sides)"; isChecked = prefs().getBoolean("rhd", false)
-            setOnCheckedChangeListener { _, on ->
-                prefs().edit().putBoolean("rhd", on).apply()
-                layoutKey = ""
-                if (::dashRoot.isInitialized && dashRoot.width > 0) {
-                    val dn = resources.displayMetrics.density
-                    adaptDashLayout((dashRoot.width / dn).toInt(), (dashRoot.height / dn).toInt())
-                }
-            }
-        }, 4)
         box.add(label("Gauge arcs", 13f), 8)
         val arcMirror = RadioButton(this).apply { text = "Mirrored (the two arcs curve toward each other)"; id = View.generateViewId() }
         val arcLeft = RadioButton(this).apply { text = "Both arcs the same: curved like ("; id = View.generateViewId() }
@@ -1199,7 +1225,10 @@ class MainActivity : Activity() {
             }
         }
         box.add(arcG, 4)
-        fun relayout() { layoutKey = ""; if (::dashRoot.isInitialized && dashRoot.width > 0) { val dn = resources.displayMetrics.density; adaptDashLayout((dashRoot.width / dn).toInt(), (dashRoot.height / dn).toInt()) } }
+        box.add(CheckBox(this).apply {
+            text = "Speed gauge on the left (power on the right)"; isChecked = prefs().getBoolean("speedLeft", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("speedLeft", on).apply(); applyGaugeSides() }
+        }, 4)
         box.add(CheckBox(this).apply {
             text = "Hide the traffic light"; isChecked = prefs().getBoolean("hideLight", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideLight", on).apply() }
@@ -1213,12 +1242,50 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideTrip", on).apply(); relayout() }
         }, 4)
         box.add(CheckBox(this).apply {
+            text = "Hide the battery bar under the trip information (small windows give the space to the trip information)"; isChecked = prefs().getBoolean("hideBatteryBar", false)
+            setOnCheckedChangeListener { _, on ->
+                prefs().edit().putBoolean("hideBatteryBar", on).apply()
+                layoutKey = ""
+                if (::dashRoot.isInitialized && dashRoot.width > 0) {
+                    val dn = resources.displayMetrics.density
+                    adaptDashLayout((dashRoot.width / dn).toInt(), (dashRoot.height / dn).toInt())
+                }
+            }
+        }, 4)
+        box.add(CheckBox(this).apply {
             text = "Show icons instead of names on the app buttons"; isChecked = prefs().getBoolean("iconBtns", false)
             setOnCheckedChangeListener { _, on ->
                 prefs().edit().putBoolean("iconBtns", on).apply()
                 relayoutDash(); refreshLowerLabels(); paintLowerTabs(); refreshShortcuts()
             }
         }, 4)
+        box.add(Button(this).apply {
+            text = "Clear an app button"; isAllCaps = false
+            setOnClickListener {
+                val names = Array(slotCount) { i -> "Button ${i + 1}: " + (if (slotPkg(i).isEmpty()) "(no app)" else appLabelOf(slotPkg(i))) }
+                darkDialog().setTitle("Clear which button?").setItems(names) { _, i ->
+                    clearSlot(i)
+                    EventLog.add("lower button ${i + 1} cleared")
+                }.setNegativeButton("Cancel", null).showDark()
+            }
+        }, 8)
+        box.add(TextView(this).apply { text = "Screen edges: move everything in from the top or bottom if a bar overlaps the app"; textSize = 13f; setTextColor(Color.DKGRAY) }, 14)
+        fun padRow(label: String, key: String): View {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            val tv = TextView(this).apply { textSize = 14f; setTextColor(Color.parseColor("#F0F3F8")); text = "$label: ${prefs().getInt(key, 0)} dp" }
+            fun bump(d: Int) { val v = (prefs().getInt(key, 0) + d).coerceIn(0, 300); prefs().edit().putInt(key, v).apply(); tv.text = "$label: $v dp"; applyEdgePadding() }
+            row.addView(tv, LinearLayout.LayoutParams(0, -2, 1f))
+            row.addView(Button(this).apply { text = "\u2212"; setOnClickListener { bump(-8) } })
+            row.addView(Button(this).apply { text = "+"; setOnClickListener { bump(8) } })
+            return row
+        }
+        box.add(padRow("Top margin", "padTop"), 2)
+        box.add(padRow("Bottom margin", "padBot"), 2)
+        box.add(Button(this).apply {
+            text = "Speedometer Adjustment"; isAllCaps = false
+            setOnClickListener { showSpeedAdjust() }
+        }, 8)
+        box.add(TextView(this).apply { text = "LAYOUT 2 OPTIONS"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
         box.add(CheckBox(this).apply {
             text = "Layout 2: show the climate screen under the cards"; isChecked = prefs().getBoolean("l2Climate", true)
             setOnCheckedChangeListener { _, on ->
@@ -1267,77 +1334,54 @@ class MainActivity : Activity() {
                 if (::climateView.isInitialized) climateView.hideSeatIcons = on
             }
         }, 4)
-        box.add(CheckBox(this).apply {
-            text = "Show the Skin button on the dashboard"; isChecked = showSkinBtn()
-            setOnCheckedChangeListener { _, on ->
-                prefs().edit().putBoolean("showSkin", on).apply()
-                relayoutDash(); refreshLowerLabels(); paintLowerTabs()
-            }
-        }, 4)
-        box.add(Button(this).apply {
-            text = "Speedometer Adjustment"; isAllCaps = false
-            setOnClickListener { showSpeedAdjust() }
-        }, 8)
-        box.add(Button(this).apply {
-            text = "Pulse hardware health"; isAllCaps = false
-            setOnClickListener { showHealth() }
-        }, 8)
-        box.add(Button(this).apply {
-            text = "Visualizer colours (media card)"; isAllCaps = false
+        box.add(TextView(this).apply { text = "CAR AND DATA"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
+        box.add(TextView(this).apply { text = "Data source"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
+        val sd = RadioButton(this).apply { text = "vLinker dongle (Bluetooth)"; id = View.generateViewId(); isChecked = !useCan }
+        val sp = RadioButton(this).apply { text = "Pulse CAN bus (run this app on the Pulse)"; id = View.generateViewId(); isChecked = useCan }
+        val sg = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL; addView(sd); addView(sp) }
+        sg.setOnCheckedChangeListener { _, checkedId -> applySource(checkedId == sp.id) }
+        box.add(sg, 6)
+        // pack size when new: the total capacity is this times the battery health
+        val packRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val packTv = TextView(this).apply { textSize = 14f; setTextColor(Color.parseColor("#F0F3F8")); text = "Usable pack size when new: ${prefs().getFloat("packKwh", 106.5f)} kWh" }
+        packRow.addView(packTv, LinearLayout.LayoutParams(0, -2, 1f))
+        packRow.addView(Button(this).apply {
+            text = "Change"
             setOnClickListener {
-                val cur = prefs().getInt("vizPal", 0).coerceIn(0, VizInfo.palettes.size - 1)
-                darkDialog().setTitle("Visualizer colours").setSingleChoiceItems(VizInfo.palettes.toTypedArray(), cur) { dlg, i ->
-                    prefs().edit().putInt("vizPal", i).apply(); dlg.dismiss()
-                    if (::mediaPopup.isInitialized) mediaPopup.invalidate(); if (::mediaCard.isInitialized) mediaCard.invalidate()
-                }.setNegativeButton("Close", null).showDark()
-            }
-        }, 8)
-        box.add(Button(this).apply {
-            text = "Join the Beta"; isAllCaps = false
-            setOnClickListener { showBetaGate() }
-        }, 8)
-        box.add(Button(this).apply {
-            text = "Check for updates (this is build ${Updater.installedBuild(this@MainActivity)})"; isAllCaps = false
-            setOnClickListener { checkForUpdate(true) }
-        }, 8)
-        box.add(Button(this).apply {
-            text = "Clear an app button"; isAllCaps = false
-            setOnClickListener {
-                val names = Array(slotCount) { i -> "Button ${i + 1}: " + (if (slotPkg(i).isEmpty()) "(no app)" else appLabelOf(slotPkg(i))) }
-                darkDialog().setTitle("Clear which button?").setItems(names) { _, i ->
-                    clearSlot(i)
-                    EventLog.add("lower button ${i + 1} cleared")
-                }.setNegativeButton("Cancel", null).showDark()
-            }
-        }, 8)
-        box.add(CheckBox(this).apply {
-            text = "Hide the battery bar under the trip information (small windows give the space to the trip information)"; isChecked = prefs().getBoolean("hideBatteryBar", false)
-            setOnCheckedChangeListener { _, on ->
-                prefs().edit().putBoolean("hideBatteryBar", on).apply()
-                layoutKey = ""
-                if (::dashRoot.isInitialized && dashRoot.width > 0) {
-                    val dn = resources.displayMetrics.density
-                    adaptDashLayout((dashRoot.width / dn).toInt(), (dashRoot.height / dn).toInt())
+                val et = EditText(context).apply {
+                    inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+                    setText(prefs().getFloat("packKwh", 106.5f).toString())
                 }
+                darkDialog().setTitle("Usable pack size when new (kWh)").setView(et)
+                    .setPositiveButton("Save") { _, _ ->
+                        val v = et.text.toString().toFloatOrNull()
+                        if (v != null && v in 20f..250f) { prefs().edit().putFloat("packKwh", v).apply(); packTv.text = "Usable pack size when new: $v kWh" }
+                    }.setNegativeButton("Cancel", null).showDark()
             }
-        }, 4)
+        })
+        box.add(packRow, 8)
         box.add(CheckBox(this).apply {
-            text = "Speed gauge on the left (power on the right)"; isChecked = prefs().getBoolean("speedLeft", false)
-            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("speedLeft", on).apply(); applyGaugeSides() }
-        }, 4)
+            text = "Flip power direction (if drive shows as negative)"; isChecked = prefs().getBoolean("flipPower", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("flipPower", on).apply() }
+        }, 0)
+        box.add(CheckBox(this).apply {
+            text = "Pulse version 2821 or older: use the previous CAN filters (power from pack voltage and current, 0xE9)"
+            isChecked = prefs().getBoolean("legacyCan", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("legacyCan", on).apply() }
+        }, 0)
         box.add(CheckBox(this).apply {
             text = "Safe mode: never write the CAN chip filters, only read them (climate kW and the heat pump may show --)"; isChecked = prefs().getBoolean("canSafe", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("canSafe", on).apply(); pulse?.safeMode = on; toast("Takes effect the next time the app starts") }
         }, 4)
         box.add(CheckBox(this).apply {
-            text = "TEST: let the Climate screen control the car: power, temperature, fan speed, air direction, A/C, defrost, recirc, sync, auto and the heated wheel. This SENDS commands onto the car's CAN bus (everything else in the app stays read-only). Takes effect after the app restarts"
-            isChecked = prefs().getBoolean("climateTx", false)
-            setOnCheckedChangeListener { _, on ->
-                prefs().edit().putBoolean("climateTx", on).apply()
-                EventLog.add("Setting: climate fan test control " + (if (on) "ON" else "off"))
-                toast("Takes effect the next time the app starts")
-            }
-        }, 4)
+            text = "Stop reading the CAN bus while this app is not visible (the regen counter only counts while visible)"; isChecked = prefs().getBoolean("pauseHidden", true)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("pauseHidden", on).apply() }
+        }, 0)
+        box.add(TextView(this).apply { text = "TOOLS AND TESTS"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
+        box.add(Button(this).apply {
+            text = "Pulse hardware health"; isAllCaps = false
+            setOnClickListener { showHealth() }
+        }, 8)
         box.add(Button(this).apply {
             text = "CAN diagnostics"; isAllCaps = false
             setOnClickListener {
@@ -1373,64 +1417,15 @@ class MainActivity : Activity() {
             text = "Test root access"; isAllCaps = false
             setOnClickListener { Thread { val r = rootCheck(); ui.post { toast(r ?: "Root access is working (${Root.describe()})") } }.start() }
         }, 8)
-        box.add(TextView(this).apply { text = "Screen edges: move everything in from the top or bottom if a bar overlaps the app"; textSize = 13f; setTextColor(Color.DKGRAY) }, 14)
-        fun padRow(label: String, key: String): View {
-            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            val tv = TextView(this).apply { textSize = 14f; setTextColor(Color.parseColor("#F0F3F8")); text = "$label: ${prefs().getInt(key, 0)} dp" }
-            fun bump(d: Int) { val v = (prefs().getInt(key, 0) + d).coerceIn(0, 300); prefs().edit().putInt(key, v).apply(); tv.text = "$label: $v dp"; applyEdgePadding() }
-            row.addView(tv, LinearLayout.LayoutParams(0, -2, 1f))
-            row.addView(Button(this).apply { text = "\u2212"; setOnClickListener { bump(-8) } })
-            row.addView(Button(this).apply { text = "+"; setOnClickListener { bump(8) } })
-            return row
-        }
-        box.add(padRow("Top margin", "padTop"), 2)
-        box.add(padRow("Bottom margin", "padBot"), 2)
         box.add(CheckBox(this).apply {
-            text = "Stop reading the CAN bus while this app is not visible (the regen counter only counts while visible)"; isChecked = prefs().getBoolean("pauseHidden", true)
-            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("pauseHidden", on).apply() }
-        }, 0)
-        box.add(CheckBox(this).apply {
-            text = "Offer to close the Pulse app when the dashboard opens"; isChecked = prefs().getBoolean("askClosePulse", false)
-            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("askClosePulse", on).apply(); if (on) pulseAsked = false }
-        }, 0)
-        box.add(CheckBox(this).apply {
-            text = "Flip power direction (if drive shows as negative)"; isChecked = prefs().getBoolean("flipPower", false)
-            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("flipPower", on).apply() }
-        }, 0)
-
-        box.add(CheckBox(this).apply {
-            text = "Pulse version 2821 or older: use the previous CAN filters (power from pack voltage and current, 0xE9)"
-            isChecked = prefs().getBoolean("legacyCan", false)
-            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("legacyCan", on).apply() }
-        }, 0)
-
-        // pack size when new: the total capacity is this times the battery health
-        val packRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val packTv = TextView(this).apply { textSize = 14f; setTextColor(Color.parseColor("#F0F3F8")); text = "Usable pack size when new: ${prefs().getFloat("packKwh", 106.5f)} kWh" }
-        packRow.addView(packTv, LinearLayout.LayoutParams(0, -2, 1f))
-        packRow.addView(Button(this).apply {
-            text = "Change"
-            setOnClickListener {
-                val et = EditText(context).apply {
-                    inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
-                    setText(prefs().getFloat("packKwh", 106.5f).toString())
-                }
-                darkDialog().setTitle("Usable pack size when new (kWh)").setView(et)
-                    .setPositiveButton("Save") { _, _ ->
-                        val v = et.text.toString().toFloatOrNull()
-                        if (v != null && v in 20f..250f) { prefs().edit().putFloat("packKwh", v).apply(); packTv.text = "Usable pack size when new: $v kWh" }
-                    }.setNegativeButton("Cancel", null).showDark()
+            text = "TEST: let the Climate screen control the car: power, temperature, fan speed, air direction, A/C, defrost, recirc, sync, auto and the heated wheel. This SENDS commands onto the car's CAN bus (everything else in the app stays read-only). Takes effect after the app restarts"
+            isChecked = prefs().getBoolean("climateTx", false)
+            setOnCheckedChangeListener { _, on ->
+                prefs().edit().putBoolean("climateTx", on).apply()
+                EventLog.add("Setting: climate fan test control " + (if (on) "ON" else "off"))
+                toast("Takes effect the next time the app starts")
             }
-        })
-        box.add(packRow, 8)
-
-        box.add(TextView(this).apply { text = "Data source"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
-        val sd = RadioButton(this).apply { text = "vLinker dongle (Bluetooth)"; id = View.generateViewId(); isChecked = !useCan }
-        val sp = RadioButton(this).apply { text = "Pulse CAN bus (run this app on the Pulse)"; id = View.generateViewId(); isChecked = useCan }
-        val sg = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL; addView(sd); addView(sp) }
-        sg.setOnCheckedChangeListener { _, checkedId -> applySource(checkedId == sp.id) }
-        box.add(sg, 6)
-
+        }, 4)
         box.add(TextView(this).apply {
             text = "This project uses software from Haibin Wen and SUNNYPILOT LLC and is licensed under a custom license requiring permission for use."
             textSize = 11f; setTextColor(Color.parseColor("#8E99A8"))
