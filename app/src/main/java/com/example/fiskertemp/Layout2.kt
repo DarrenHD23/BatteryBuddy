@@ -315,12 +315,13 @@ class CarView(ctx: Context) : View(ctx) {
         val u = uss ?: return
         if (u.size < 16) return
         alertPaint.style = Paint.Style.STROKE; alertPaint.strokeCap = Paint.Cap.ROUND; alertPaint.strokeWidth = 2f; alertPaint.shader = null
+        val off = if (spriteCar) 0f else 9f        // the live 3D car is bigger: keep the front and rear sensor arcs a little further out
         // rear: 4 sectors of 8 rings, lit from the far ring in to the sensor's zone (zone 1 taken as the closest)
         for (s in 0..3) {
             val z = u[s]; if (z !in 1..8) continue
             val x0 = carL + 7f + s * 25f; val x1 = x0 + 21f; val bulge = if (s == 1 || s == 2) 2.2f else 0.4f
             for (r in 8 downTo z) {
-                val y = 134f + (r - 1) * 3.2f
+                val y = 134f + off + (r - 1) * 3.2f
                 alertPaint.color = zoneColor(r)
                 alertPath.reset(); alertPath.moveTo(x0, y); alertPath.quadTo((x0 + x1) / 2f, y + bulge * 2f, x1, y); c.drawPath(alertPath, alertPaint)
             }
@@ -330,7 +331,7 @@ class CarView(ctx: Context) : View(ctx) {
             val z = u[4 + s]; if (z !in 1..4) continue
             val x0 = carL + 7f + s * 25f; val x1 = x0 + 21f
             for (r in 4 downTo z) {
-                val y = 24f - (r - 1) * 5f
+                val y = 24f - off - (r - 1) * 5f
                 alertPaint.color = zoneColor(r * 2)
                 alertPath.reset(); alertPath.moveTo(x0, y); alertPath.quadTo((x0 + x1) / 2f, y - 3f, x1, y); c.drawPath(alertPath, alertPaint)
             }
