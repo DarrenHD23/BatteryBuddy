@@ -2754,9 +2754,11 @@ class MainActivity : Activity() {
     private fun placeL2Clock() {
         if (!l2Applied || !::dashClock.isInitialized) return
         val lp = dashClock.layoutParams as FrameLayout.LayoutParams
-        val cm = l2ClockMargin()
-        if (if (!prefs().getBoolean("rhd", false)) lp.rightMargin != cm else lp.leftMargin != cm) {
-            if (!prefs().getBoolean("rhd", false)) lp.setMargins(0, dp(5), cm, 0) else lp.setMargins(cm, dp(5), 0, 0)
+        // left-hand drive: the time sits at the top left, just right of the gear handle
+        val lhd = !prefs().getBoolean("rhd", false)
+        val cm = if (lhd) dp(56) else l2ClockMargin()
+        if (lp.leftMargin != cm || lp.rightMargin != 0) {
+            lp.setMargins(cm, dp(5), 0, 0)
             dashClock.requestLayout()
         }
     }
@@ -3005,12 +3007,11 @@ class MainActivity : Activity() {
             if (!l2) { width = dp(gaugeWdp.toInt() - 6); height = dp(clockH) }
             if (l2) {
                 // Layout 2: the time sits in the top row beside the drive mode, away from the settings handle
-                val atRight = !rhd
+                // left-hand drive: top left, just right of the gear handle; right-hand drive: beside the drive mode as before
                 width = dp(112); height = dp(26)
-                dashClock.alignRight = atRight
-                gravity = Gravity.TOP or (if (atRight) Gravity.END else Gravity.START)
-                val cm = l2ClockMargin()
-                if (atRight) setMargins(0, dp(5), cm, 0) else setMargins(cm, dp(5), 0, 0)
+                dashClock.alignRight = false
+                gravity = Gravity.TOP or Gravity.START
+                setMargins(if (!rhd) dp(56) else l2ClockMargin(), dp(5), 0, 0)
             } else {
                 gravity = Gravity.TOP or (if (rhd) Gravity.END else Gravity.START)
                 val ct = if (third && clockH == 24) 2 else topM
@@ -3229,14 +3230,16 @@ class MainActivity : Activity() {
                 setMargins(if (speedLeft) 0 else dp(12), dp(maxOf(rowBottomY - 34, 0)), if (speedLeft) dp(12) else 0, 0)
             }
             val signSide = dp(gaugeWdp.toInt() + 16)      // the speed sign and its distance sit beside the speed gauge, not over it
-            val sg = Gravity.TOP or (if (speedLeft) Gravity.START else Gravity.END)
+            // left-hand drive: the traffic light / speed sign, its distance and its source label sit left of the road lines
+            val signLeft = speedLeft || !rhd
+            val sg = Gravity.TOP or (if (signLeft) Gravity.START else Gravity.END)
             (dashSlot.layoutParams as FrameLayout.LayoutParams).apply {
                 width = dp(72); height = dp(92); gravity = sg
-                setMargins(if (speedLeft) signSide else 0, dp(maxOf(topM - 24, 6) + 30), if (speedLeft) 0 else signSide, 0)
+                setMargins(if (signLeft) signSide else 0, dp(maxOf(topM - 24, 6) + 30), if (signLeft) 0 else signSide, 0)
             }
             (dashLightDist.layoutParams as FrameLayout.LayoutParams).apply {
                 width = dp(72); gravity = sg
-                setMargins(if (speedLeft) signSide else 0, dp(maxOf(topM - 24, 6) + 124), if (speedLeft) 0 else signSide, 0)
+                setMargins(if (signLeft) signSide else 0, dp(maxOf(topM - 24, 6) + 124), if (signLeft) 0 else signSide, 0)
             }
             // Climate and Media sit under the speed gauge, level with the battery bar under the power gauge
             val bw = maxOf((gaugeWdp.toInt() - 8 - 6) / 2, 60)
