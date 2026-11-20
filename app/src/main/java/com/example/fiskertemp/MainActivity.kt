@@ -1792,6 +1792,7 @@ class MainActivity : Activity() {
     private lateinit var l2ClimBtn: TextView
     private lateinit var l2MediaBtn: TextView
     private var l2ClimTop = 0; private var l2ClimH = 0; private var l2ClimInline = false; private var wasL2Clim = false
+    private var l2MediaInPlace = false; private var l2MiniNow = false      // 2/3 split: the Media button swaps the Climate panel for the media card
     private var l2BtnRowBottom = 0; private var l2BtnW = 60; private var l2ClimHidden = false   // the Media / Climate button row, and whether the Climate button hid the inline panel
     private var l2FlyOpen = false
     private val closeL2Fly = Runnable { l2FlyOpen = false; if (::btnBar.isInitialized && l2Applied) btnBar.visibility = View.GONE }
@@ -2333,6 +2334,7 @@ class MainActivity : Activity() {
             setPadding(dp(9), 0, dp(9), 0)
             background = chipBg(12)
             setOnClickListener {
+                if (l2MediaInPlace) { l2MediaInPlace = false; l2ClimHidden = false; relayoutDash(); return@setOnClickListener }
                 if (climateView.visibility == View.VISIBLE) { climateView.visibility = View.GONE; if (l2Applied && l2ClimInline) l2ClimHidden = true }
                 else { l2ClimHidden = false; openClimate() }
             }
@@ -2795,6 +2797,7 @@ class MainActivity : Activity() {
 
     /** Layout 2 Media: the full media card when the window has room for it, else a card in the free space under the cards. */
     private fun l2MediaTap() {
+        if (l2MiniNow) { l2MediaInPlace = !l2MediaInPlace; if (!l2MediaInPlace) l2ClimHidden = false; relayoutDash(); return }
         if (mediaCard.visibility == View.VISIBLE) { prefs().edit().putBoolean("fullMedia", false).apply(); relayoutDash(); return }
         if (l2Room >= 470) { prefs().edit().putBoolean("fullMedia", true).apply(); relayoutDash(); return }
         if (mediaPopup.visibility == View.VISIBLE) { ui.removeCallbacks(hideMediaPopup); mediaPopup.visibility = View.GONE; return }
@@ -3284,9 +3287,11 @@ class MainActivity : Activity() {
             else if (tall) { height = dp(wantH.toInt()); setMargins(dp(8), dp(topM), dp(8), 0) }
             else { height = FrameLayout.LayoutParams.MATCH_PARENT; setMargins(dp(8), dp(topM - up), dp(8), dp(gaugeBottom + up)) }
         }
+        // full screen and the 2/3 split (room of 200 dp or more under the cards): the battery bar and buttons sit 14 dp higher and the buttons are bigger
+        val l2Big = l2 && !l2Third && ((hDp - lowerBottom - 4) - (topM + l2RowH + 8)) >= 200
         if (l2) {
             val speedLeft = prefs().getBoolean("speedLeft", false)
-            val rowBottomY = if (l2Third) topM + l2RowH - 12 else l2BarTop + 34 + 68      // battery bar and the Climate / Media buttons sit 68 dp lower
+            val rowBottomY = if (l2Third) topM + l2RowH - 12 else l2BarTop + 34 + 68 - (if (l2Big) 14 else 0)      // battery bar and the Climate / Media buttons sit 68 dp lower
             (chargeBar.layoutParams as FrameLayout.LayoutParams).apply {
                 width = dp(maxOf(gaugeWdp.toInt() - 8, 100)); height = dp(30)
                 gravity = Gravity.TOP or (if (speedLeft) Gravity.END else Gravity.START)
@@ -3310,14 +3315,14 @@ class MainActivity : Activity() {
             val edge = dp(12)
             val by = dp(maxOf(rowBottomY - 34, 0))
             (mediaBtn.layoutParams as FrameLayout.LayoutParams).apply {
-                width = dp(bw); height = dp(30); gravity = bg2; topMargin = by
+                width = dp(bw); height = dp(if (l2Big) 38 else 30); gravity = bg2; topMargin = by
                 if (speedLeft) { leftMargin = edge; rightMargin = 0 } else { rightMargin = edge + dp(bw) + dp(6); leftMargin = 0 }
             }
             (climateBtn.layoutParams as FrameLayout.LayoutParams).apply {
-                width = dp(bw); height = dp(30); gravity = bg2; topMargin = by
+                width = dp(bw); height = dp(if (l2Big) 38 else 30); gravity = bg2; topMargin = by
                 if (speedLeft) { leftMargin = edge + dp(bw) + dp(6); rightMargin = 0 } else { rightMargin = edge; leftMargin = 0 }
             }
-            mediaBtn.textSize = 13f; climateBtn.textSize = 13f
+            mediaBtn.textSize = if (l2Big) 15f else 13f; climateBtn.textSize = mediaBtn.textSize
             l2BtnRowBottom = rowBottomY; l2BtnW = bw
             mediaBtn.requestLayout(); climateBtn.requestLayout()
             chargeBar.requestLayout(); dashSlot.requestLayout(); dashLightDist.requestLayout()
@@ -3358,7 +3363,7 @@ class MainActivity : Activity() {
                 val rhdB = prefs().getBoolean("rhd", false); val slB = prefs().getBoolean("speedLeft", false)
                 val hasBar = if (rhdB) slB else !slB          // the battery bar sits under the power gauge: then the buttons go in the gap under it
                 val bw2 = l2BtnW; val edge2 = dp(12)
-                val topB = if (hasBar) dp(l2BtnRowBottom - 2) else dp(maxOf(l2BtnRowBottom - 34, 0)); val hB = dp(if (hasBar) 21 else 30)
+                val topB = if (hasBar) dp(l2BtnRowBottom - 2) else dp(maxOf(l2BtnRowBottom - 34, 0)); val hB = dp(if (hasBar) (if (l2Big) 32 else 21) else (if (l2Big) 38 else 30))
                 val gv = Gravity.TOP or (if (rhdB) Gravity.END else Gravity.START)
                 (mediaBtn.layoutParams as FrameLayout.LayoutParams).apply {
                     width = dp(bw2); height = hB; gravity = gv; topMargin = topB
@@ -3368,10 +3373,19 @@ class MainActivity : Activity() {
                     width = dp(bw2); height = hB; gravity = gv; topMargin = topB
                     if (rhdB) { rightMargin = edge2; leftMargin = 0 } else { leftMargin = edge2 + dp(bw2) + dp(6); rightMargin = 0 }
                 }
-                val ts = if (hasBar) 11f else 13f
+                val ts = if (hasBar) (if (l2Big) 13f else 11f) else (if (l2Big) 15f else 13f)
                 mediaBtn.textSize = ts; climateBtn.textSize = ts
                 mediaBtn.visibility = View.VISIBLE; climateBtn.visibility = View.VISIBLE
                 mediaBtn.requestLayout(); climateBtn.requestLayout()
+            }
+            l2MiniNow = mini && !l2Third
+            if (l2MediaInPlace && !l2MiniNow) l2MediaInPlace = false
+            if (l2MediaInPlace) {
+                // 2/3 split: the Media button swapped the Climate panel for the media card, in the same space
+                l2ClimHidden = true; climateView.visibility = View.GONE
+                (mediaCard.layoutParams as FrameLayout.LayoutParams).apply { height = dp(minOf(room, 150)); gravity = Gravity.TOP; setMargins(dp(8), dp(climTop), dp(8), 0) }
+                mediaCard.rhd = prefs().getBoolean("rhd", false)
+                mediaCard.visibility = View.VISIBLE; mediaCard.bringToFront(); mediaCard.requestLayout()
             }
             if (inline) edgeBox.post { if (dashShown && l2Applied) { if (climateView.visibility == View.VISIBLE) placeClimate() else if (!l2ClimHidden) openClimate() } }
             else if (wasL2Clim) { climateView.visibility = View.GONE }   // no longer room for it under the cards
