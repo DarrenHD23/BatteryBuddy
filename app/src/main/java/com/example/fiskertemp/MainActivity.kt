@@ -1760,6 +1760,7 @@ class MainActivity : Activity() {
         }
     }
     private lateinit var l2FlyBtn: TextView
+    private lateinit var roadView: RoadView
     private lateinit var l2ClimBtn: TextView
     private lateinit var l2MediaBtn: TextView
     private var l2ClimTop = 0; private var l2ClimH = 0; private var l2ClimInline = false; private var wasL2Clim = false
@@ -2035,6 +2036,8 @@ class MainActivity : Activity() {
         val f = FrameLayout(this)
         f.visibility = View.GONE
         f.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Skins.look.bgTop, Skins.look.bgBottom))
+        roadView = RoadView(this).apply { visibility = View.GONE }        // Layout 2: the road, behind everything
+        f.addView(roadView, FrameLayout.LayoutParams(-1, -1))
         val blue = Color.parseColor("#1E90FF")
         val violet = Color.parseColor("#8E5CFF")
         val pink = Color.parseColor("#FF4FA3")
@@ -3185,7 +3188,7 @@ class MainActivity : Activity() {
         dashGaugeRow.getChildAt(1).let { (it.layoutParams as LinearLayout.LayoutParams).topMargin = if (l2) dp(2) else (if (brakeUnder) -dp(3) else 0) }
         dashPowerGauge.iconLevel = if (l2) (if (half) 2 else 1) else 0; dashPowerGauge.invalidate()
         // Layout 2 in a 50/50 window: the grey road fades out upward to the top of the screen, under READY
-        carView.roadAnchor = if (l2) dashRoot else null
+        roadView.car = carView; roadView.visibility = if (l2) View.VISIBLE else View.GONE; roadView.invalidate()
         l2Mid.clipChildren = false; dashRoot.clipChildren = false; dashGaugeRow.clipChildren = false
         if (l2) {
             // middle column: the car and the road lines fill the top 162 dp (the car is drawn 114 x 104 dp inside it); the two cards 145 dp tall at the bottom of the row
@@ -3925,7 +3928,7 @@ class MainActivity : Activity() {
         }
         val hd = s.headingDeg
         if (l2Applied) {
-            carView.speedKmh = (s.speedKmh ?: 0.0).toFloat(); carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true)
+            carView.speedKmh = (s.speedKmh ?: 0.0).toFloat(); roadView.speedKmh = carView.speedKmh; carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true)
             fun shortLabel(l: String) = when (l.lowercase()) { "distance driven" -> "Distance"; "energy consumed" -> "Energy"; "average speed" -> "Avg speed"; else -> l }
             val cells = tripCells(s, true).take(4).map { it.copy(label = shortLabel(it.label)) }
             for (ps in pageSets) {

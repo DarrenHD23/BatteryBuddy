@@ -100,10 +100,6 @@ class CarView(ctx: Context) : View(ctx) {
     /** Speed in km/h; the car tilts forward, the road lines run past on both sides and the rear tyre lines turn. */
     var speedKmh = 0f
         set(v) { field = v; if (v >= 1f && !animating) postInvalidateOnAnimation() }
-    /** Layout 2 in a 50/50 window: how far above this view the road fill reaches (it fades out to nothing at the top). */
-    var roadAnchor: View? = null
-        set(v) { if (field !== v) { field = v; invalidate() } }
-    private val locA = IntArray(2); private val locB = IntArray(2)
     private var animating = false
     private var shown = 0f              // smoothed speed
     private var roadOff = 0f            // how far the road has run
@@ -134,39 +130,7 @@ class CarView(ctx: Context) : View(ctx) {
         c.save()
         c.translate((w - 302f * u) / 2f, 0f)
         c.scale(u, u)
-        // road lines on both sides, wide at the rear of the car and narrow at the top
-        val hh = 162f; val smin = 0.45f; val per = 0.3f; val len = 0.15f; val cx = 151f; val half = 86f
-        // the road between the lines: a light, transparent grey (in a 50/50 window it carries on up to the top of the screen, fading out)
-        val anc = roadAnchor
-        var abovePx = 0f
-        if (anc != null) { getLocationInWindow(locA); anc.getLocationInWindow(locB); abovePx = (locA[1] - locB[1]).toFloat().coerceAtLeast(0f) }
-        val ext = abovePx / u
-        val sTop = if (ext > 0f) Math.max(smin - ext * (1f - smin) / hh, 0.03f) else smin
-        val yTop = if (ext > 0f) hh * (sTop - smin) / (1f - smin) else 0f
-        lanePath.reset()
-        lanePath.moveTo(cx - half * sTop, yTop); lanePath.lineTo(cx + half * sTop, yTop); lanePath.lineTo(cx + half, hh); lanePath.lineTo(cx - half, hh); lanePath.close()
-        lanePaint.shader = if (ext > 0f) LinearGradient(0f, yTop, 0f, 0f, Color.argb(16, 200, 206, 216), Color.argb(48, 200, 206, 216), Shader.TileMode.CLAMP) else null
-        lanePaint.color = if (ext > 0f) Color.WHITE else Color.argb(48, 200, 206, 216)     // with the fade, the gradient carries the transparency
-        c.drawPath(lanePath, lanePaint)
-        lanePaint.shader = null
-        for (side in intArrayOf(-1, 1)) {
-            for (k in -2..(if (ext > 0f) 22 else 8)) {
-                var z1 = 1f + k * per - (roadOff * 0.006f) % per
-                var z2 = z1 + len
-                z1 = Math.max(z1, 1f)
-                if (z2 <= 1f || z1 >= 1f / sTop) continue
-                z2 = Math.min(z2, 1f / sTop)
-                val s1 = 1f / z1; val s2 = 1f / z2
-                val y1 = hh * (s1 - smin) / (1f - smin); val y2 = hh * (s2 - smin) / (1f - smin)
-                val w1 = 3.4f * s1; val w2 = 3.4f * s2
-                val x1 = cx + side * half * s1; val x2 = cx + side * half * s2
-                val fade = if (ext > 0f) 0.3f + 0.7f * (((y1 + y2) / 2f - yTop) / (-yTop)).coerceIn(0f, 1f) else 1f      // the lines fade out towards the top of the screen
-                lanePaint.color = Color.argb(((0.35f + 0.4f * s1) * 255 * fade).toInt().coerceIn(0, 255), 255, 255, 255)
-                lanePath.reset()
-                lanePath.moveTo(x1 - w1 / 2, y1); lanePath.lineTo(x1 + w1 / 2, y1); lanePath.lineTo(x2 + w2 / 2, y2); lanePath.lineTo(x2 - w2 / 2, y2); lanePath.close()
-                c.drawPath(lanePath, lanePaint)
-            }
-        }
+        val cx = 151f      // (the road itself is drawn by RoadView, behind everything)
         // the car: 114 x 104 units. At rest it is seen almost from above (squashed, parallel sides); once moving it leans
         // forward like it is driving (taller, rear wider), a little more as it gets faster
         val f = (shown / 200f).coerceIn(0f, 1f)
@@ -275,6 +239,74 @@ class CarView(ctx: Context) : View(ctx) {
         tyrePath.moveTo(cl + (x + d * 0.7f) * sx, ct + 88.5f * sy)
         tyrePath.quadTo(cl + (x + d * 1.1f) * sx, ct + 92.5f * sy, cl + (x + d * 0.7f) * sx, ct + 96.5f * sy)
         c.drawPath(tyrePath, tyrePaint)
+    }
+}
+
+/**
+ * Layout 2 road: a light grey strip with broken lane lines that runs from behind the car right up to the top of the screen,
+ * fading a little towards the top. It is its own full-size layer behind everything, so nothing clips it; it lines itself up
+ * with the car view and uses the same perspective and speed as the car.
+ */
+class RoadView(ctx: Context) : View(ctx) {
+    var car: View? = null
+    var speedKmh = 0f
+        set(v) { field = v; if (v >= 1f && !animating) postInvalidateOnAnimation() }
+    private var animating = false
+    private var shown = 0f
+    private var roadOff = 0f
+    private var lastMs = 0L
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val path = Path()
+    private val la = IntArray(2); private val lb = IntArray(2)
+
+    override fun onDraw(c: Canvas) {
+        val cv = car ?: return
+        if (cv.width <= 0 || cv.height <= 0 || cv.visibility != View.VISIBLE) return
+        val now = SystemClock.uptimeMillis()
+        val dt = if (lastMs == 0L) 0f else ((now - lastMs) / 1000f).coerceIn(0f, 0.1f)
+        lastMs = now
+        val target = if (speedKmh < 1f) 0f else speedKmh.coerceAtMost(220f)
+        shown += (target - shown) * min(1f, dt * 4f)
+        if (target == 0f && shown < 0.5f) shown = 0f
+        roadOff += 200f * Math.pow((shown / 200f).toDouble(), 0.4).toFloat() * dt * 1.1f
+        getLocationInWindow(la); cv.getLocationInWindow(lb)
+        val u = cv.height / 162f
+        val carTop = (lb[1] - la[1]).toFloat()
+        val carLeft = (lb[0] - la[0]).toFloat()
+        c.save()
+        c.translate(carLeft + (cv.width - 302f * u) / 2f, carTop)
+        c.scale(u, u)
+        val hh = 162f; val smin = 0.45f; val per = 0.3f; val len = 0.15f; val cx = 151f; val half = 86f
+        val ext = carTop.coerceAtLeast(0f) / u                    // how far up the road has to go to reach the top of the screen
+        val sTop = Math.max(smin - ext * (1f - smin) / hh, 0.03f)
+        val yTop = hh * (sTop - smin) / (1f - smin)
+        path.reset()
+        path.moveTo(cx - half * sTop, yTop); path.lineTo(cx + half * sTop, yTop); path.lineTo(cx + half, hh); path.lineTo(cx - half, hh); path.close()
+        p.shader = LinearGradient(0f, yTop, 0f, 0f, Color.argb(20, 200, 206, 216), Color.argb(48, 200, 206, 216), Shader.TileMode.CLAMP)
+        p.color = Color.WHITE
+        c.drawPath(path, p)
+        p.shader = null
+        for (side in intArrayOf(-1, 1)) {
+            for (k in -2..40) {
+                var z1 = 1f + k * per - (roadOff * 0.006f) % per
+                var z2 = z1 + len
+                z1 = Math.max(z1, 1f)
+                if (z2 <= 1f || z1 >= 1f / sTop) continue
+                z2 = Math.min(z2, 1f / sTop)
+                val s1 = 1f / z1; val s2 = 1f / z2
+                val y1 = hh * (s1 - smin) / (1f - smin); val y2 = hh * (s2 - smin) / (1f - smin)
+                val w1 = 3.4f * s1; val w2 = 3.4f * s2
+                val x1 = cx + side * half * s1; val x2 = cx + side * half * s2
+                val fade = if (yTop < 0f) 0.3f + 0.7f * (((y1 + y2) / 2f - yTop) / (-yTop)).coerceIn(0f, 1f) else 1f
+                p.color = Color.argb(((0.35f + 0.4f * s1) * 255 * fade).toInt().coerceIn(0, 255), 255, 255, 255)
+                path.reset()
+                path.moveTo(x1 - w1 / 2, y1); path.lineTo(x1 + w1 / 2, y1); path.lineTo(x2 + w2 / 2, y2); path.lineTo(x2 - w2 / 2, y2); path.close()
+                c.drawPath(path, p)
+            }
+        }
+        c.restore()
+        animating = shown > 0f || target > 0f
+        if (animating) postInvalidateDelayed(30)
     }
 }
 
