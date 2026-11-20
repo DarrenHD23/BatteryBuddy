@@ -355,7 +355,7 @@ class CarView(ctx: Context) : View(ctx) {
             val z = u[(if (sg < 0) 8 else 12) + s]; if (z !in 1..4) continue
             val y0 = 36f + s * 24f; val y1 = y0 + 20f
             for (r in 4 downTo z) {
-                val x = if (!spriteCar) cx + sg * (35f + (r - 1) * 4.5f) else (if (sg < 0) carL else carR) + sg * (3f + (r - 1) * 4.5f + 7f)
+                val x = if (!spriteCar) cx + sg * (32f + 10f * tilt + (r - 1) * 4.5f) else (if (sg < 0) carL else carR) + sg * (3f + (r - 1) * 4.5f + 7f)
                 alertPaint.color = zoneColor(r * 2)
                 c.drawLine(x, y0, x, y1, alertPaint)
             }
