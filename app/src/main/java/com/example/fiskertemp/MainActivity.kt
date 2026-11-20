@@ -3198,6 +3198,12 @@ class MainActivity : Activity() {
         }
         dashGaugeRow.getChildAt(1).let { (it.layoutParams as LinearLayout.LayoutParams).topMargin = if (l2) dp(2) else (if (brakeUnder) -dp(3) else 0) }
         dashPowerGauge.iconLevel = if (l2) (if (half) 2 else 1) else 0; dashPowerGauge.invalidate()
+        // Layout 2 (full screen and 50/50, not the third-height window): the two gauges grow 10% about their own centres and sit 28 dp higher; nothing else moves
+        for (gv in listOf<View>(dashPowerGauge, dashSpeedGauge)) {
+            val big = l2 && !third
+            gv.scaleX = if (big) 1.10f else 1f; gv.scaleY = gv.scaleX
+            gv.translationY = if (big) -dp(28).toFloat() else 0f
+        }
         // Layout 2 in a 50/50 window: the grey road fades out upward to the top of the screen, under READY
         roadView.car = carView; roadView.visibility = if (l2) View.VISIBLE else View.GONE; roadView.invalidate()
         l2Mid.clipChildren = false; dashRoot.clipChildren = false; dashGaugeRow.clipChildren = false
