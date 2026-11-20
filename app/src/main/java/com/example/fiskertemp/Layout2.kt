@@ -423,16 +423,7 @@ class RoadView(ctx: Context) : View(ctx) {
         // seen from straight above (parked) the road is two straight parallel lines either side of the car; as the car gets going the view tips back
         // and the road narrows toward the horizon. The two are cross-faded by the car's tilt (0 = parked, 1 = driving).
         val tilt = ((car as? CarView)?.tilt ?: 1f).coerceIn(0f, 1f)
-        if (tilt < 0.999f) {
-            val lay0 = c.saveLayerAlpha(-2000f, -2000f, 4000f, 2000f, ((1f - tilt) * 255).toInt())
-            val cxs = 151f; val hw = 39f; val top = -(carTop.coerceAtLeast(0f) / u)
-            p.shader = LinearGradient(0f, top, 0f, 0f, Color.argb(20, 200, 206, 216), Color.argb(48, 200, 206, 216), Shader.TileMode.CLAMP)
-            p.color = Color.WHITE
-            c.drawRect(cxs - hw, top, cxs + hw, 162f, p)
-            p.shader = null
-            // (no lane lines in the overhead view: they fade in with the perspective road as the car starts to drive)
-            c.restoreToCount(lay0)
-        }
+        // (overhead view: no road at all; the perspective road below fades in with the tilt and out again when the car parks)
         val lay = if (tilt < 0.999f) c.saveLayerAlpha(-2000f, -2000f, 4000f, 2000f, (tilt * 255).toInt()) else -1
         if (tilt <= 0.001f) { c.restoreToCount(lay); c.restore(); animating = shown > 0f || target > 0f || curveShown != curveTarget; if (animating) postInvalidateDelayed(30); return }
         val hh = 162f; val smin = 0.45f; val per = 0.3f; val len = 0.15f; val cx = 151f; val half = 86f
