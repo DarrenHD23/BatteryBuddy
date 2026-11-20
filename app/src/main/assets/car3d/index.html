@@ -39,11 +39,11 @@ new GLTFLoader().parse(u8.buffer,'',g=>{
   model.updateMatrixWorld(true);
   const glowTex=(()=>{const c=document.createElement('canvas');c.width=c.height=64;const x=c.getContext('2d'),g=x.createRadialGradient(32,32,0,32,32,32);g.addColorStop(0,'rgba(255,255,255,1)');g.addColorStop(.25,'rgba(255,255,255,.55)');g.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=g;x.fillRect(0,0,64,64);return new THREE.CanvasTexture(c)})();
   // soft glows on the lamps, always facing the camera, so the lights still show when the car is seen from straight above
-  function glow(name,color,size){const n=model.getObjectByName(name);if(!n)return null;const b=new THREE.Box3().setFromObject(n),c=b.getCenter(new THREE.Vector3());
+  function glow(name,color,size,front){const n=model.getObjectByName(name);if(!n)return null;const b=new THREE.Box3().setFromObject(n),c=b.getCenter(new THREE.Vector3());if(front)c.z=b.min.z-.04;       // front: put it on the very front edge of the lamp (forward is -Z)
     const s=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color,transparent:true,blending:THREE.AdditiveBlending,depthTest:false,depthWrite:false,opacity:0}));
     s.position.copy(c);s.scale.set(size,size,1);s.renderOrder=10;scene.add(s);return s}
   glows.brakeC=glow('Lamp_Brake_Centre',0xff2a1a,.5);glows.tailL=glow('Lamp_Tail_L',0xff2a1a,.7);glows.tailR=glow('Lamp_Tail_R',0xff2a1a,.7);
-  glows.headL=glow('Lamp_Head_L',0xe8f4ff,.55);glows.headR=glow('Lamp_Head_R',0xe8f4ff,.55);
+  glows.headL=glow('Lamp_Head_L',0xe8f4ff,.4,true);glows.headR=glow('Lamp_Head_R',0xe8f4ff,.4,true);
   for(const n of['FL','FR','RL','RR']){const o=model.getObjectByName('Roll_'+n);if(o)rolls.push(o)}
   paint();loaded=true;bridge.ready();requestAnimationFrame(loop);
 },e=>bridge.fail('model: '+(e&&e.message)));
