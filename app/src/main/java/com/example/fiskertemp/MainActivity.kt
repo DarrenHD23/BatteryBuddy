@@ -3928,7 +3928,7 @@ class MainActivity : Activity() {
         }
         val hd = s.headingDeg
         if (l2Applied) {
-            carView.speedKmh = (s.speedKmh ?: 0.0).toFloat(); roadView.speedKmh = carView.speedKmh; carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true)
+            carView.speedKmh = (s.speedKmh ?: 0.0).toFloat(); roadView.speedKmh = carView.speedKmh; roadView.noteHeading(hd); carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true)
             fun shortLabel(l: String) = when (l.lowercase()) { "distance driven" -> "Distance"; "energy consumed" -> "Energy"; "average speed" -> "Avg speed"; else -> l }
             val cells = tripCells(s, true).take(4).map { it.copy(label = shortLabel(it.label)) }
             for (ps in pageSets) {

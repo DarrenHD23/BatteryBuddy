@@ -258,6 +258,20 @@ class RoadView(ctx: Context) : View(ctx) {
     private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val path = Path()
     private val la = IntArray(2); private val lb = IntArray(2)
+    // the road bends with the compass: the heading change over the last 3 seconds (up to 30 degrees) turns the far road left or right
+    private val histT = ArrayList<Long>(); private val histH = ArrayList<Double>()
+    private var curveTarget = 0f
+    private var curveShown = 0f
+    fun noteHeading(h: Double?) {
+        val now = SystemClock.uptimeMillis()
+        if (h == null) { histT.clear(); histH.clear(); curveTarget = 0f; invalidate(); return }
+        histT.add(now); histH.add(h)
+        while (histT.size > 1 && now - histT[0] > 3000) { histT.removeAt(0); histH.removeAt(0) }
+        var d = h - histH[0]
+        if (d > 180) d -= 360; if (d < -180) d += 360
+        curveTarget = if (speedKmh >= 5f) d.coerceIn(-30.0, 30.0).toFloat() else 0f
+        if (!animating) postInvalidateOnAnimation()
+    }
 
     override fun onDraw(c: Canvas) {
         val cv = car ?: return
@@ -269,6 +283,8 @@ class RoadView(ctx: Context) : View(ctx) {
         shown += (target - shown) * min(1f, dt * 4f)
         if (target == 0f && shown < 0.5f) shown = 0f
         roadOff += 200f * Math.pow((shown / 200f).toDouble(), 0.4).toFloat() * dt * 1.1f
+        curveShown += (curveTarget - curveShown) * min(1f, dt * 3f)
+        if (Math.abs(curveShown - curveTarget) < 0.05f) curveShown = curveTarget
         getLocationInWindow(la); cv.getLocationInWindow(lb)
         val u = cv.height / 162f
         val carTop = (lb[1] - la[1]).toFloat()
@@ -280,8 +296,16 @@ class RoadView(ctx: Context) : View(ctx) {
         val ext = carTop.coerceAtLeast(0f) / u                    // how far up the road has to go to reach the top of the screen
         val sTop = Math.max(smin - ext * (1f - smin) / hh, 0.03f)
         val yTop = hh * (sTop - smin) / (1f - smin)
+        // the bend starts partway down the car and grows smoothly to the top; the tangent angle at the top is the compass change (x 1.75)
+        val bendFrom = 76f
+        val ltot = bendFrom - yTop
+        val bendA = if (ltot > 1f) Math.tan(Math.toRadians((curveShown * 1.75f).toDouble())).toFloat() * ltot / 2f else 0f
+        fun sh(y: Float): Float { if (y >= bendFrom || ltot <= 1f) return 0f; val t = (bendFrom - y) / ltot; return bendA * t * t }
         path.reset()
-        path.moveTo(cx - half * sTop, yTop); path.lineTo(cx + half * sTop, yTop); path.lineTo(cx + half, hh); path.lineTo(cx - half, hh); path.close()
+        val steps = 24
+        for (i in 0..steps) { val y = yTop + (hh - yTop) * i / steps; val sv = Math.max(smin + y * (1f - smin) / hh, sTop); val x = cx - half * sv + sh(y); if (i == 0) path.moveTo(x, y) else path.lineTo(x, y) }
+        for (i in steps downTo 0) { val y = yTop + (hh - yTop) * i / steps; val sv = Math.max(smin + y * (1f - smin) / hh, sTop); path.lineTo(cx + half * sv + sh(y), y) }
+        path.close()
         p.shader = LinearGradient(0f, yTop, 0f, 0f, Color.argb(20, 200, 206, 216), Color.argb(48, 200, 206, 216), Shader.TileMode.CLAMP)
         p.color = Color.WHITE
         c.drawPath(path, p)
@@ -296,7 +320,7 @@ class RoadView(ctx: Context) : View(ctx) {
                 val s1 = 1f / z1; val s2 = 1f / z2
                 val y1 = hh * (s1 - smin) / (1f - smin); val y2 = hh * (s2 - smin) / (1f - smin)
                 val w1 = 3.4f * s1; val w2 = 3.4f * s2
-                val x1 = cx + side * half * s1; val x2 = cx + side * half * s2
+                val x1 = cx + side * half * s1 + sh(y1); val x2 = cx + side * half * s2 + sh(y2)
                 val fade = if (yTop < 0f) 0.3f + 0.7f * (((y1 + y2) / 2f - yTop) / (-yTop)).coerceIn(0f, 1f) else 1f
                 p.color = Color.argb(((0.35f + 0.4f * s1) * 255 * fade).toInt().coerceIn(0, 255), 255, 255, 255)
                 path.reset()
@@ -305,7 +329,7 @@ class RoadView(ctx: Context) : View(ctx) {
             }
         }
         c.restore()
-        animating = shown > 0f || target > 0f
+        animating = shown > 0f || target > 0f || curveShown != curveTarget
         if (animating) postInvalidateDelayed(30)
     }
 }
