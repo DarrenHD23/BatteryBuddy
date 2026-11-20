@@ -15,31 +15,33 @@ object Updater {
     private const val API = "https://api.github.com/repos/DarrenHD23/BatteryBuddy/releases?per_page=100"
     const val ACTION_STATUS = "com.example.fiskertemp.INSTALL_STATUS"
 
-    class Release(val build: Int, val title: String, val notes: String, val apkUrl: String, val size: Long)
+    class Release(val build: Int, val title: String, val notes: String, val apkUrl: String, val size: Long, val token: String = "")
 
     fun installedBuild(ctx: Context): Int = try {
         val pi = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
         if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode.toInt() else @Suppress("DEPRECATION") pi.versionCode
     } catch (e: Exception) { 0 }
 
-    private fun open(url: String): HttpURLConnection {
+    private fun open(url: String, token: String = ""): HttpURLConnection {
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 15000; c.readTimeout = 30000; c.instanceFollowRedirects = true
         c.setRequestProperty("User-Agent", "FiskerBatteryBuddy")
         c.setRequestProperty("Accept", "application/vnd.github+json")
+        if (token.isNotEmpty()) c.setRequestProperty("Authorization", "Bearer $token")
         return c
     }
 
     /** The newest release (by build number) that has an APK attached, or null if none / offline. Call off the main thread. */
-    fun latest(beta: Boolean = false, installed: Int = 0): Release? = try {
-        val c = open(API)
+    fun latest(beta: Boolean = false, installed: Int = 0, token: String = ""): Release? = try {
+        val dev = token.isNotEmpty()    // with the owner's token GitHub also lists the draft developer builds, and the APKs download through the API
+        val c = open(API, token)
         if (c.responseCode != 200) null else {
             val arr = JSONArray(c.inputStream.bufferedReader().readText())
             var best: Release? = null
             val notesBy = HashMap<Int, Pair<String, String>>()    // build -> (title, notes) for every release, tests included
             for (i in 0 until arr.length()) {
                 val r = arr.getJSONObject(i)
-                if (r.optBoolean("draft")) continue
+                if (r.optBoolean("draft") && !dev) continue
                 val tag = r.optString("tag_name")
                 val n = tag.removePrefix("build-").toIntOrNull() ?: continue
                 notesBy[n] = Pair(r.optString("name", "Build $n"), cleanNotes(r.optString("body")))
@@ -47,18 +49,18 @@ object Updater {
                 var url = ""; var size = 0L
                 for (j in 0 until assets.length()) {
                     val a = assets.getJSONObject(j)
-                    if (a.optString("name").endsWith(".apk")) { url = a.optString("browser_download_url"); size = a.optLong("size"); break }
+                    if (a.optString("name").endsWith(".apk")) { url = if (dev) a.optString("url") else a.optString("browser_download_url"); size = a.optLong("size"); break }
                 }
                 if (url.isEmpty()) continue
-                if (r.optBoolean("prerelease") && !beta) continue   // test builds are only offered to people who joined the beta
-                if (best == null || n > best.build) best = Release(n, r.optString("name", "Build $n"), cleanNotes(r.optString("body")), url, size)
+                if (r.optBoolean("prerelease") && !beta && !dev) continue   // test builds are only offered to people who joined the beta
+                if (best == null || n > best.build) best = Release(n, r.optString("name", "Build $n"), cleanNotes(r.optString("body")), url, size, if (dev) token else "")
             }
             // one list of everything that changed since the installed build, newest first (test builds' notes included)
             best?.let { b ->
                 val builds = notesBy.keys.filter { it > installed && it <= b.build }.sortedDescending()
                 if (builds.size > 1) {
                     val text = builds.joinToString("\n\n") { k -> "Build $k\n" + (notesBy[k]?.second ?: "") }
-                    best = Release(b.build, b.title, text, b.apkUrl, b.size)
+                    best = Release(b.build, b.title, text, b.apkUrl, b.size, b.token)
                 }
             }
             best
@@ -72,8 +74,17 @@ object Updater {
 
     /** Downloads to [dest]; reports 0..100. Throws on failure. */
     fun download(r: Release, dest: File, onProgress: (Int) -> Unit) {
-        val c = open(r.apkUrl)
+        var c = open(r.apkUrl, r.token)
         c.setRequestProperty("Accept", "application/octet-stream")
+        if (r.token.isNotEmpty()) {
+            // GitHub answers the API asset address with a redirect to a signed address: follow it by hand, without the token
+            c.instanceFollowRedirects = false
+            var hops = 0
+            while (c.responseCode in 301..308 && hops++ < 5) {
+                val loc = c.getHeaderField("Location") ?: break
+                c = open(loc); c.setRequestProperty("Accept", "application/octet-stream")
+            }
+        }
         if (c.responseCode != 200) throw RuntimeException("download failed (${c.responseCode})")
         val total = if (c.contentLengthLong > 0) c.contentLengthLong else r.size
         dest.parentFile?.mkdirs()

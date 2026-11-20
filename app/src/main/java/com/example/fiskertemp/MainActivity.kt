@@ -1992,9 +1992,16 @@ class MainActivity : Activity() {
             isChecked = prefs().getBoolean("betaOn", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("betaOn", on).apply(); EventLog.add("beta builds " + (if (on) "on" else "off")) }
         }
-        val holder = LinearLayout(this).apply { setPadding(dp(24), dp(8), dp(24), 0); addView(cb) }
+        val tokenBox = EditText(this).apply {
+            hint = "Developer token (optional)"; setTextColor(Color.WHITE); setHintTextColor(Color.parseColor("#7C8794")); textSize = 13f
+            isSingleLine = true; inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setText(prefs().getString("devToken", ""))
+        }
+        val holder = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(24), dp(8), dp(24), 0); addView(cb)
+            addView(TextView(this@MainActivity).apply { text = "Developer token: a read-only GitHub token for this repository. With it, the unreleased developer builds are offered too. Leave empty for normal use."; textSize = 12f; setTextColor(Color.parseColor("#9AA6B4")); setPadding(0, dp(10), 0, dp(4)) })
+            addView(tokenBox) }
         darkDialog().setTitle("Beta").setMessage("Beta builds may have bugs. Untick this to get only the tested releases again.").setView(holder)
-            .setPositiveButton("Done", null).setNeutralButton("Check now") { _, _ -> checkForUpdate(true) }.showDark()
+            .setPositiveButton("Done") { _, _ -> val t = tokenBox.text.toString().trim(); if (t != (prefs().getString("devToken", "") ?: "")) { prefs().edit().putString("devToken", t).apply(); EventLog.add("developer token " + (if (t.isEmpty()) "cleared" else "set")) } }.setNeutralButton("Check now") { _, _ -> val t = tokenBox.text.toString().trim(); prefs().edit().putString("devToken", t).apply(); checkForUpdate(true) }.showDark()
     }
 
     private fun showSpeedAdjust() {
@@ -3500,7 +3507,7 @@ class MainActivity : Activity() {
         if (!manual && (now - lastUpdateCheck < 30 * 60 * 1000L || updateBusy)) return
         lastUpdateCheck = now
         Thread {
-            val r = Updater.latest(prefs().getBoolean("betaOn", false), Updater.installedBuild(this))
+            val r = Updater.latest(prefs().getBoolean("betaOn", false), Updater.installedBuild(this), prefs().getString("devToken", "") ?: "")
             val have = Updater.installedBuild(this)
             ui.post {
                 if (r != null && r.build > have) {
