@@ -52,4 +52,7 @@ jobs:
           cp "$APK" "$NAME"
           # release notes: the commit message without the trailer lines (Claude-Session, Co-Authored-By)
           MSG=$(git log -1 --pretty=%B | grep -v -i -E '^(Claude-Session|Co-Authored-By):' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' | head -c 1500)
+          # builds after #351 are untested: say so at the top of every release's notes
+          WARN="WARNING: builds beyond #351 are NOT tested. Use at your own risk. Recommend staying on build #351 for now."
+          MSG="$WARN"$'\n\n'"$MSG"
           gh release create "build-${{ github.run_number }}" "$NAME" --target "${{ github.sha }}" --title "Build ${{ github.run_number }}" --notes "$MSG" --prerelease
