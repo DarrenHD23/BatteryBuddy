@@ -153,6 +153,9 @@ class CarView(ctx: Context) : View(ctx) {
         if (tintCache.size > 6) tintCache.clear()
         val out = tintBody(b0); tintCache[id] = out; return out
     }
+    /** false while the live 3D car (Car3dView) is showing: the pre-rendered car images are then not drawn (glow, warnings and the tilt still are). */
+    var spriteCar = true
+        set(v) { if (field != v) { field = v; invalidate() } }
     /** 0 = seen from straight above (parked), 1 = seen from behind and above (driving); eases slowly. RoadView follows it. */
     var tilt = 0f
         private set
@@ -197,6 +200,7 @@ class CarView(ctx: Context) : View(ctx) {
             }
             glowPaint.shader = null; glowPaint.maskFilter = null
         }
+        if (spriteCar) {
         c.drawBitmap(b0, null, dst, p)
         if (b1 != null) { p.alpha = (fr * 255).toInt(); c.drawBitmap(b1, null, dst, p); p.alpha = 255 }
         fun layer(ids: IntArray) {
@@ -213,6 +217,7 @@ class CarView(ctx: Context) : View(ctx) {
                 if (leftInd) layer(F_LEFT)
                 if (rightInd) layer(F_RIGHT)
             }
+        }
         }
         drawAlerts(c, cx)
         c.restore()
@@ -921,4 +926,74 @@ class ActionCardView(ctx: Context) : View(ctx) {
             c.drawText(lab, r.left + th * 1.2f, r.centerY() + p.textSize * 0.35f, p)
         }
     }
+}
+
+
+/**
+ * The live 3D Ocean: a transparent WebView running three.js (the model and scripts are in assets/car3d, served from a fake https host so
+ * the page can load its modules). It sits exactly over the 150 x 150 unit car square of the car view, lets every touch through, and
+ * reports back whether it started; if it does not, the caller falls back to the pre-rendered car images.
+ */
+@android.annotation.SuppressLint("SetJavaScriptEnabled")
+class Car3dView(ctx: Context, private val onState: (Boolean) -> Unit) : android.webkit.WebView(ctx) {
+    private var ready = false
+    private var failed = false
+    private var lastJson = ""
+    private var lastPush = 0L
+    val live: Boolean get() = ready && !failed
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+
+    init {
+        setBackgroundColor(Color.TRANSPARENT)
+        isClickable = false; isFocusable = false; isVerticalScrollBarEnabled = false; isHorizontalScrollBarEnabled = false
+        overScrollMode = OVER_SCROLL_NEVER
+        settings.javaScriptEnabled = true
+        settings.allowFileAccess = false; settings.allowContentAccess = false
+        settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
+        addJavascriptInterface(object {
+            @android.webkit.JavascriptInterface fun ready() { main.post { ready = true; onState(true) } }
+            @android.webkit.JavascriptInterface fun fail(m: String?) { main.post { failed = true; onState(false) } }
+        }, "CarBridge")
+        webViewClient = object : android.webkit.WebViewClient() {
+            override fun shouldInterceptRequest(view: android.webkit.WebView, req: android.webkit.WebResourceRequest): android.webkit.WebResourceResponse? {
+                val u = req.url
+                if (u.host != HOST || !(u.path ?: "").startsWith("/car3d/")) return android.webkit.WebResourceResponse("text/plain", "utf-8", 403, "Blocked", emptyMap(), java.io.ByteArrayInputStream(ByteArray(0)))
+                val name = u.path!!.removePrefix("/car3d/").ifEmpty { "index.html" }
+                return try {
+                    val mime = if (name.endsWith(".html")) "text/html" else "text/javascript"
+                    android.webkit.WebResourceResponse(mime, "utf-8", context.assets.open("car3d/$name"))
+                } catch (e: Throwable) {
+                    android.webkit.WebResourceResponse("text/plain", "utf-8", 404, "Not found", emptyMap(), java.io.ByteArrayInputStream(ByteArray(0)))
+                }
+            }
+            override fun onReceivedError(view: android.webkit.WebView, req: android.webkit.WebResourceRequest, err: android.webkit.WebResourceError) {
+                if (req.isForMainFrame) main.post { failed = true; onState(false) }
+            }
+            override fun onRenderProcessGone(view: android.webkit.WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
+                main.post { failed = true; onState(false) }; return true
+            }
+        }
+        loadUrl("https://$HOST/car3d/index.html")
+        // if the page has not reported ready in 10 seconds, give up and use the car images
+        main.postDelayed({ if (!ready) { failed = true; onState(false) } }, 10000)
+    }
+
+    /** Lets every touch fall through to whatever is underneath. */
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent?) = false
+
+    /** Sends the car's state to the page (about 7 times a second at most, sooner when something other than the speed changes). */
+    fun push(speedKmh: Float, head: Boolean, brake: Boolean, left: Boolean, right: Boolean, reverse: Boolean, paint: Int) {
+        if (!live) return
+        val hex = String.format("#%06x", paint and 0xFFFFFF)
+        val sp = Math.round(speedKmh * 2f) / 2f
+        val json = "{speed:$sp,head:$head,brake:$brake,left:$left,right:$right,rev:$reverse,paint:'$hex'}"
+        if (json == lastJson) return
+        val now = SystemClock.uptimeMillis()
+        val onlySpeed = lastJson.substringAfter(",head:") == json.substringAfter(",head:")
+        if (onlySpeed && now - lastPush < 140) return
+        lastJson = json; lastPush = now
+        evaluateJavascript("window.car3d&&car3d.set($json)", null)
+    }
+
+    companion object { const val HOST = "appassets.androidplatform.net" }
 }

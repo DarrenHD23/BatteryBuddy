@@ -1230,6 +1230,14 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("l2Alerts", on).apply() }
         }, 4)
         box.add(CheckBox(this).apply {
+            text = "Layout 2: live 3D car (turn off to use the still-image car instead)"; isChecked = prefs().getBoolean("l2Live3d", true)
+            setOnCheckedChangeListener { _, on ->
+                prefs().edit().putBoolean("l2Live3d", on).apply()
+                failed3d = false
+                if (::dashRoot.isInitialized) syncCar3d(dashRoot)
+            }
+        }, 4)
+        box.add(CheckBox(this).apply {
             text = "Layout 2: show Media and Climate buttons under the gauge in the 50/50 and 2/3 splits"; isChecked = prefs().getBoolean("l2SplitBtns", false)
             setOnCheckedChangeListener { _, on ->
                 prefs().edit().putBoolean("l2SplitBtns", on).apply()
@@ -1780,6 +1788,7 @@ class MainActivity : Activity() {
     }
     private lateinit var l2FlyBtn: TextView
     private lateinit var roadView: RoadView
+    private var car3d: Car3dView? = null
     private lateinit var l2ClimBtn: TextView
     private lateinit var l2MediaBtn: TextView
     private var l2ClimTop = 0; private var l2ClimH = 0; private var l2ClimInline = false; private var wasL2Clim = false
@@ -2057,6 +2066,39 @@ class MainActivity : Activity() {
         }
         d.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener { adjDefaults(mph).forEachIndexed { i, v -> fields[i].setText(v.toString()) } }
     }
+
+    private fun wantLive3d(): Boolean = prefs().getBoolean("l2Live3d", true)
+
+    /** Creates / removes the live 3D car and keeps it exactly over the car square (150 x 150 units in the 302 x 162 unit middle column). */
+    private fun syncCar3d(root: FrameLayout) {
+        if (!::carView.isInitialized || !::roadView.isInitialized) return
+        val show = wantLive3d() && roadView.visibility == View.VISIBLE && carView.isShown && carView.width > 0
+        var v = car3d
+        if (!show) {
+            if (v != null) { root.removeView(v); v.destroy(); car3d = null }
+            carView.spriteCar = true
+            return
+        }
+        if (v == null) {
+            v = Car3dView(this) { ok -> runOnUiThread { carView.spriteCar = !ok; car3d?.visibility = if (ok) View.VISIBLE else View.GONE; if (!ok) { car3d?.let { root.removeView(it); it.destroy() }; car3d = null; failed3d = true } } }
+            v.visibility = View.INVISIBLE
+            car3d = v
+            root.addView(v, FrameLayout.LayoutParams(1, 1, Gravity.TOP or Gravity.START))
+        }
+        if (failed3d) return
+        val u = carView.height / 162f
+        val a = IntArray(2); val b = IntArray(2)
+        root.getLocationInWindow(a); carView.getLocationInWindow(b)
+        val side = (150f * u).toInt().coerceAtLeast(1)
+        val x = b[0] - a[0] + ((carView.width - 302f * u) / 2f + 76f * u).toInt()
+        val y = b[1] - a[1] + (3f * u).toInt()
+        val lp = v.layoutParams as FrameLayout.LayoutParams
+        if (lp.width != side || lp.height != side || lp.leftMargin != x || lp.topMargin != y) {
+            lp.width = side; lp.height = side; lp.leftMargin = x; lp.topMargin = y; v.layoutParams = lp
+        }
+        if (v.live) { v.visibility = View.VISIBLE; carView.spriteCar = false }
+    }
+    private var failed3d = false
 
     private fun buildDashboard(): FrameLayout {
         Skins.current = prefs().getInt("skin", 7)
@@ -2376,6 +2418,8 @@ class MainActivity : Activity() {
             setOnClickListener { pendingUpdate?.let { showUpdateDialog(it) } }
         }
         f.addView(updateBtn, FrameLayout.LayoutParams(-2, dp(30), Gravity.TOP or Gravity.START).apply { setMargins(dp(160), dp(10), 0, 0) })
+        // Layout 2: the live 3D car, a transparent layer over the car square; off (images used instead) when the setting is off or the page fails
+        f.viewTreeObserver.addOnGlobalLayoutListener { syncCar3d(f) }
         return f
     }
 
@@ -3998,6 +4042,7 @@ class MainActivity : Activity() {
                 carView.dowL = if (bFresh && s.dowLeft in 1..4) s.dowLeft else 0; carView.dowR = if (bFresh && s.dowRight in 1..4) s.dowRight else 0
                 carView.uss = if (alerts && s.uss != null && nowMs - s.ussAt < 3000) s.uss.toIntArray() else null
             }; carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true); carView.beamsOn = (s.beamsOn == true)
+            car3d?.push(carView.speedKmh, carView.headlights || carView.highBeam, carView.braking, carView.leftInd, carView.rightInd, carView.reverse, CAR_PAINTS[carView.paintIdx].second)
             fun shortLabel(l: String) = when (l.lowercase()) { "distance driven" -> "Distance"; "energy consumed" -> "Energy"; "average speed" -> "Avg speed"; else -> l }
             val cells = tripCells(s, true).take(4).map { it.copy(label = shortLabel(it.label)) }
             for (ps in pageSets) {

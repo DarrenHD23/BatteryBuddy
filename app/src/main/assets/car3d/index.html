@@ -1,0 +1,54 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>html,body{margin:0;background:transparent;overflow:hidden;height:100%}canvas{display:block;width:100vw;height:100vh;background:transparent}</style></head>
+<body><canvas id="cv"></canvas>
+<script type="module">
+import * as THREE from './three.module.min.js';
+import {GLTFLoader} from './GLTFLoader.js';
+import B64 from './model.js';
+const bridge=window.CarBridge||{ready(){},fail(){}};
+try{
+const cv=document.getElementById('cv');
+const renderer=new THREE.WebGLRenderer({canvas:cv,antialias:true,alpha:true,premultipliedAlpha:true});
+renderer.setClearColor(0x000000,0);renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=.85;
+const scene=new THREE.Scene();
+scene.add(new THREE.HemisphereLight(0xf2f5fa,0x53606d,2.1));
+const key=new THREE.DirectionalLight(0xf1f5fa,.75);key.position.set(-3,6,4);scene.add(key);
+const cam=new THREE.OrthographicCamera(-1,1,1,-1,.05,100);cam.up.set(0,0,-1);
+const target=new THREE.Vector3(0,.55,0);
+const mats=new Map(),rolls=[];
+let st={speed:0,head:false,brake:false,left:false,right:false,rev:false,paint:'#e7e8e3'},tilt=0,spin=0,last=performance.now(),lastDraw=0,dirty=true,loaded=false,size=0;
+const smooth=x=>x*x*(3-2*x);
+const em=(n,c,k)=>{for(const m of mats.get(n)||[])if(m.emissive){m.emissive.setRGB(...c);m.emissiveIntensity=k}};
+function lamps(now){
+  const blink=Math.floor(now/380)%2===0;
+  for(const s of['L','R']){em('Mat_Head_'+s,[.9,.96,1],st.head?2:0);em('Mat_Tail_'+s,[1,.03,.02],st.brake?3:(st.head?1:0));em('Mat_Reverse_'+s,[1,1,1],st.rev?2.5:0)}
+  em('Mat_Brake_Centre',[1,.03,.02],st.brake?3:0);
+  em('Mat_Indicator_L',[1,.45,0],st.left&&blink?3:0);em('Mat_Indicator_R',[1,.45,0],st.right&&blink?3:0);
+}
+function paint(){for(const m of mats.get('Paint_Body')||[]){m.color.set(st.paint);m.metalness=.1;m.roughness=.76;if('clearcoat'in m)m.clearcoat=0}}
+function resize(){const w=cv.clientWidth,h=cv.clientHeight;if(!w||!h)return;const r=Math.min(window.devicePixelRatio||1,2);if(size!==w*1000+h){size=w*1000+h;renderer.setPixelRatio(r);renderer.setSize(w,h,false);dirty=true}}
+window.car3d={set(o){Object.assign(st,o);if(loaded&&o.paint)paint();dirty=true}};
+const u8=Uint8Array.from(atob(B64),c=>c.charCodeAt(0));
+new GLTFLoader().parse(u8.buffer,'',g=>{
+  const model=g.scene;scene.add(model);
+  model.traverse(o=>{if(o.isMesh){for(const m of Array.isArray(o.material)?o.material:[o.material]){if(!mats.has(m.name))mats.set(m.name,[]);mats.get(m.name).push(m)}}if(/^Beam_|^Spot_/.test(o.name)||o.isLight)o.visible=false});
+  for(const n of['FL','FR','RL','RR']){const o=model.getObjectByName('Roll_'+n);if(o)rolls.push(o)}
+  paint();loaded=true;bridge.ready();requestAnimationFrame(loop);
+},e=>bridge.fail('model: '+(e&&e.message)));
+function loop(now){
+  requestAnimationFrame(loop);
+  if(now-lastDraw<33)return;                          // about 30 fps
+  const dt=Math.min(.1,(now-last)/1000);last=now;lastDraw=now;
+  const g=smooth(Math.min(1,st.speed/35));
+  const moving=st.speed>.5,settling=Math.abs(tilt-g)>.003,blinking=st.left||st.right;
+  if(!(moving||settling||blinking||dirty))return;     // idle: draw nothing
+  tilt+=(g-tilt)*Math.min(1,dt*1.1);if(Math.abs(tilt-g)<.004)tilt=g;
+  if(moving){spin-=st.speed/3.6/0.38*dt;for(const r of rolls)r.rotation.x=spin}
+  resize();lamps(now);
+  const pitch=90+(24-90)*tilt,H=(7.4+(5.0-7.4)*tilt)*150/162,rad=pitch*Math.PI/180;
+  cam.left=-H/2;cam.right=H/2;cam.top=H/2;cam.bottom=-H/2;cam.updateProjectionMatrix();
+  cam.position.set(0,target.y+14*Math.sin(rad),14*Math.cos(rad));cam.lookAt(target);
+  renderer.render(scene,cam);dirty=false;
+}
+}catch(e){bridge.fail('init: '+e.message)}
+</script></body></html>
