@@ -1525,8 +1525,9 @@ class MainActivity : Activity() {
 
     /** Layout 2 takes the middle column and the corners over; Original puts everything back where it was. */
     private fun fillMid(l2: Boolean) {
-        for (v in listOf<View>(dashReady, dashSlot, dashLightDist, dashBrake, tripSpacer, tripPanel, chargeBar, l2Mid, carView, mediaBtn, climateBtn, l2FlyBtn)) (v.parent as? ViewGroup)?.removeView(v)
+        for (v in listOf<View>(dashReady, dashSlot, dashLightDist, dashBrake, tripSpacer, tripPanel, chargeBar, l2Mid, carView, dashLight, mediaBtn, climateBtn, l2FlyBtn)) (v.parent as? ViewGroup)?.removeView(v)
         if (l2 || !l1cApplied) l2Mid.addView(carView, 0, LinearLayout.LayoutParams(-1, 0, 0.38f))
+        if (!l1cApplied || l2) dashSlot.addView(dashLight, 0, FrameLayout.LayoutParams(dp(42), dp(88), Gravity.CENTER))
         if (l2) {
             dashMid.addView(l2Mid, LinearLayout.LayoutParams(-1, -1))
             dashRoot.addView(dashSlot, FrameLayout.LayoutParams(dp(72), dp(92), Gravity.TOP or Gravity.END))
@@ -1538,12 +1539,22 @@ class MainActivity : Activity() {
             dashRoot.addView(climateBtn, FrameLayout.LayoutParams(dp(90), dp(30), Gravity.TOP or Gravity.END))
             dashRoot.addView(mediaBtn, FrameLayout.LayoutParams(dp(90), dp(30), Gravity.TOP or Gravity.END))
             refreshShortcuts()
+        } else if (l1cApplied) {
+            // Layout 1 with the 3D car: the speed sign sits left of the road, the traffic light and its distance right of it (placed in adaptDashLayout)
+            dashMid.addView(dashReady, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+            dashMid.addView(dashBrake, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
+            dashMid.addView(carView, LinearLayout.LayoutParams(-1, 0, 1f))
+            dashMid.addView(tripSpacer, LinearLayout.LayoutParams(-1, 0, 0f))
+            dashMid.addView(tripPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(4); bottomMargin = dp(3) })
+            dashMid.addView(chargeBar, LinearLayout.LayoutParams(-1, dp(30)).apply { bottomMargin = dp(2) })
+            dashRoot.addView(dashSlot, FrameLayout.LayoutParams(dp(72), dp(92), Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+            dashRoot.addView(dashLight, FrameLayout.LayoutParams(dp(42), dp(88), Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+            dashRoot.addView(dashLightDist, FrameLayout.LayoutParams(dp(72), -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
         } else {
             dashMid.addView(dashReady, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
             dashMid.addView(dashSlot, LinearLayout.LayoutParams(-1, dp(92)).apply { topMargin = dp(4) })
             dashMid.addView(dashLightDist, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
             dashMid.addView(dashBrake, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
-            if (l1cApplied) dashMid.addView(carView, LinearLayout.LayoutParams(-1, 0, 1f))
             dashMid.addView(tripSpacer, LinearLayout.LayoutParams(-1, 0, 0f))
             dashMid.addView(tripPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(4); bottomMargin = dp(3) })
             dashMid.addView(chargeBar, LinearLayout.LayoutParams(-1, dp(30)).apply { bottomMargin = dp(2) })
@@ -3070,7 +3081,7 @@ class MainActivity : Activity() {
         tripMidRows = if (l1c) 0 else midRows
         chargeBar.visibility = if (!hideBar) View.VISIBLE else if (midLevel == 0) View.INVISIBLE else View.GONE
         // with plenty of height the panel stays a little shorter and sits just above the battery bar
-        (tripSpacer.layoutParams as LinearLayout.LayoutParams).weight = if (midRows >= 3 && midLevel > 0) 0.28f else 0f
+        (tripSpacer.layoutParams as LinearLayout.LayoutParams).weight = if (!l1c && midRows >= 3 && midLevel > 0) 0.28f else 0f
         tripSpacer.requestLayout()
         gaugeWeight = gaugeWdp; midWeight = if (sameMid > 0f) sameMid else midWdp + ovL + ovR; ovLeftDp = ovL; ovRightDp = ovR; edgeLeftDp = edgeL; edgeRightDp = edgeR
         (dashGaugeRow.getChildAt(0).layoutParams as LinearLayout.LayoutParams).weight = gaugeWdp
@@ -3107,7 +3118,7 @@ class MainActivity : Activity() {
         (tripPanel.layoutParams as LinearLayout.LayoutParams).apply { if (l1c) { height = dp(46); weight = 0f; topMargin = dp(2) } else { height = 0; weight = 1f; topMargin = dp(4) } }
         if (l1c) (carView.layoutParams as LinearLayout.LayoutParams).apply { width = -1; height = 0; weight = 1f; topMargin = 0 }
         tripPanel.requestLayout(); tripPanel.invalidate()
-        if (!l2) {
+        if (!l2 && !l1c) {
             (dashSlot.layoutParams as LinearLayout.LayoutParams).apply { height = dp(if (midLevel == 2) 48 else if (short) 58 else 92); topMargin = dp(if (brakeUnder) 0 else 4) }
             dashSlot.requestLayout()
         }
@@ -3116,12 +3127,25 @@ class MainActivity : Activity() {
         //  level 0 (roomy): READY under the battery bar when tall, light distance beside the sign, brake pill in the column
         //  level 1 (a third-height window): READY centred above the sign, light distance below it, brake pill beside the sign
         //  level 2 (very short): all three beside the sign
-        val readyBelow = tall && midLevel == 0
+        val readyBelow = tall && midLevel == 0 && !l1c
         // a third-height window with the battery bar hidden: READY goes directly under the trip panel
-        val readyUnderPanel = midLevel == 1 && hideBar && !readyBelow
+        val readyUnderPanel = midLevel == 1 && hideBar && !readyBelow && !l1c
         val modeKey = "$midLevel/$readyBelow/$readyUnderPanel/$brakeUnder"
-        readyBeside = midLevel == 1 && brakeUnder && !readyBelow && !readyUnderPanel
-        if (!l2 && statusMode != modeKey) {
+        readyBeside = midLevel == 1 && brakeUnder && !readyBelow && !readyUnderPanel && !l1c
+        if (l1c) {
+            if (statusMode != modeKey) {
+                statusMode = modeKey
+                for (v in listOf<View>(dashReady, dashBrake)) { (v.parent as? ViewGroup)?.removeView(v) }
+                dashMid.addView(dashReady, 0, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+                dashMid.addView(dashBrake, 1, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
+            }
+            // the speed sign sits in the gap left of the road lines, the traffic light (and its distance) in the gap on the right, a little higher
+            val gap = dp((wDp * 0.268f).toInt())
+            (dashSlot.layoutParams as FrameLayout.LayoutParams).apply { width = dp(72); height = dp(92); gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; setMargins(0, dp(topM + 34), gap, 0) }
+            (dashLight.layoutParams as FrameLayout.LayoutParams).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; setMargins(gap, dp(topM + 10), 0, 0) }
+            (dashLightDist.layoutParams as FrameLayout.LayoutParams).apply { width = dp(72); gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; setMargins(gap, dp(topM + 10 + 90), 0, 0) }
+            dashSlot.requestLayout(); dashLight.requestLayout(); dashLightDist.requestLayout()
+        } else if (!l2 && statusMode != modeKey) {
             statusMode = modeKey
             dashMid.removeView(dashReady); dashMid.removeView(dashLightDist); dashMid.removeView(dashBrake)
             dashSlot.removeView(dashReady); dashSlot.removeView(dashLightDist); dashSlot.removeView(dashBrake)
@@ -3139,7 +3163,7 @@ class MainActivity : Activity() {
             else dashMid.addView(dashBrake, 1, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
             if (readyUnderPanel) dashMid.addView(dashReady, dashMid.indexOfChild(tripPanel) + 1, LinearLayout.LayoutParams(-1, -2).apply { topMargin = 0; bottomMargin = dp(2) })
         }
-        if (readyBelow && !l2) {
+        if (readyBelow && !l2 && !l1c) {
             (dashReady.layoutParams as FrameLayout.LayoutParams).topMargin = dp(topM + wantH.toInt() + 4)
             dashReady.requestLayout()
         }
@@ -3292,7 +3316,7 @@ class MainActivity : Activity() {
             gv.translationY = if (big) -dp(28).toFloat() else 0f
         }
         // Layout 2 in a 50/50 window: the grey road fades out upward to the top of the screen, under READY
-        roadView.car = carView; roadView.visibility = if (l2) View.VISIBLE else View.GONE; roadView.invalidate()
+        roadView.car = carView; roadView.visibility = if (l2 || l1c) View.VISIBLE else View.GONE; roadView.invalidate()
         l2Mid.clipChildren = false; dashRoot.clipChildren = false; dashGaugeRow.clipChildren = false
         // everything between the car view and the dashboard root must let the car's glow and sensor arcs draw above the view
         run { var pv: android.view.ViewParent? = carView.parent; while (pv is ViewGroup) { pv.clipChildren = false; pv.clipToPadding = false; if (pv === dashRoot) break; pv = pv.parent } }
