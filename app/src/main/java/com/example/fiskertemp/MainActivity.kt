@@ -1419,6 +1419,10 @@ class MainActivity : Activity() {
             text = "This project uses software from Haibin Wen and SUNNYPILOT LLC and is licensed under a custom license requiring permission for use."
             textSize = 11f; setTextColor(Color.parseColor("#8E99A8"))
         }, 24)
+        box.add(TextView(this).apply {
+            text = "Layout 2 car: \"Fisker Ocean (low-poly)\" by LagzDesign, CC BY 4.0 (creativecommons.org/licenses/by/4.0), modified: rigged, lamps added, rendered to images."
+            textSize = 11f; setTextColor(Color.parseColor("#8E99A8"))
+        }, 6)
         // ScrollView so nothing is cut off on small screens
         // views made with the activity's (light) theme draw dark text by default; make every dark label light
         fun lightInk(v: View) {

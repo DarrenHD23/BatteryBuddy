@@ -83,11 +83,9 @@ class CarView(ctx: Context) : View(ctx) {
     private val base0 by lazy { load(R.drawable.car_base) }
     /** Fisker paint colour (index into CAR_PAINTS); the silver body of the photo is recoloured, the glass, trim, lights and badge are left alone. */
     var paintIdx = 3
-        set(v) { val n = v.coerceIn(0, CAR_PAINTS.size - 1); if (field != n) { field = n; tinted = null; invalidate() } }
+        set(v) { val n = v.coerceIn(0, CAR_PAINTS.size - 1); if (field != n) { field = n; tinted = null; tintCache.clear(); invalidate() } }
     private var tinted: Bitmap? = null
-    private val base: Bitmap? get() {
-        val b0 = base0 ?: return null
-        tinted?.let { return it }
+    private fun tintBody(b0: Bitmap): Bitmap {
         val w = b0.width; val h = b0.height
         val px = IntArray(w * h); b0.getPixels(px, 0, w, 0, 0, w, h)
         val pc = CAR_PAINTS[paintIdx].second
@@ -106,7 +104,6 @@ class CarView(ctx: Context) : View(ctx) {
             px[i] = (a shl 24) or ((r + (nr - r) * wgt).toInt() shl 16) or ((g + (ng - g) * wgt).toInt() shl 8) or (b + (nb - b) * wgt).toInt()
         }
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888); out.setPixels(px, 0, w, 0, 0, w, h)
-        tinted = out
         return out
     }
     private val dipped by lazy { load(R.drawable.car_dipped) }
@@ -135,10 +132,34 @@ class CarView(ctx: Context) : View(ctx) {
     private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val glowPath = Path()
 
+    // the 3D Ocean, pre-rendered from above (frame 0, parked) to behind-and-above (last frame, driving) in 9 steps; the view tips back as the car gets going
+    private val F_BASE = intArrayOf(R.drawable.car3d_0_base, R.drawable.car3d_1_base, R.drawable.car3d_2_base, R.drawable.car3d_3_base, R.drawable.car3d_4_base, R.drawable.car3d_5_base, R.drawable.car3d_6_base, R.drawable.car3d_7_base, R.drawable.car3d_8_base)
+    private val F_HEAD = intArrayOf(R.drawable.car3d_0_head, R.drawable.car3d_1_head, R.drawable.car3d_2_head, R.drawable.car3d_3_head, R.drawable.car3d_4_head, R.drawable.car3d_5_head, R.drawable.car3d_6_head, R.drawable.car3d_7_head, R.drawable.car3d_8_head)
+    private val F_BRAKE = intArrayOf(R.drawable.car3d_0_brake, R.drawable.car3d_1_brake, R.drawable.car3d_2_brake, R.drawable.car3d_3_brake, R.drawable.car3d_4_brake, R.drawable.car3d_5_brake, R.drawable.car3d_6_brake, R.drawable.car3d_7_brake, R.drawable.car3d_8_brake)
+    private val F_LEFT = intArrayOf(R.drawable.car3d_0_left, R.drawable.car3d_1_left, R.drawable.car3d_2_left, R.drawable.car3d_3_left, R.drawable.car3d_4_left, R.drawable.car3d_5_left, R.drawable.car3d_6_left, R.drawable.car3d_7_left, R.drawable.car3d_8_left)
+    private val F_RIGHT = intArrayOf(R.drawable.car3d_0_right, R.drawable.car3d_1_right, R.drawable.car3d_2_right, R.drawable.car3d_3_right, R.drawable.car3d_4_right, R.drawable.car3d_5_right, R.drawable.car3d_6_right, R.drawable.car3d_7_right, R.drawable.car3d_8_right)
+    private val F_REV = intArrayOf(R.drawable.car3d_0_rev, R.drawable.car3d_1_rev, R.drawable.car3d_2_rev, R.drawable.car3d_3_rev, R.drawable.car3d_4_rev, R.drawable.car3d_5_rev, R.drawable.car3d_6_rev, R.drawable.car3d_7_rev, R.drawable.car3d_8_rev)
+    private val spriteCache = HashMap<Int, Bitmap>()
+    private val tintCache = HashMap<Int, Bitmap>()
+    private fun sprite(id: Int): Bitmap? {
+        spriteCache[id]?.let { return it }
+        if (spriteCache.size > 40) spriteCache.clear()
+        val b = load(id) ?: return null
+        spriteCache[id] = b; return b
+    }
+    private fun tintedSprite(id: Int): Bitmap? {
+        tintCache[id]?.let { return it }
+        val b0 = sprite(id) ?: return null
+        if (tintCache.size > 6) tintCache.clear()
+        val out = tintBody(b0); tintCache[id] = out; return out
+    }
+    /** 0 = seen from straight above (parked), 1 = seen from behind and above (driving); eases slowly. RoadView follows it. */
+    var tilt = 0f
+        private set
+
     /** Draws in a 302 x 162 unit space (the middle column); the car is 114 x 104 units, 15% bigger than before. */
     override fun onDraw(c: Canvas) {
         val w = width.toFloat(); val h = height.toFloat()
-        val b = base ?: return
         if (w <= 0f || h <= 0f) return
         val now = SystemClock.uptimeMillis()
         val dt = if (lastMs == 0L) 0f else ((now - lastMs) / 1000f).coerceIn(0f, 0.1f)
@@ -147,27 +168,21 @@ class CarView(ctx: Context) : View(ctx) {
         shown += (target - shown) * min(1f, dt * 4f)
         if (target == 0f && shown < 0.5f) shown = 0f
         roadOff += 200f * Math.pow((shown / 200f).toDouble(), 0.4).toFloat() * dt * 1.1f
+        val g0 = (shown / 35f).coerceIn(0f, 1f); val g = g0 * g0 * (3f - 2f * g0)
+        tilt += (g - tilt) * min(1f, dt * 1.1f)
+        if (Math.abs(tilt - g) < 0.004f) tilt = g
+        val pos = tilt * (F_BASE.size - 1)
+        val i0 = pos.toInt().coerceIn(0, F_BASE.size - 1); val i1 = min(i0 + 1, F_BASE.size - 1); val fr = pos - i0
+        val b0 = tintedSprite(F_BASE[i0]) ?: return
+        val b1 = if (i1 != i0 && fr > 0.01f) tintedSprite(F_BASE[i1]) else null
         val u = h / 162f
         c.save()
         c.translate((w - 302f * u) / 2f, 0f)
         c.scale(u, u)
         val cx = 151f      // (the road itself is drawn by RoadView, behind everything)
-        // the car: 114 x 104 units. At rest it is seen almost from above (squashed, parallel sides); once moving it leans
-        // forward like it is driving (taller, rear wider), a little more as it gets faster
-        val f = (shown / 200f).coerceIn(0f, 1f)
-        val g0 = (shown / 35f).coerceIn(0f, 1f); val g = g0 * g0 * (3f - 2f * g0)
-        val cw = 114f; val ch = cw * b.height / b.width
-        val cl = cx - cw / 2f; val ct = 26f
-        dst.set(cl, ct, cl + cw, ct + ch)
-        val sh = 1f; val topW = 1f; val botW = 1f      // no tilt: the car stays in its normal pose
-        val cyc = ct + ch / 2f
-        quadDst[0] = cx - cw * topW / 2f; quadDst[1] = cyc - ch * sh / 2f
-        quadDst[2] = cx + cw * topW / 2f; quadDst[3] = quadDst[1]
-        quadDst[4] = cx + cw * botW / 2f; quadDst[5] = cyc + ch * sh / 2f
-        quadDst[6] = cx - cw * botW / 2f; quadDst[7] = quadDst[5]
-        quadSrc[0] = cl; quadSrc[1] = ct; quadSrc[2] = cl + cw; quadSrc[3] = ct
-        quadSrc[4] = cl + cw; quadSrc[5] = ct + ch; quadSrc[6] = cl; quadSrc[7] = ct + ch
-        mat.setPolyToPoly(quadSrc, 0, quadDst, 0, 4)
+        // the car sprite is a 150 x 150 unit square centred on the middle of the old 114 x 104 car slot (front of the car at y = 26 when parked)
+        val ct = 26f
+        dst.set(cx - 75f, 3f, cx + 75f, 153f)
         if (beamsOn) {
             // headlight beams: from just inside the car's width at its front, leaning in toward the centre line, fading out up the road
             // (drawn before the car so the car stays on top; the view's parents do not clip, so it may reach above the view)
@@ -182,42 +197,28 @@ class CarView(ctx: Context) : View(ctx) {
             }
             glowPaint.shader = null; glowPaint.maskFilter = null
         }
-        c.save()
-        c.concat(mat)
-        c.drawBitmap(b, null, dst, p)
-        if (highBeam) beam?.let { c.drawBitmap(it, null, dst, p) } else if (headlights) dipped?.let { c.drawBitmap(it, null, dst, p) }
-        if (braking) {
-            brake?.let { c.drawBitmap(it, null, dst, p) }
-            // the upper brake light: a thin line, curved up slightly at the ends to follow the car
-            val bx = cl + 0.35f * cw; val bw = 0.30f * cw; val by = ct + 0.446f * ch; val bh = 0.034f * ch
-            brakePath.reset()
-            brakePath.moveTo(bx + 0.01f * bw, by + 0.2f * bh); brakePath.quadTo(bx + 0.5f * bw, by + 0.65f * bh * 1.0f, bx + 0.99f * bw, by + 0.2f * bh)
-            brakePaint.color = Color.argb(90, 255, 40, 40); brakePaint.strokeWidth = 2.6f; c.drawPath(brakePath, brakePaint)
-            brakePaint.color = Color.rgb(255, 42, 42); brakePaint.strokeWidth = 0.9f; c.drawPath(brakePath, brakePaint)
+        c.drawBitmap(b0, null, dst, p)
+        if (b1 != null) { p.alpha = (fr * 255).toInt(); c.drawBitmap(b1, null, dst, p); p.alpha = 255 }
+        fun layer(ids: IntArray) {
+            val a0 = sprite(ids[i0]); val a1 = if (i1 != i0 && fr > 0.01f) sprite(ids[i1]) else null
+            if (a1 == null) { if (a0 != null) c.drawBitmap(a0, null, dst, p); return }
+            p.alpha = ((1f - fr) * 255).toInt(); if (a0 != null) c.drawBitmap(a0, null, dst, p)
+            p.alpha = (fr * 255).toInt(); c.drawBitmap(a1, null, dst, p); p.alpha = 255
         }
-        if (reverse) rev?.let { c.drawBitmap(it, null, dst, p) }
+        if (highBeam || headlights) layer(F_HEAD)
+        if (braking) layer(F_BRAKE)
+        if (reverse) layer(F_REV)
         if (leftInd || rightInd) {
             if ((SystemClock.uptimeMillis() / 380) % 2 == 0L) {
-                if (leftInd) left?.let { c.drawBitmap(it, null, dst, p) }
-                if (rightInd) right?.let { c.drawBitmap(it, null, dst, p) }
+                if (leftInd) layer(F_LEFT)
+                if (rightInd) layer(F_RIGHT)
             }
         }
-        // small grey lines on the strip of rear tyre that shows, turning with the road
-        if (shown > 0f) {
-            val sx = cw / 114f; val sy = ch / 104f
-            tyrePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(2f, 1.6f), (roadOff * 0.2f) % 4f)
-            val xs = floatArrayOf(17.4f, 19.6f, 94.4f, 96.6f); val ds = floatArrayOf(-1f, -1f, 1f, 1f)
-            for (i in xs.indices) tyreLine(c, cl, ct, sx, sy, xs[i], ds[i])
-            c.save(); c.clipRect(cl, ct + 90.2f * sy, cl + cw, ct + 94.6f * sy)
-            tyreLine(c, cl, ct, sx, sy, 15.2f, -1f); tyreLine(c, cl, ct, sx, sy, 98.8f, 1f)
-            c.restore()
-        }
-        c.restore()
         drawAlerts(c, cx)
         c.restore()
         if (bsdL > 0 || bsdR > 0 || dowL > 0 || dowR > 0) postInvalidateDelayed(40)
         if (leftInd || rightInd) postInvalidateDelayed(120)
-        animating = shown > 0f || target > 0f
+        animating = shown > 0f || target > 0f || tilt != g
         if (animating) postInvalidateDelayed(30)
     }
 
@@ -399,6 +400,33 @@ class RoadView(ctx: Context) : View(ctx) {
         c.save()
         c.translate(carLeft + (cv.width - 302f * u) / 2f, carTop)
         c.scale(u, u)
+        // seen from straight above (parked) the road is two straight parallel lines either side of the car; as the car gets going the view tips back
+        // and the road narrows toward the horizon. The two are cross-faded by the car's tilt (0 = parked, 1 = driving).
+        val tilt = ((car as? CarView)?.tilt ?: 1f).coerceIn(0f, 1f)
+        if (tilt < 0.999f) {
+            val lay0 = c.saveLayerAlpha(-2000f, -2000f, 4000f, 2000f, ((1f - tilt) * 255).toInt())
+            val cxs = 151f; val hw = 39f; val top = -(carTop.coerceAtLeast(0f) / u)
+            p.shader = LinearGradient(0f, top, 0f, 0f, Color.argb(20, 200, 206, 216), Color.argb(48, 200, 206, 216), Shader.TileMode.CLAMP)
+            p.color = Color.WHITE
+            c.drawRect(cxs - hw, top, cxs + hw, 162f, p)
+            p.shader = null
+            val phase = (roadOff * 0.35f) % 30f
+            for (sd in intArrayOf(-1, 1)) {
+                var y = top - 30f + phase
+                while (y < 162f) {
+                    val y1 = Math.max(y, top); val y2 = Math.min(y + 14f, 162f)
+                    if (y2 > y1) {
+                        val fade = if (top < 0f) 0.3f + 0.7f * (((y1 + y2) / 2f - top) / (-top)).coerceIn(0f, 1f) else 1f
+                        p.color = Color.argb((0.75f * 255 * fade).toInt().coerceIn(0, 255), 255, 255, 255)
+                        c.drawRect(cxs + sd * hw - 1.7f, y1, cxs + sd * hw + 1.7f, y2, p)
+                    }
+                    y += 30f
+                }
+            }
+            c.restoreToCount(lay0)
+        }
+        val lay = if (tilt < 0.999f) c.saveLayerAlpha(-2000f, -2000f, 4000f, 2000f, (tilt * 255).toInt()) else -1
+        if (tilt <= 0.001f) { c.restoreToCount(lay); c.restore(); animating = shown > 0f || target > 0f || curveShown != curveTarget; if (animating) postInvalidateDelayed(30); return }
         val hh = 162f; val smin = 0.45f; val per = 0.3f; val len = 0.15f; val cx = 151f; val half = 86f
         val ext = carTop.coerceAtLeast(0f) / u                    // how far up the road has to go to reach the top of the screen
         val sTop = Math.max(smin - ext * (1f - smin) / hh, 0.03f)
@@ -435,8 +463,9 @@ class RoadView(ctx: Context) : View(ctx) {
                 c.drawPath(path, p)
             }
         }
+        if (lay >= 0) c.restoreToCount(lay)
         c.restore()
-        animating = shown > 0f || target > 0f || curveShown != curveTarget
+        animating = shown > 0f || target > 0f || curveShown != curveTarget || (tilt > 0f && tilt < 1f)
         if (animating) postInvalidateDelayed(30)
     }
 }
