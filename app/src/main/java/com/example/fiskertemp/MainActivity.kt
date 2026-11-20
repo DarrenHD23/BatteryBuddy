@@ -1226,6 +1226,10 @@ class MainActivity : Activity() {
             }
         }, 4)
         box.add(CheckBox(this).apply {
+            text = "Layout 2: show blind-spot, door-open and parking-sensor warnings on the car"; isChecked = prefs().getBoolean("l2Alerts", true)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("l2Alerts", on).apply() }
+        }, 4)
+        box.add(CheckBox(this).apply {
             text = "Layout 2: hide the \"Brake light on\" message"; isChecked = prefs().getBoolean("hideBrakeNote", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideBrakeNote", on).apply() }
         }, 4)
@@ -3928,7 +3932,14 @@ class MainActivity : Activity() {
         }
         val hd = s.headingDeg
         if (l2Applied) {
-            carView.speedKmh = (s.speedKmh ?: 0.0).toFloat(); roadView.speedKmh = carView.speedKmh; roadView.noteHeading(hd); carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true)
+            carView.speedKmh = (s.speedKmh ?: 0.0).toFloat(); roadView.speedKmh = carView.speedKmh; roadView.noteHeading(hd)
+            run {
+                val alerts = prefs().getBoolean("l2Alerts", true); val nowMs = System.currentTimeMillis()
+                val bFresh = alerts && nowMs - s.bsdAt < 2500
+                carView.bsdL = if (bFresh && s.bsdLeft in 1..3) s.bsdLeft else 0; carView.bsdR = if (bFresh && s.bsdRight in 1..3) s.bsdRight else 0
+                carView.dowL = if (bFresh && s.dowLeft in 1..4) s.dowLeft else 0; carView.dowR = if (bFresh && s.dowRight in 1..4) s.dowRight else 0
+                carView.uss = if (alerts && s.uss != null && nowMs - s.ussAt < 3000) s.uss.toIntArray() else null
+            }; carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true)
             fun shortLabel(l: String) = when (l.lowercase()) { "distance driven" -> "Distance"; "energy consumed" -> "Energy"; "average speed" -> "Avg speed"; else -> l }
             val cells = tripCells(s, true).take(4).map { it.copy(label = shortLabel(it.label)) }
             for (ps in pageSets) {

@@ -35,6 +35,13 @@ data class CanSnapshot(
     val packAmps: Double? = null,      // A (0xE9 on IBUS2, bytes 4-5, signed)
     val limit: Int? = null,            // road speed limit the car knows, in limitMph units (0x311 on IBUS2, byte 6); null = none
     val tsrMode: Int? = null,          // where the car gets the limit: 2 camera + map, 3 camera, 4 map, 1 off, 5 error (0x313 ADAS_TSRSts, byte 6 bits 5-3)
+    val bsdLeft: Int = 0,              // blind spot, left: 0 none, 1 threat, 2 threat + indicator on, 3 critical (0x315 ADAS_BSD_CID_LeDispReq, byte 5 bits 2-0)
+    val bsdRight: Int = 0,             // the same on the right (byte 5 bits 5-3)
+    val dowLeft: Int = 0,              // door-open warning, left: 1-4 = a threat is approaching (0x315 ADAS_DOW_CID_LeDispReq, byte 2 bits 2-0)
+    val dowRight: Int = 0,             // the same on the right (byte 2 bits 5-3)
+    val bsdAt: Long = 0L,              // when 0x315 was last seen (ms), so old values can be ignored
+    val uss: List<Int>? = null,        // 16 parking-sensor zones (0x352): rear 0-3, front 4-7, left 8-11, right 12-15; 0 off, 1-8 zone, 9 clear, 15 fault
+    val ussAt: Long = 0L,
     val limitMph: Boolean = false,     // true if that limit is in mph, false for km/h (0x311 byte 3 bit 6)
     val hold: Boolean? = null,         // auto hold is holding the car (0x332 on IBUS2, byte 2 bit 2)
     val holdEsp: Boolean? = null,      // ESP is holding the car with brake pressure (0x1B8 on IBUS1, byte 2 bit 0)
@@ -538,7 +545,7 @@ class PulseCan(
                     onStatus(if (why == null) "CAN filters: $filterReadback" else "CAN filters not changed: $why")
                 }
                 txActive = context.getSharedPreferences("prefs", Context.MODE_PRIVATE).getBoolean("climateTx", false)
-                val base = listOf(bin, "$b1=382,2F5,2F4,554,318,179,234,335,2AC,373,507,6DD,1A9,5EA,505,530,534,386,528,512,518", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534,528,313")
+                val base = listOf(bin, "$b1=382,2F5,2F4,554,318,179,234,335,2AC,373,507,6DD,1A9,5EA,505,530,534,386,528,512,518", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534,528,313,315,352")
                 // transmit is allowed only for 0x530, 0x528 and 0x534 and only when the test is ticked in Settings; otherwise the helper is receive-only
                 val args = if (txActive) base + listOf("tx:$b1=530,528,534", "tx:$b2=530,528,534") else base
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
@@ -725,6 +732,18 @@ class PulseCan(
         if (bus == 2 && id == 0x311) {
             val lim = b[6]
             return s.copy(limit = if (lim in 1..254) lim else null, limitMph = ((b[3] shr 6) and 1) == 1)
+        }
+        // 0x315 ADAS_0x315 (IBUS2, 50 ms): blind spot and door-open warning display requests, left and right (read only)
+        if (bus == 2 && id == 0x315 && b.size >= 6) {
+            return s.copy(bsdLeft = b[5] and 7, bsdRight = (b[5] shr 3) and 7, dowLeft = b[2] and 7, dowRight = (b[2] shr 3) and 7, bsdAt = System.currentTimeMillis())
+        }
+        // 0x352 ADAS_0x352 (IBUS2, 100 ms): ultrasonic parking sensors, 16 sectors of 4 bits (read only)
+        if (bus == 2 && id == 0x352 && b.size >= 8) {
+            // rear B0-B3: low nibbles of bytes 0-3; front F0-F3: high nibbles of bytes 0-3; left L0-L3: nibbles of bytes 4-5; right R0-R3: nibbles of bytes 6-7
+            val rear = (0..3).map { b[it] and 15 }; val front = (0..3).map { (b[it] shr 4) and 15 }
+            val left = listOf(b[4] and 15, (b[4] shr 4) and 15, b[5] and 15, (b[5] shr 4) and 15)
+            val right = listOf(b[6] and 15, (b[6] shr 4) and 15, b[7] and 15, (b[7] shr 4) and 15)
+            return s.copy(uss = rear + front + left + right, ussAt = System.currentTimeMillis())
         }
         // 0x1B8 ESP_0x1B8 (IBUS1, 20 ms): ESP_ActvVehHldFlg, the car is actively held by brake pressure
         if (bus == 1 && id == 0x1B8) {
