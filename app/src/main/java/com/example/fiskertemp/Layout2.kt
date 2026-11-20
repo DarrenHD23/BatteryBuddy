@@ -55,6 +55,22 @@ class CarView(ctx: Context) : View(ctx) {
     var rightInd = false
         set(v) { if (field != v) { field = v; invalidate() } }
 
+    /** Blind-spot (0 none, 1 threat, 2 threat + indicator, 3 critical) and door-open warnings (1-4 = threat), left and right, read from the car. */
+    var bsdL = 0
+        set(v) { if (field != v) { field = v; invalidate() } }
+    var bsdR = 0
+        set(v) { if (field != v) { field = v; invalidate() } }
+    var dowL = 0
+        set(v) { if (field != v) { field = v; invalidate() } }
+    var dowR = 0
+        set(v) { if (field != v) { field = v; invalidate() } }
+    /** The 16 parking-sensor zones: rear 0-3, front 4-7, left 8-11, right 12-15 (0 off, 1-8 zone, 9 clear, 15 fault). */
+    var uss: IntArray? = null
+        set(v) { if (!(field?.contentEquals(v) ?: (v == null))) { field = v; invalidate() } }
+    private val alertPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val alertPath = Path()
+    private val alertRect = RectF()
+
     private val p = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val dst = RectF()
     private val res = ctx.resources
@@ -178,7 +194,9 @@ class CarView(ctx: Context) : View(ctx) {
             c.restore()
         }
         c.restore()
+        drawAlerts(c, cx)
         c.restore()
+        if (bsdL > 0 || bsdR > 0 || dowL > 0 || dowR > 0) postInvalidateDelayed(40)
         if (leftInd || rightInd) postInvalidateDelayed(120)
         animating = shown > 0f || target > 0f
         if (animating) postInvalidateDelayed(30)
@@ -232,6 +250,76 @@ class CarView(ctx: Context) : View(ctx) {
             fl.color = if (braking) Color.rgb(255, 50, 50) else Color.rgb(190, 40, 48); fl.strokeWidth = 1.6f; c.drawPath(tdPath, fl)
         }
         c.restore()
+    }
+
+    private fun zoneColor(z: Int) = if (z >= 6) Color.argb(230, 255, 222, 70) else if (z >= 3) Color.argb(230, 255, 150, 40) else Color.argb(230, 255, 59, 78)
+
+    /** A glow along one side of the car (blind spot or door-open warning), with two chevrons pointing away from the car. */
+    private fun sideGlow(c: Canvas, x: Float, sg: Int, top: Float, bottom: Float, crit: Boolean, slow: Boolean, t: Float) {
+        val pulse = if (crit) 0.55f + 0.45f * Math.abs(Math.sin(t * 6.0)).toFloat() else if (slow) 0.6f + 0.4f * Math.abs(Math.sin(t * 3.0)).toFloat() else 0.85f
+        val rgb = if (crit) intArrayOf(255, 59, 78) else intArrayOf(255, 176, 32)
+        val left = if (sg < 0) x - 16f else x - 10f
+        alertPaint.style = Paint.Style.FILL
+        alertPaint.shader = LinearGradient(x - sg * 16f, 0f, x + sg * 10f, 0f, Color.argb(0, rgb[0], rgb[1], rgb[2]), Color.argb((140 * pulse).toInt(), rgb[0], rgb[1], rgb[2]), Shader.TileMode.CLAMP)
+        alertRect.set(left, top, left + 26f, bottom)
+        c.drawRoundRect(alertRect, 10f, 10f, alertPaint)
+        alertPaint.shader = null
+        alertPaint.style = Paint.Style.STROKE; alertPaint.strokeCap = Paint.Cap.ROUND
+        alertPaint.color = Color.argb((255 * pulse).toInt(), rgb[0], rgb[1], rgb[2]); alertPaint.strokeWidth = 3.2f
+        c.drawLine(x + sg * 4f, top + 6f, x + sg * 4f, bottom - 6f, alertPaint)
+        alertPaint.color = Color.argb((255 * pulse).toInt(), 255, 255, 255); alertPaint.strokeWidth = 2f; alertPaint.strokeJoin = Paint.Join.ROUND
+        val mid = (top + bottom) / 2f
+        for (i in 0..1) {
+            val yy = mid - 7f + i * 14f; val xx = x - sg * 6f
+            alertPath.reset(); alertPath.moveTo(xx, yy - 5f); alertPath.lineTo(xx + sg * 5f, yy); alertPath.lineTo(xx, yy + 5f)
+            c.drawPath(alertPath, alertPaint)
+        }
+    }
+
+    /** Blind-spot and door-open glows beside the car, and the parking-sensor rings around it (in the 302 x 162 unit space). */
+    private fun drawAlerts(c: Canvas, cx: Float) {
+        val t = (SystemClock.uptimeMillis() % 100000L) / 1000f
+        val carL = cx - 57f; val carR = cx + 57f
+        for (sg in intArrayOf(-1, 1)) {
+            val x = if (sg < 0) carL - 9f else carR + 9f
+            val dow = if (sg < 0) dowL else dowR
+            val bsd = if (sg < 0) bsdL else bsdR
+            if (dow in 1..4) sideGlow(c, x, sg, 40f, 132f, true, false, t)         // a car is coming while a door could open
+            if (bsd in 1..3) sideGlow(c, x, sg, 66f, 142f, bsd == 3, bsd == 2, t)
+        }
+        val u = uss ?: return
+        if (u.size < 16) return
+        alertPaint.style = Paint.Style.STROKE; alertPaint.strokeCap = Paint.Cap.ROUND; alertPaint.strokeWidth = 2f; alertPaint.shader = null
+        // rear: 4 sectors of 8 rings, lit from the far ring in to the sensor's zone (zone 1 taken as the closest)
+        for (s in 0..3) {
+            val z = u[s]; if (z !in 1..8) continue
+            val x0 = carL + 7f + s * 25f; val x1 = x0 + 21f; val bulge = if (s == 1 || s == 2) 2.2f else 0.4f
+            for (r in 8 downTo z) {
+                val y = 134f + (r - 1) * 3.2f
+                alertPaint.color = zoneColor(r)
+                alertPath.reset(); alertPath.moveTo(x0, y); alertPath.quadTo((x0 + x1) / 2f, y + bulge * 2f, x1, y); c.drawPath(alertPath, alertPaint)
+            }
+        }
+        // front: 4 sectors of 4 rings
+        for (s in 0..3) {
+            val z = u[4 + s]; if (z !in 1..4) continue
+            val x0 = carL + 7f + s * 25f; val x1 = x0 + 21f
+            for (r in 4 downTo z) {
+                val y = 24f - (r - 1) * 5f
+                alertPaint.color = zoneColor(r * 2)
+                alertPath.reset(); alertPath.moveTo(x0, y); alertPath.quadTo((x0 + x1) / 2f, y - 3f, x1, y); c.drawPath(alertPath, alertPaint)
+            }
+        }
+        // sides: 4 sectors from the front to the back, 4 rings each
+        for (sg in intArrayOf(-1, 1)) for (s in 0..3) {
+            val z = u[(if (sg < 0) 8 else 12) + s]; if (z !in 1..4) continue
+            val y0 = 36f + s * 24f; val y1 = y0 + 20f
+            for (r in 4 downTo z) {
+                val x = (if (sg < 0) carL else carR) + sg * (3f + (r - 1) * 4.5f + 7f)
+                alertPaint.color = zoneColor(r * 2)
+                c.drawLine(x, y0, x, y1, alertPaint)
+            }
+        }
     }
 
     private fun tyreLine(c: Canvas, cl: Float, ct: Float, sx: Float, sy: Float, x: Float, d: Float) {
