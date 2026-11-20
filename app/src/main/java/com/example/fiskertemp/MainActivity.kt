@@ -1230,6 +1230,17 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("l2Alerts", on).apply() }
         }, 4)
         box.add(CheckBox(this).apply {
+            text = "Layout 2: show Media and Climate buttons under the gauge in the 50/50 and 2/3 splits"; isChecked = prefs().getBoolean("l2SplitBtns", false)
+            setOnCheckedChangeListener { _, on ->
+                prefs().edit().putBoolean("l2SplitBtns", on).apply()
+                layoutKey = ""
+                if (::dashRoot.isInitialized && dashRoot.width > 0) {
+                    val dn = resources.displayMetrics.density
+                    adaptDashLayout((dashRoot.width / dn).toInt(), (dashRoot.height / dn).toInt())
+                }
+            }
+        }, 4)
+        box.add(CheckBox(this).apply {
             text = "Layout 2: hide the \"Brake light on\" message"; isChecked = prefs().getBoolean("hideBrakeNote", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideBrakeNote", on).apply() }
         }, 4)
@@ -1768,6 +1779,7 @@ class MainActivity : Activity() {
     private lateinit var l2ClimBtn: TextView
     private lateinit var l2MediaBtn: TextView
     private var l2ClimTop = 0; private var l2ClimH = 0; private var l2ClimInline = false; private var wasL2Clim = false
+    private var l2BtnRowBottom = 0; private var l2BtnW = 60; private var l2ClimHidden = false   // the Media / Climate button row, and whether the Climate button hid the inline panel
     private var l2FlyOpen = false
     private val closeL2Fly = Runnable { l2FlyOpen = false; if (::btnBar.isInitialized && l2Applied) btnBar.visibility = View.GONE }
     private lateinit var leftPager: PagerCardView
@@ -2275,7 +2287,8 @@ class MainActivity : Activity() {
             setPadding(dp(9), 0, dp(9), 0)
             background = chipBg(12)
             setOnClickListener {
-                if (climateView.visibility == View.VISIBLE) climateView.visibility = View.GONE else openClimate()
+                if (climateView.visibility == View.VISIBLE) { climateView.visibility = View.GONE; if (l2Applied && l2ClimInline) l2ClimHidden = true }
+                else { l2ClimHidden = false; openClimate() }
             }
         }
         mediaBtn = TextView(this).apply {
@@ -3255,6 +3268,7 @@ class MainActivity : Activity() {
                 if (speedLeft) { leftMargin = edge + dp(bw) + dp(6); rightMargin = 0 } else { rightMargin = edge; leftMargin = 0 }
             }
             mediaBtn.textSize = 13f; climateBtn.textSize = 13f
+            l2BtnRowBottom = rowBottomY; l2BtnW = bw
             mediaBtn.requestLayout(); climateBtn.requestLayout()
             chargeBar.requestLayout(); dashSlot.requestLayout(); dashLightDist.requestLayout()
         }
@@ -3287,7 +3301,29 @@ class MainActivity : Activity() {
             // Media is on the swipe cards; Climate only needs its button when the panel is not already showing
             climateBtn.visibility = if (l2 && (inline || !climOn)) View.GONE else View.VISIBLE
             mediaBtn.visibility = if (l2) climateBtn.visibility else View.VISIBLE      // Layout 2: Media sits just beside Climate
-            if (inline) edgeBox.post { if (dashShown && l2Applied) { if (climateView.visibility == View.VISIBLE) placeClimate() else openClimate() } }
+            // optional: Media and Climate buttons under the driver's side gauge in the 50/50 and 2/3 splits, where the panel is already showing
+            val splitBtns = l2 && inline && !l2Third && prefs().getBoolean("l2SplitBtns", false)
+            if (!splitBtns) l2ClimHidden = false
+            else {
+                val rhdB = prefs().getBoolean("rhd", false); val slB = prefs().getBoolean("speedLeft", false)
+                val hasBar = if (rhdB) slB else !slB          // the battery bar sits under the power gauge: then the buttons go in the gap under it
+                val bw2 = l2BtnW; val edge2 = dp(12)
+                val topB = if (hasBar) dp(l2BtnRowBottom - 2) else dp(maxOf(l2BtnRowBottom - 34, 0)); val hB = dp(if (hasBar) 21 else 30)
+                val gv = Gravity.TOP or (if (rhdB) Gravity.END else Gravity.START)
+                (mediaBtn.layoutParams as FrameLayout.LayoutParams).apply {
+                    width = dp(bw2); height = hB; gravity = gv; topMargin = topB
+                    if (rhdB) { rightMargin = edge2 + dp(bw2) + dp(6); leftMargin = 0 } else { leftMargin = edge2; rightMargin = 0 }
+                }
+                (climateBtn.layoutParams as FrameLayout.LayoutParams).apply {
+                    width = dp(bw2); height = hB; gravity = gv; topMargin = topB
+                    if (rhdB) { rightMargin = edge2; leftMargin = 0 } else { leftMargin = edge2 + dp(bw2) + dp(6); rightMargin = 0 }
+                }
+                val ts = if (hasBar) 11f else 13f
+                mediaBtn.textSize = ts; climateBtn.textSize = ts
+                mediaBtn.visibility = View.VISIBLE; climateBtn.visibility = View.VISIBLE
+                mediaBtn.requestLayout(); climateBtn.requestLayout()
+            }
+            if (inline) edgeBox.post { if (dashShown && l2Applied) { if (climateView.visibility == View.VISIBLE) placeClimate() else if (!l2ClimHidden) openClimate() } }
             else if (wasL2Clim) { climateView.visibility = View.GONE }   // no longer room for it under the cards
             wasL2Clim = inline
         }
