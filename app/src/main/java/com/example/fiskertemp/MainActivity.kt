@@ -773,6 +773,7 @@ class MainActivity : Activity() {
             }
             hideSeatIcons = prefs().getBoolean("hideSeatIcons", false)
             car3d = prefs().getBoolean("l2ClimateCar3d", true)
+            l1Car3d = prefs().getBoolean("l1Car3d", false)
             paintIdx = prefs().getInt("carPaint", 3)
             onPaint = { i -> setCarPaint(i) }
             onFan = { level ->
@@ -1321,6 +1322,14 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideBrakeNote", on).apply() }
         }, 4)
         box.add(CheckBox(this).apply {
+            text = "Layout 1: show the 3D car in the middle instead of the Trip Information (small trip readouts go under the car; the Climate screen uses the 3D car too)"; isChecked = prefs().getBoolean("l1Car3d", false)
+            setOnCheckedChangeListener { _, on ->
+                prefs().edit().putBoolean("l1Car3d", on).apply()
+                if (::climateView.isInitialized) { climateView.l1Car3d = on; climateView.invalidate() }
+                relayout()
+            }
+        }, 4)
+        box.add(CheckBox(this).apply {
             text = "Layout 2: 3D car in the Climate screen (turn off to use the original drawn car)"; isChecked = prefs().getBoolean("l2ClimateCar3d", true)
             setOnCheckedChangeListener { _, on ->
                 prefs().edit().putBoolean("l2ClimateCar3d", on).apply()
@@ -1516,7 +1525,8 @@ class MainActivity : Activity() {
 
     /** Layout 2 takes the middle column and the corners over; Original puts everything back where it was. */
     private fun fillMid(l2: Boolean) {
-        for (v in listOf<View>(dashReady, dashSlot, dashLightDist, dashBrake, tripSpacer, tripPanel, chargeBar, l2Mid, mediaBtn, climateBtn, l2FlyBtn)) (v.parent as? ViewGroup)?.removeView(v)
+        for (v in listOf<View>(dashReady, dashSlot, dashLightDist, dashBrake, tripSpacer, tripPanel, chargeBar, l2Mid, carView, mediaBtn, climateBtn, l2FlyBtn)) (v.parent as? ViewGroup)?.removeView(v)
+        if (l2 || !l1cApplied) l2Mid.addView(carView, 0, LinearLayout.LayoutParams(-1, 0, 0.38f))
         if (l2) {
             dashMid.addView(l2Mid, LinearLayout.LayoutParams(-1, -1))
             dashRoot.addView(dashSlot, FrameLayout.LayoutParams(dp(72), dp(92), Gravity.TOP or Gravity.END))
@@ -1533,6 +1543,7 @@ class MainActivity : Activity() {
             dashMid.addView(dashSlot, LinearLayout.LayoutParams(-1, dp(92)).apply { topMargin = dp(4) })
             dashMid.addView(dashLightDist, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
             dashMid.addView(dashBrake, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
+            if (l1cApplied) dashMid.addView(carView, LinearLayout.LayoutParams(-1, 0, 1f))
             dashMid.addView(tripSpacer, LinearLayout.LayoutParams(-1, 0, 0f))
             dashMid.addView(tripPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(4); bottomMargin = dp(3) })
             dashMid.addView(chargeBar, LinearLayout.LayoutParams(-1, dp(30)).apply { bottomMargin = dp(2) })
@@ -1803,6 +1814,7 @@ class MainActivity : Activity() {
     private lateinit var rightPager: PagerCardView
 
     private var l2Applied = false
+    private var l1cApplied = false                       // Layout 1 with the 3D car in the middle column
     private var ovLeftDp = 0
     private var ovRightDp = 0
     private var edgeLeftDp = 0
@@ -2076,7 +2088,7 @@ class MainActivity : Activity() {
     /** Creates / removes the live 3D car and keeps it exactly over the car square (150 x 150 units in the 302 x 162 unit middle column). */
     private fun syncCar3d(root: FrameLayout) {
         if (!::carView.isInitialized || !::roadView.isInitialized) return
-        val show = wantLive3d() && roadView.visibility == View.VISIBLE && carView.isShown && carView.width > 0
+        val show = wantLive3d() && (roadView.visibility == View.VISIBLE || l1cApplied) && carView.isShown && carView.width > 0
         var v = car3d
         if (!show) {
             if (v != null) { root.removeView(v); v.destroy(); car3d = null }
@@ -3040,11 +3052,12 @@ class MainActivity : Activity() {
         val band = rowHdp / 2f - minOf(gaugeWdp, rowHdp) / 2f * 0.92f - 6f - up
         val clockH = if (l2) 26 else if (band >= 30f) band.toInt().coerceAtMost(110) else if (third) 24 else 0
         val rhd = prefs().getBoolean("rhd", false)
-        val key = "$hDp/$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$edgeL/$edgeR/$up/$rhd/$hideBar/$hideTrip/${prefs().getBoolean("fullMedia", true)}/${prefs().getBoolean("iconBtns", false)}/${prefs().getBoolean("moreBtns", false)}/${showSkinBtn()}/$l2/${prefs().getBoolean("l2Climate", true)}"
+        val l1c = !l2 && prefs().getBoolean("l1Car3d", false)
+        val key = "$l1c/$hDp/$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$edgeL/$edgeR/$up/$rhd/$hideBar/$hideTrip/${prefs().getBoolean("fullMedia", true)}/${prefs().getBoolean("iconBtns", false)}/${prefs().getBoolean("moreBtns", false)}/${showSkinBtn()}/$l2/${prefs().getBoolean("l2Climate", true)}"
         if (key == layoutKey) return
         layoutKey = key
         EventLog.add("layout ${wDp}x${hDp}dp tier=$ti trip=$midRows third=$third half=$half tall=$tall l2=$l2")
-        if (l2 != l2Applied) { l2Applied = l2; fillMid(l2); statusMode = null }
+        if (l2 != l2Applied || l1c != l1cApplied) { l2Applied = l2; l1cApplied = l1c; fillMid(l2); statusMode = null }
         compact = ti > 0 || third
         val short = midLevel > 0
         // a third-height window (1/3 split): the brake text goes back under the speed limit sign, with its full wording
@@ -3054,7 +3067,7 @@ class MainActivity : Activity() {
         val brakeUnder = short && thirdWin
         val stripBottom = base + tripOff
         val rowBottom = if (t.showStrip) stripBottom + t.strip + 4 else base
-        tripMidRows = midRows
+        tripMidRows = if (l1c) 0 else midRows
         chargeBar.visibility = if (!hideBar) View.VISIBLE else if (midLevel == 0) View.INVISIBLE else View.GONE
         // with plenty of height the panel stays a little shorter and sits just above the battery bar
         (tripSpacer.layoutParams as LinearLayout.LayoutParams).weight = if (midRows >= 3 && midLevel > 0) 0.28f else 0f
@@ -3087,8 +3100,13 @@ class MainActivity : Activity() {
             }
         }
         dashClock.requestLayout()
-        tripPanel.visibility = if (midRows > 0) View.VISIBLE else View.GONE
-        tripBtn.visibility = if (midRows > 0 || hideTrip) View.GONE else View.VISIBLE
+        tripPanel.visibility = if (l1c) (if (hideTrip) View.GONE else View.VISIBLE) else if (midRows > 0) View.VISIBLE else View.GONE
+        tripBtn.visibility = if (l1c || midRows > 0 || hideTrip) View.GONE else View.VISIBLE
+        tripPanel.cols = if (l1c) 4 else 2
+        tripPanel.title = if (l1c) null else "Trip Information"
+        (tripPanel.layoutParams as LinearLayout.LayoutParams).apply { if (l1c) { height = dp(46); weight = 0f; topMargin = dp(2) } else { height = 0; weight = 1f; topMargin = dp(4) } }
+        if (l1c) (carView.layoutParams as LinearLayout.LayoutParams).apply { width = -1; height = 0; weight = 1f; topMargin = 0 }
+        tripPanel.requestLayout(); tripPanel.invalidate()
         if (!l2) {
             (dashSlot.layoutParams as LinearLayout.LayoutParams).apply { height = dp(if (midLevel == 2) 48 else if (short) 58 else 92); topMargin = dp(if (brakeUnder) 0 else 4) }
             dashSlot.requestLayout()
@@ -4077,7 +4095,7 @@ class MainActivity : Activity() {
             dashMode.visibility = View.VISIBLE
         }
         val hd = s.headingDeg
-        if (l2Applied) {
+        if (l2Applied || l1cApplied) {
             carView.speedKmh = (s.speedKmh ?: 0.0).toFloat(); roadView.speedKmh = carView.speedKmh; roadView.noteHeading(hd)
             run {
                 val alerts = prefs().getBoolean("l2Alerts", true); val nowMs = System.currentTimeMillis()
@@ -4087,6 +4105,7 @@ class MainActivity : Activity() {
                 carView.uss = if (alerts && s.uss != null && nowMs - s.ussAt < 3000) s.uss.toIntArray() else null
             }; carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true); carView.beamsOn = (s.beamsOn == true)
             car3d?.push(carView.speedKmh, if (carView.highBeam) 2 else if (carView.headlights || carView.beamsOn) 1 else 0, carView.braking, carView.leftInd, carView.rightInd, carView.reverse, CAR_PAINTS[carView.paintIdx].second)
+            if (l2Applied) {
             fun shortLabel(l: String) = when (l.lowercase()) { "distance driven" -> "Distance"; "energy consumed" -> "Energy"; "average speed" -> "Avg speed"; else -> l }
             val cells = tripCells(s, true).take(4).map { it.copy(label = shortLabel(it.label)) }
             for (ps in pageSets) {
@@ -4094,6 +4113,7 @@ class MainActivity : Activity() {
                 for (v in ps.shorts) v.day = dashDay
             }
             leftPager.day = dashDay; rightPager.day = dashDay
+            }
         }
         val hadHeading = dashHeading.text.isNotEmpty()
         dashHeading.text = if (hd == null) "" else {
@@ -4109,7 +4129,10 @@ class MainActivity : Activity() {
         dashStrip.setItems(everything)
         dashRow.setItems(everything)
         if (tripPanel.visibility == View.VISIBLE || tripDlgView != null) {
-            tripPanel.setCells(tripCells(s, true).take(if (tripMidRows >= 3) 6 else 4))
+            if (l1cApplied) {
+                val short = listOf("EFF", "DIST", "AVG", "kWh")
+                tripPanel.setCells(tripCells(s, true).take(4).mapIndexed { i, c -> c.copy(label = short[i], unit = if (i == 3) "" else c.unit) })
+            } else tripPanel.setCells(tripCells(s, true).take(if (tripMidRows >= 3) 6 else 4))
             tripDlgView?.setCells(tripCells(s))
         }
     }
@@ -6478,7 +6501,9 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     var rhd = false                                   // right-hand drive: the driver's dial is on the right (Layout 2 only)
         set(v) { if (field != v) { field = v; invalidate() } }
     var car3d = true                                  // Settings (Layout 2): the 3D Ocean seen from above instead of the drawn car; the cabin graphic stays
-    private val use3d get() = l2 && car3d
+    var l1Car3d = false                               // Settings (Layout 1): the 3D car replaces the Trip Information, and the climate screen uses it too
+    private val use3d get() = (l2 && car3d) || l1Car3d
+    private val rhdSide get() = rhd && (l2 || l1Car3d)
     private val C3F = minOf(300f / 311.76f, 676f * 0.88f / 695.88f)      // the 3D car's picture squeezed into the same box as the drawn car
     private val c3Dest = RectF(-5.88f, -166.55f, 305.88f, 529.33f)
     private val c3Paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
@@ -6925,7 +6950,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             both(58f, 78f, 56f, 10f, 3f, 0xFF0A1220.toInt(), 0xFF5B7299.toInt(), 1f)
             fillP(0xFF6F86AD.toInt()); for (vx in floatArrayOf(38f, 112f, 164f, 238f)) rr(vx, 72f, 24f, 5f, 2f); rr(137f, 62f, 26f, 5f, 2f)
             // steering wheel: round, flat along the bottom, with the Fisker badge in the middle
-            val wx = if (l2 && rhd) 214f else 86f
+            val wx = if (rhdSide) 214f else 86f
             val wheelHot = s.climWheelOn()
             fun ring(r: Float, c: Float) {
                 val al = Math.toDegrees(Math.asin((c / r).toDouble())).toFloat()
@@ -6965,7 +6990,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             canvas.restore()
             fillP(0xFF6F86AD.toInt()); rr(74f, 216f, 28f, 5f, 2f); rr(198f, 216f, 28f, 5f, 2f)
             // heated seats: a transparent red and three dots; the seat is the touch area
-            val drvR = l2 && rhd
+            val drvR = rhdSide
             fun heatDots(cxx: Float, cyy: Float, lvl: Int) {
                 for (i in 0 until 3) { fillP(if (i < lvl) Color.argb(255, 255, 110, 110) else Color.argb(90, 255, 255, 255)); circ(cxx + (i - 1) * 13f, cyy, 4.6f) }
             }
@@ -7218,7 +7243,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val xr = minOf(cx + 161f * k + dp(3f) + isz / 2f, cx + areaW / 2f - isz / 2f)
         val yF = if (use3d) carRect.top + (220f + 166.55f) * C3F * k else carRect.top + 225f * sy * k
         val yR = if (use3d) carRect.top + (342f + 166.55f) * C3F * k else carRect.top + 378f * sy * k
-        val drvRight = l2 && rhd
+        val drvRight = rhdSide
         // left column first: front, rear; then the right column
         val spec = listOf(
             Triple(xl, yF, if (drvRight) 1 else 0), Triple(xl, yR, 2),
@@ -7276,7 +7301,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val isz = minOf(rowH - dp(2f), dp(42f))
         if (isz < dp(26f)) return false
         seatRects.clear(); seatWho.clear()
-        val drvRight = l2 && rhd
+        val drvRight = rhdSide
         val frontL = if (drvRight) 1 else 0; val frontR = if (drvRight) 0 else 1
         p.typeface = Typeface.DEFAULT_BOLD; p.textSize = dp(13f)
         fun row(colX: Float, front: Int, rear: Int) {
@@ -7312,7 +7337,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val isz = minOf((freeH - gap) / 2f - dp(2f), dp(72f), dialW - labW - dp(26f))
         if (isz < dp(30f)) return false
         seatRects.clear(); seatWho.clear()
-        val drvRight = l2 && rhd
+        val drvRight = rhdSide
         val frontL = if (drvRight) 1 else 0; val frontR = if (drvRight) 0 else 1
         val unitW = isz + dp(10f) + labW
         val topY = freeTop + (freeH - (2 * isz + gap)) / 2f
@@ -7394,7 +7419,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         tempBtns.clear(); tempBtnInfo.clear(); modeRects.clear(); seatRects.clear(); seatWho.clear()
         val cabinW = w * 0.30f
         val dialW = (w - cabinW - 3 * m) / 2f
-        val drvRight = l2 && rhd
+        val drvRight = rhdSide
         seatRects.clear(); seatWho.clear()
         seatBtn.setEmpty(); seatPanelOpen = false
         val bs0 = (dialH * 0.20f).coerceIn(dp(34f), dp(52f))
@@ -7508,7 +7533,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             text(name, mx, cy - topH * 0.30f, 10f, Color.argb(190, 255, 255, 255), true)
             fitText(temp(t), mx, cy + topH * 0.10f, (topH / d * 0.46f).coerceIn(16f, 30f), if (t == null) off else Color.WHITE, true, blockW - 2 * bs - dp(6f))
         }
-        val drvRight = l2 && rhd
+        val drvRight = rhdSide
         block(m, if (drvRight) "PASSENGER" else "DRIVER", if (drvRight) s.climPassT else s.climDrvT, !drvRight)
         block(w - m - blockW, if (drvRight) "DRIVER" else "PASSENGER", if (drvRight) s.climDrvT else s.climPassT, drvRight)
         val midW0 = w - 2 * m - 2 * blockW - 2 * gap
