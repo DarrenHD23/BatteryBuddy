@@ -15,7 +15,7 @@ scene.add(new THREE.HemisphereLight(0xf2f5fa,0x53606d,2.1));
 const key=new THREE.DirectionalLight(0xf1f5fa,.75);key.position.set(-3,6,4);scene.add(key);
 const cam=new THREE.OrthographicCamera(-1,1,1,-1,.05,100);cam.up.set(0,0,-1);
 const target=new THREE.Vector3(0,.55,0);
-const mats=new Map(),rolls=[];
+const mats=new Map(),rolls=[],glows={};
 let st={speed:0,head:false,brake:false,left:false,right:false,rev:false,paint:'#e7e8e3'},tilt=0,spin=0,last=performance.now(),lastDraw=0,dirty=true,loaded=false,size=0;
 const smooth=x=>x*x*(3-2*x);
 const em=(n,c,k)=>{for(const m of mats.get(n)||[])if(m.emissive){m.emissive.setRGB(...c);m.emissiveIntensity=k}};
@@ -23,6 +23,9 @@ function lamps(now){
   const blink=Math.floor(now/380)%2===0;
   for(const s of['L','R']){em('Mat_Head_'+s,[.9,.96,1],st.head?2:0);em('Mat_Tail_'+s,[1,.03,.02],st.brake?3:(st.head?1:0));em('Mat_Reverse_'+s,[1,1,1],st.rev?2.5:0)}
   em('Mat_Brake_Centre',[1,.03,.02],st.brake?3:0);
+  const gs=(s,o)=>{if(s)s.material.opacity=o};
+  gs(glows.brakeC,st.brake?1:0);gs(glows.tailL,st.brake?.9:(st.head?.25:0));gs(glows.tailR,st.brake?.9:(st.head?.25:0));
+  gs(glows.headL,st.head?.5:0);gs(glows.headR,st.head?.5:0);
   em('Mat_Indicator_L',[1,.45,0],st.left&&blink?3:0);em('Mat_Indicator_R',[1,.45,0],st.right&&blink?3:0);
 }
 function paint(){for(const m of mats.get('Paint_Body')||[]){m.color.set(st.paint);m.metalness=.1;m.roughness=.76;if('clearcoat'in m)m.clearcoat=0}}
@@ -31,7 +34,16 @@ window.car3d={set(o){Object.assign(st,o);if(loaded&&o.paint)paint();dirty=true}}
 const u8=Uint8Array.from(atob(B64),c=>c.charCodeAt(0));
 new GLTFLoader().parse(u8.buffer,'',g=>{
   const model=g.scene;scene.add(model);
-  model.traverse(o=>{if(o.isMesh){for(const m of Array.isArray(o.material)?o.material:[o.material]){if(!mats.has(m.name))mats.set(m.name,[]);mats.get(m.name).push(m)}}if(/^Beam_|^Spot_/.test(o.name)||o.isLight)o.visible=false});
+  model.traverse(o=>{if(o.isMesh){for(const m of Array.isArray(o.material)?o.material:[o.material]){if(!mats.has(m.name))mats.set(m.name,[]);mats.get(m.name).push(m)}}const mn=o.isMesh?(Array.isArray(o.material)?o.material:[o.material]).map(m=>m.name).join(' '):'';
+    if(/Beam|Spot|Anchor/.test(o.name)||/Beam_/.test(mn)||o.isLight)o.visible=false});
+  model.updateMatrixWorld(true);
+  const glowTex=(()=>{const c=document.createElement('canvas');c.width=c.height=64;const x=c.getContext('2d'),g=x.createRadialGradient(32,32,0,32,32,32);g.addColorStop(0,'rgba(255,255,255,1)');g.addColorStop(.25,'rgba(255,255,255,.55)');g.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=g;x.fillRect(0,0,64,64);return new THREE.CanvasTexture(c)})();
+  // soft glows on the lamps, always facing the camera, so the lights still show when the car is seen from straight above
+  function glow(name,color,size){const n=model.getObjectByName(name);if(!n)return null;const b=new THREE.Box3().setFromObject(n),c=b.getCenter(new THREE.Vector3());
+    const s=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color,transparent:true,blending:THREE.AdditiveBlending,depthTest:false,depthWrite:false,opacity:0}));
+    s.position.copy(c);s.scale.set(size,size,1);s.renderOrder=10;scene.add(s);return s}
+  glows.brakeC=glow('Lamp_Brake_Centre',0xff2a1a,.5);glows.tailL=glow('Lamp_Tail_L',0xff2a1a,.7);glows.tailR=glow('Lamp_Tail_R',0xff2a1a,.7);
+  glows.headL=glow('Lamp_Head_L',0xe8f4ff,.55);glows.headR=glow('Lamp_Head_R',0xe8f4ff,.55);
   for(const n of['FL','FR','RL','RR']){const o=model.getObjectByName('Roll_'+n);if(o)rolls.push(o)}
   paint();loaded=true;bridge.ready();requestAnimationFrame(loop);
 },e=>bridge.fail('model: '+(e&&e.message)));
@@ -45,7 +57,7 @@ function loop(now){
   tilt+=(g-tilt)*Math.min(1,dt*1.1);if(Math.abs(tilt-g)<.004)tilt=g;
   if(moving){spin-=st.speed/3.6/0.38*dt;for(const r of rolls)r.rotation.x=spin}
   resize();lamps(now);
-  const pitch=90+(24-90)*tilt,H=(7.4+(5.0-7.4)*tilt)*150/162,rad=pitch*Math.PI/180;
+  const pitch=90+(24-90)*tilt,H=(7.4+(5.0-7.4)*tilt)*150/162/1.2,rad=pitch*Math.PI/180;
   cam.left=-H/2;cam.right=H/2;cam.top=H/2;cam.bottom=-H/2;cam.updateProjectionMatrix();
   cam.position.set(0,target.y+14*Math.sin(rad),14*Math.cos(rad));cam.lookAt(target);
   renderer.render(scene,cam);dirty=false;
