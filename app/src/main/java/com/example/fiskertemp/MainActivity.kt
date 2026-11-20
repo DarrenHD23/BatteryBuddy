@@ -772,6 +772,7 @@ class MainActivity : Activity() {
                 toast(msg)
             }
             hideSeatIcons = prefs().getBoolean("hideSeatIcons", false)
+            car3d = prefs().getBoolean("l2ClimateCar3d", true)
             paintIdx = prefs().getInt("carPaint", 3)
             onPaint = { i -> setCarPaint(i) }
             onFan = { level ->
@@ -1251,6 +1252,13 @@ class MainActivity : Activity() {
         box.add(CheckBox(this).apply {
             text = "Layout 2: hide the \"Brake light on\" message"; isChecked = prefs().getBoolean("hideBrakeNote", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideBrakeNote", on).apply() }
+        }, 4)
+        box.add(CheckBox(this).apply {
+            text = "Layout 2: 3D car in the Climate screen (turn off to use the original drawn car)"; isChecked = prefs().getBoolean("l2ClimateCar3d", true)
+            setOnCheckedChangeListener { _, on ->
+                prefs().edit().putBoolean("l2ClimateCar3d", on).apply()
+                if (::climateView.isInitialized) { climateView.car3d = on; climateView.invalidate() }
+            }
         }, 4)
         box.add(CheckBox(this).apply {
             text = "Climate screen: hide the heated seat buttons outside the car (use the seats in the car drawing instead)"; isChecked = prefs().getBoolean("hideSeatIcons", false)
@@ -6473,6 +6481,38 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         set(v) { if (field != v) { field = v; invalidate() } }
     var rhd = false                                   // right-hand drive: the driver's dial is on the right (Layout 2 only)
         set(v) { if (field != v) { field = v; invalidate() } }
+    var car3d = true                                  // Settings (Layout 2): the 3D Ocean seen from above instead of the drawn car; the cabin graphic stays
+    private val use3d get() = l2 && car3d
+    private val C3F = minOf(300f / 311.76f, 676f * 0.88f / 695.88f)      // the 3D car's picture squeezed into the same box as the drawn car
+    private val c3Dest = RectF(-5.88f, -166.55f, 305.88f, 529.33f)
+    private val c3Paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val c3Mask by lazy { android.graphics.BitmapFactory.decodeResource(resources, R.drawable.climate_mask) }
+    private val c3Trim by lazy { android.graphics.BitmapFactory.decodeResource(resources, R.drawable.climate_trim) }
+    private val c3BodyRaw by lazy { android.graphics.BitmapFactory.decodeResource(resources, R.drawable.climate_body) }
+    private var c3Body: Bitmap? = null; private var c3BodyIdx = -1
+    private fun c3BodyFor(idx: Int): Bitmap {
+        c3Body?.let { if (c3BodyIdx == idx) return it }
+        val b0 = c3BodyRaw; val w = b0.width; val h = b0.height
+        val px = IntArray(w * h); b0.getPixels(px, 0, w, 0, 0, w, h)
+        val pc = paints[idx].second
+        val pr = Color.red(pc); val pg = Color.green(pc); val pb = Color.blue(pc)
+        for (i in px.indices) {
+            val c = px[i]; val a = c ushr 24
+            if (a == 0) continue
+            val r = Color.red(c); val g = Color.green(c); val b = Color.blue(c)
+            val mx = maxOf(r, g, b); val mn = minOf(r, g, b)
+            val sat = if (mx == 0) 0f else (mx - mn) / mx.toFloat()
+            val lum = (0.299f * r + 0.587f * g + 0.114f * b) / 255f
+            if (sat > 0.2f || lum < 0.3f) continue
+            val wgt = (((lum - 0.3f) / 0.12f).coerceIn(0f, 1f)) * (1f - ((sat - 0.1f) / 0.1f).coerceIn(0f, 1f))
+            val shade = (lum / 0.62f).coerceIn(0.2f, 1.45f)
+            val nr = (pr * shade).coerceIn(0f, 255f); val ng = (pg * shade).coerceIn(0f, 255f); val nb = (pb * shade).coerceIn(0f, 255f)
+            px[i] = (a shl 24) or ((r + (nr - r) * wgt).toInt() shl 16) or ((g + (ng - g) * wgt).toInt() shl 8) or (b + (nb - b) * wgt).toInt()
+        }
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888); out.setPixels(px, 0, w, 0, 0, w, h)
+        c3Body = out; c3BodyIdx = idx
+        return out
+    }
     var hideSeatIcons = false                         // Settings: no seat buttons outside the car (the seats in the car drawing still work)
         set(v) { if (field != v) { field = v; invalidate() } }
     var onSeat: ((Int, Int) -> Unit)? = null          // seat heating: which (0 driver, 1 passenger, 2 rear left, 3 rear right), new level 0..3
@@ -6780,6 +6820,11 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     /** Remembers a touchable part of the car; the numbers are in the car's own cabin drawing units. */
     private fun carZone(x0: Float, y0: Float, x1: Float, y1: Float, id: Int) {
         val sy = 0.88f
+        if (use3d) {
+            // 3D car: the numbers are in its own drawing units (150 is the middle, 0 the top of the cabin drawing, -166.55 the nose)
+            carZones.add(Pair(RectF(carRect.left + (150f + (x0 - 150f) * C3F) * carZoneK, carZoneTop + (y0 + 166.55f) * C3F * carZoneK, carRect.left + (150f + (x1 - 150f) * C3F) * carZoneK, carZoneTop + (y1 + 166.55f) * C3F * carZoneK), id))
+            return
+        }
         carZones.add(Pair(RectF(carRect.left + x0 * carZoneK, carZoneTop + (y0 + 142f) * carZoneK * sy, carRect.left + x1 * carZoneK, carZoneTop + (y1 + 142f) * carZoneK * sy), id))
     }
     private val paintRects = ArrayList<RectF>()
@@ -6864,6 +6909,121 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val carTop0 = top + (carH - 676f * sy * k) / 2f
         carRect.set(cx - 150f * k, carTop0, cx + 150f * k, carTop0 + 676f * sy * k)
         carZones.clear(); carZoneTop = carTop0; carZoneK = k
+        if (use3d) {
+            // ---- 3D Ocean from above over the cabin graphic: the seats, wheel and windows sit where they can be tapped
+            canvas.save()
+            canvas.translate(cx - 150f * k, carTop0)
+            canvas.scale(k, k * sy)
+            canvas.translate(150f, 0f); canvas.scale(C3F, C3F / sy); canvas.translate(-150f, 166.55f)
+            val d = c3Dest
+            val lay = canvas.saveLayer(d.left, d.top, d.right, d.bottom, null)
+            p.style = Paint.Style.FILL; p.shader = LinearGradient(0f, -10f, 0f, 460f, 0xFF14213B.toInt(), 0xFF0B1426.toInt(), Shader.TileMode.CLAMP)
+            canvas.drawRect(d.left, d.top, d.right, d.bottom, p); p.shader = null
+            val wsP = Path()
+            wsP.moveTo(36f, 64f); wsP.cubicTo(36f, 22f, 62f, -16f, 112f, -22f); wsP.quadTo(150f, -26f, 188f, -22f); wsP.cubicTo(238f, -16f, 264f, 22f, 264f, 64f); wsP.close()
+            val rwP = Path(); rwP.moveTo(72f, 440f); rwP.lineTo(228f, 440f); rwP.lineTo(246f, 492f); rwP.lineTo(54f, 492f); rwP.close()
+            // dash
+            path.reset(); path.moveTo(38f, 64f); path.lineTo(262f, 64f); path.lineTo(262f, 122f); path.quadTo(150f, 136f, 38f, 122f); path.close()
+            p.style = Paint.Style.FILL; p.shader = LinearGradient(0f, 64f, 0f, 134f, 0xFF26375A.toInt(), 0xFF121D35.toInt(), Shader.TileMode.CLAMP); canvas.drawPath(path, p); p.shader = null
+            strokeP(0xFF4A6190.toInt(), 1.4f); canvas.drawPath(path, p)
+            both(58f, 78f, 56f, 10f, 3f, 0xFF0A1220.toInt(), 0xFF5B7299.toInt(), 1f)
+            fillP(0xFF6F86AD.toInt()); for (vx in floatArrayOf(38f, 112f, 164f, 238f)) rr(vx, 72f, 24f, 5f, 2f); rr(137f, 62f, 26f, 5f, 2f)
+            // steering wheel: round, flat along the bottom, with the Fisker badge in the middle
+            val wx = if (l2 && rhd) 214f else 86f
+            val wheelHot = s.climWheelOn()
+            fun ring(r: Float, c: Float) {
+                val al = Math.toDegrees(Math.asin((c / r).toDouble())).toFloat()
+                path.reset(); tmpR.set(wx - r, 116f - r, wx + r, 116f + r); path.arcTo(tmpR, 180f - al, 180f + 2f * al); path.close()
+            }
+            if (wheelHot) { fillP(Color.argb(70, 255, 60, 60)); ring(29f, 27f); canvas.drawPath(path, p) }
+            strokeP(if (wheelHot) Color.argb(235, 255, 80, 80) else 0xFF8AA0C6.toInt(), if (wheelHot) 4.6f else 4f); ring(24f, 22f); canvas.drawPath(path, p)
+            strokeP(if (wheelHot) Color.argb(190, 255, 80, 80) else 0xFF5B7299.toInt(), 3f)
+            canvas.drawLine(wx - 22f, 114f, wx - 9f, 114f, p); canvas.drawLine(wx + 9f, 114f, wx + 22f, 114f, p); canvas.drawLine(wx - 8f, 124f, wx + 8f, 124f, p)
+            fillP(0xFF161D30.toInt()); circ(wx, 114f, 8.5f)
+            strokeP(if (wheelHot) Color.argb(240, 255, 120, 120) else 0xFFC9D3E2.toInt(), 1.4f); circ(wx, 114f, 8.5f)
+            tmpR.set(wx - 5.95f, 114f - 5.95f, wx + 5.95f, 114f + 5.95f)
+            fillP(0xFF4DB8FF.toInt()); canvas.drawArc(tmpR, 200f, 130f, true, p)
+            fillP(0xFFFF9A2E.toInt()); canvas.drawArc(tmpR, 20f, 130f, true, p)
+            carZone(wx - 30f, 92f, wx + 30f, 142f, 12)
+            both(135f, 83f, 30f, 47f, 5f, 0xFF0A1220.toInt(), 0xFF8AA0C6.toInt(), 1.4f)
+            // console
+            both(132f, 138f, 36f, 128f, 10f, 0xFF16233D.toInt(), 0xFF3D5280.toInt(), 1.2f)
+            fillP(0xFF0E182C.toInt()); rr(136f, 144f, 13f, 34f, 3f); rr(151f, 144f, 13f, 34f, 3f)
+            fillP(0xFF0A1220.toInt()); circ(143f, 172f, 8.5f); circ(157f, 172f, 8.5f); strokeP(0xFF4A6190.toInt(), 1f); circ(143f, 172f, 8.5f); circ(157f, 172f, 8.5f)
+            both(133f, 208f, 34f, 50f, 10f, 0xFF22335A.toInt(), 0xFF44597F.toInt(), 1.2f)
+            fun seat(x0: Float, y0: Float, w: Float, hh: Float, r: Float) {
+                p.style = Paint.Style.FILL; p.shader = LinearGradient(x0, y0, x0 + w, y0 + hh, 0xFF2F4268.toInt(), 0xFF1A2744.toInt(), Shader.TileMode.CLAMP); rr(x0, y0, w, hh, r); p.shader = null
+                strokeP(0xFF44597F.toInt(), 1.2f); rr(x0, y0, w, hh, r)
+            }
+            for (x0 in floatArrayOf(45f, 169f)) { seat(x0, 158f, 86f, 72f, 14f); seat(x0 + 3f, 230f, 80f, 36f, 12f); seat(x0 + 27f, 266f, 32f, 15f, 6f) }
+            strokeP(Color.argb(140, 159, 184, 200), 2f); canvas.drawLine(88f, 162f, 88f, 260f, p); canvas.drawLine(212f, 162f, 212f, 260f, p)
+            fillP(Color.argb(235, 74, 95, 138))
+            for (hx in floatArrayOf(88f, 212f)) { tmpR.set(hx - 34f, 237f, hx + 34f, 259f); canvas.drawOval(tmpR, p); circ(hx, 270f, 10f) }
+            canvas.save(); canvas.translate(0f, -36f)
+            seat(46f, 324f, 68f, 66f, 12f); seat(116f, 324f, 68f, 66f, 8f); seat(186f, 324f, 68f, 66f, 12f)
+            seat(46f, 390f, 68f, 30f, 10f); seat(116f, 390f, 68f, 30f, 8f); seat(186f, 390f, 68f, 30f, 10f)
+            seat(64f, 420f, 32f, 13f, 6f); seat(134f, 420f, 32f, 13f, 6f); seat(204f, 420f, 32f, 13f, 6f)
+            strokeP(Color.argb(128, 159, 184, 200), 2f); canvas.drawLine(80f, 328f, 80f, 418f, p); canvas.drawLine(220f, 328f, 220f, 418f, p)
+            fillP(Color.argb(235, 74, 95, 138))
+            for (hx in floatArrayOf(80f, 220f)) { tmpR.set(hx - 24f, 395f, hx + 24f, 413f); canvas.drawOval(tmpR, p); circ(hx, 426f, 10f) }
+            canvas.restore()
+            fillP(0xFF6F86AD.toInt()); rr(74f, 216f, 28f, 5f, 2f); rr(198f, 216f, 28f, 5f, 2f)
+            // heated seats: a transparent red and three dots; the seat is the touch area
+            val drvR = l2 && rhd
+            fun heatDots(cxx: Float, cyy: Float, lvl: Int) {
+                for (i in 0 until 3) { fillP(if (i < lvl) Color.argb(255, 255, 110, 110) else Color.argb(90, 255, 255, 255)); circ(cxx + (i - 1) * 13f, cyy, 4.6f) }
+            }
+            fun seatHeat3(who: Int, front: Boolean, left: Boolean) {
+                val lvl = seatLevel(who, s)
+                val x0 = if (front) (if (left) 45f else 169f) else (if (left) 46f else 186f)
+                if (lvl > 0) {
+                    fillP(Color.argb(55 + 35 * lvl, 255, 50, 50))
+                    if (front) { rr(x0, 158f, 86f, 72f, 14f); rr(x0 + 3f, 230f, 80f, 36f, 12f); rr(x0 + 27f, 266f, 32f, 15f, 6f) }
+                    else { rr(x0, 288f, 68f, 66f, 12f); rr(x0, 354f, 68f, 30f, 10f); rr(x0 + 18f, 384f, 32f, 13f, 6f) }
+                }
+                heatDots(x0 + (if (front) 43f else 34f), if (front) 196f else 322f, lvl)
+                if (front) carZone(x0, 158f, x0 + 86f, 284f, who) else carZone(x0, 288f, x0 + 68f, 398f, who)
+            }
+            seatHeat3(if (drvR) 1 else 0, true, true); seatHeat3(if (drvR) 0 else 1, true, false)
+            seatHeat3(2, false, true); seatHeat3(3, false, false)
+            if (s.climMaxDefrost) { fillP(Color.argb(95, 255, 50, 50)); canvas.drawPath(wsP, p) }
+            if (s.rearDefrost == true) { fillP(Color.argb(110, 255, 50, 50)); canvas.drawPath(rwP, p) }
+            carZone(40f, -58f, 260f, 64f, 10); carZone(50f, 410f, 250f, 495f, 11)
+            // air streams
+            if (flow) {
+                val faceOn = mode in 0..2; val feetOn = mode in 2..4; val winOn = mode == 4 || mode == 5
+                if (faceOn) {
+                    for (x in floatArrayOf(50f, 124f, 176f, 250f)) { glow(x, 78f, 14f, sideCol(x)); wedge(x, 80f, x, 134f, 10f, 44f, flowShader(sideCol(x), false)) }
+                    glow(150f, 268f, 12f, cC)
+                    wedge(146f, 272f, 114f, 306f, 10f, 38f, flowShader(cC, false)); wedge(154f, 272f, 186f, 306f, 10f, 38f, flowShader(cC, false))
+                }
+                if (feetOn) {
+                    glow(86f, 126f, 16f, cL); glow(214f, 126f, 16f, cR)
+                    wedge(86f, 130f, 86f, 168f, 14f, 46f, flowShader(cL, false)); wedge(214f, 130f, 214f, 168f, 14f, 46f, flowShader(cR, false))
+                }
+                if (winOn) {
+                    glow(150f, 64f, 22f, cC)
+                    canvas.save(); canvas.clipPath(wsP)
+                    p.style = Paint.Style.FILL
+                    p.shader = LinearGradient(0f, 64f, 0f, -24f, intArrayOf(withA(cC, (242 * pulse).toInt()), withA(cC, (128 * pulse).toInt()), withA(cC, (38 * pulse).toInt())), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
+                    canvas.drawRect(0f, -40f, 300f, 70f, p)
+                    val sw = LinearGradient(0f, 0f, 0f, 50f, intArrayOf(withA(cC, 0), withA(cC, 140), withA(cC, 0)), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.REPEAT)
+                    carMat.setTranslate(0f, -ph * 50f); sw.setLocalMatrix(carMat); p.shader = sw
+                    canvas.drawRect(0f, -40f, 300f, 70f, p); p.shader = null
+                    canvas.restore()
+                }
+                postInvalidateDelayed(40)
+            }
+            // keep only what is inside the glass, then the 3D body over it
+            c3Paint.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
+            canvas.drawBitmap(c3Mask, null, d, c3Paint); c3Paint.xfermode = null
+            canvas.restoreToCount(lay)
+            c3Paint.alpha = 77; canvas.drawBitmap(c3Trim, null, d, c3Paint); c3Paint.alpha = 255
+            canvas.drawBitmap(c3BodyFor(paintIdx), null, d, c3Paint)
+            canvas.restore()
+            p.shader = null
+            return
+        }
         canvas.save()
         canvas.translate(cx - 150f * k, carTop0)
         canvas.scale(k, k * sy)
@@ -7060,8 +7220,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val isz = minOf(side - dp(3f), dp(46f), gapV - dp(4f)).coerceAtLeast(dp(20f))
         val xl = maxOf(cx - 161f * k - dp(3f) - isz / 2f, cx - areaW / 2f + isz / 2f)
         val xr = minOf(cx + 161f * k + dp(3f) + isz / 2f, cx + areaW / 2f - isz / 2f)
-        val yF = carRect.top + 225f * sy * k
-        val yR = carRect.top + 378f * sy * k
+        val yF = if (use3d) carRect.top + (220f + 166.55f) * C3F * k else carRect.top + 225f * sy * k
+        val yR = if (use3d) carRect.top + (342f + 166.55f) * C3F * k else carRect.top + 378f * sy * k
         val drvRight = l2 && rhd
         // left column first: front, rear; then the right column
         val spec = listOf(
