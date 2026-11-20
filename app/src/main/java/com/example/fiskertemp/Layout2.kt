@@ -29,14 +29,16 @@ import kotlin.math.sin
 
 /** The translucent rounded card the middle column pieces sit on. */
 private fun drawCardBg(c: Canvas, p: Paint, r: RectF, rad: Float, day: Boolean, u: Float) {
+    // the same look as the Trip Information card: a translucent fill and a 1.5 dp outline in the skin's accent colour
+    val look = Skins.look
+    val accent = if (day) look.accentDay else look.accent
     p.shader = null; p.style = Paint.Style.FILL
-    p.color = if (day) Color.argb(120, 255, 255, 255) else Color.argb(80, 8, 20, 36)
-    c.drawRoundRect(r, rad, rad, p)
-    p.style = Paint.Style.STROKE; p.strokeWidth = 1.4f * u
-    p.shader = LinearGradient(r.left, r.top, r.right, r.bottom,
-        intArrayOf(Color.argb(210, 255, 255, 255), Color.argb(40, 255, 255, 255), Color.argb(40, 255, 255, 255), Color.argb(170, 255, 255, 255)),
-        floatArrayOf(0f, 0.4f, 0.6f, 1f), Shader.TileMode.CLAMP)
-    c.drawRoundRect(RectF(r.left + 0.7f * u, r.top + 0.7f * u, r.right - 0.7f * u, r.bottom - 0.7f * u), rad, rad, p)
+    p.color = if (day) Color.argb(170, (Color.red(accent) * 0.4f + 255 * 0.6f).toInt(), (Color.green(accent) * 0.4f + 255 * 0.6f).toInt(), (Color.blue(accent) * 0.4f + 255 * 0.6f).toInt()) else Color.argb(100, 8, 14, 34)
+    val rr = RectF(r.left + 1f, r.top + 1f, r.right - 1f, r.bottom - 1f)
+    c.drawRoundRect(rr, rad, rad, p)
+    p.style = Paint.Style.STROKE; p.strokeWidth = 1.5f * u
+    p.color = Color.argb(if (day) 120 else 130, Color.red(accent), Color.green(accent), Color.blue(accent))
+    c.drawRoundRect(rr, rad, rad, p)
     p.shader = null; p.style = Paint.Style.FILL
 }
 
