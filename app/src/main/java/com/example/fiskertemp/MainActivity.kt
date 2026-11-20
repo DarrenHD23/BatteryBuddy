@@ -2095,10 +2095,11 @@ class MainActivity : Activity() {
         root.getLocationInWindow(a); carView.getLocationInWindow(b)
         val side = (150f * u).toInt().coerceAtLeast(1)
         val x = b[0] - a[0] + ((carView.width - 302f * u) / 2f + 76f * u).toInt()
-        val y = b[1] - a[1] + (3f * u).toInt()
+        val extra = (70f * u).toInt()         // room above the nose for the headlight beams
+        val y = b[1] - a[1] + (3f * u).toInt() - extra
         val lp = v.layoutParams as FrameLayout.LayoutParams
-        if (lp.width != side || lp.height != side || lp.leftMargin != x || lp.topMargin != y) {
-            lp.width = side; lp.height = side; lp.leftMargin = x; lp.topMargin = y; v.layoutParams = lp
+        if (lp.width != side || lp.height != side + extra || lp.leftMargin != x || lp.topMargin != y) {
+            lp.width = side; lp.height = side + extra; lp.leftMargin = x; lp.topMargin = y; v.layoutParams = lp
         }
         if (v.live) { v.visibility = View.VISIBLE; carView.spriteCar = false }
     }
@@ -2109,7 +2110,7 @@ class MainActivity : Activity() {
         val f = FrameLayout(this)
         f.visibility = View.GONE
         f.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Skins.look.bgTop, Skins.look.bgBottom))
-        roadView = RoadView(this).apply { visibility = View.GONE }        // Layout 2: the road, behind everything
+        roadView = RoadView(this).apply { visibility = View.GONE; onCurve = { b -> car3d?.setSteer(b) } }        // Layout 2: the road, behind everything
         f.addView(roadView, FrameLayout.LayoutParams(-1, -1))
         val blue = Color.parseColor("#1E90FF")
         val violet = Color.parseColor("#8E5CFF")
@@ -4085,7 +4086,7 @@ class MainActivity : Activity() {
                 carView.dowL = if (bFresh && s.dowLeft in 1..4) s.dowLeft else 0; carView.dowR = if (bFresh && s.dowRight in 1..4) s.dowRight else 0
                 carView.uss = if (alerts && s.uss != null && nowMs - s.ussAt < 3000) s.uss.toIntArray() else null
             }; carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true); carView.beamsOn = (s.beamsOn == true)
-            car3d?.push(carView.speedKmh, carView.headlights || carView.highBeam, carView.braking, carView.leftInd, carView.rightInd, carView.reverse, CAR_PAINTS[carView.paintIdx].second)
+            car3d?.push(carView.speedKmh, if (carView.highBeam) 2 else if (carView.headlights || carView.beamsOn) 1 else 0, carView.braking, carView.leftInd, carView.rightInd, carView.reverse, CAR_PAINTS[carView.paintIdx].second)
             fun shortLabel(l: String) = when (l.lowercase()) { "distance driven" -> "Distance"; "energy consumed" -> "Energy"; "average speed" -> "Avg speed"; else -> l }
             val cells = tripCells(s, true).take(4).map { it.copy(label = shortLabel(it.label)) }
             for (ps in pageSets) {

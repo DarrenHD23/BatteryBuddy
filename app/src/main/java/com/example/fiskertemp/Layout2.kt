@@ -173,7 +173,7 @@ class CarView(ctx: Context) : View(ctx) {
         shown += (target - shown) * min(1f, dt * 4f)
         if (target == 0f && shown < 0.5f) shown = 0f
         roadOff += 200f * Math.pow((shown / 200f).toDouble(), 0.4).toFloat() * dt * 1.1f
-        val g0 = (shown / 35f).coerceIn(0f, 1f); val g = g0 * g0 * (3f - 2f * g0)
+        val g0 = (shown / 10f).coerceIn(0f, 1f); val g = g0 * g0 * (3f - 2f * g0)      // fully tipped back by 10 km/h
         tilt += (g - tilt) * min(1f, dt * 1.1f)
         if (Math.abs(tilt - g) < 0.004f) tilt = g
         val pos = tilt * (F_BASE.size - 1)
@@ -188,7 +188,7 @@ class CarView(ctx: Context) : View(ctx) {
         // the car sprite is a 150 x 150 unit square centred on the middle of the old 114 x 104 car slot (front of the car at y = 26 when parked)
         val ct = 26f
         dst.set(cx - 75f, 3f, cx + 75f, 153f)
-        if (beamsOn) {
+        if (beamsOn && spriteCar) {      // the live 3D car has its own light beams
             // headlight beams: from just inside the car's width at its front, leaning in toward the centre line, fading out up the road
             // (drawn before the car so the car stays on top; the view's parents do not clip, so it may reach above the view)
             val front = ct + (if (spriteCar) 3f else -9f); val len = 117f; val top = front - len
@@ -355,7 +355,7 @@ class CarView(ctx: Context) : View(ctx) {
             val z = u[(if (sg < 0) 8 else 12) + s]; if (z !in 1..4) continue
             val y0 = 36f + s * 24f; val y1 = y0 + 20f
             for (r in 4 downTo z) {
-                val x = (if (sg < 0) carL else carR) + sg * (3f + (r - 1) * 4.5f + 7f)
+                val x = if (!spriteCar) cx + sg * (35f + (r - 1) * 4.5f) else (if (sg < 0) carL else carR) + sg * (3f + (r - 1) * 4.5f + 7f)
                 alertPaint.color = zoneColor(r * 2)
                 c.drawLine(x, y0, x, y1, alertPaint)
             }
@@ -390,6 +390,7 @@ class RoadView(ctx: Context) : View(ctx) {
     private val histT = ArrayList<Long>(); private val histH = ArrayList<Double>()
     private var curveTarget = 0f
     private var curveShown = 0f
+    var onCurve: ((Float) -> Unit)? = null        // the 3D car steers its front wheels with the same bend
     fun noteHeading(h: Double?) {
         val now = SystemClock.uptimeMillis()
         if (h == null) { histT.clear(); histH.clear(); curveTarget = 0f; invalidate(); return }
@@ -413,6 +414,7 @@ class RoadView(ctx: Context) : View(ctx) {
         roadOff += 200f * Math.pow((shown / 200f).toDouble(), 0.4).toFloat() * dt * 1.1f
         curveShown += (curveTarget - curveShown) * min(1f, dt * 3f)
         if (Math.abs(curveShown - curveTarget) < 0.05f) curveShown = curveTarget
+        onCurve?.invoke(curveShown)
         getLocationInWindow(la); cv.getLocationInWindow(lb)
         val u = cv.height / 162f
         val carTop = (lb[1] - la[1]).toFloat()
@@ -976,7 +978,17 @@ class Car3dView(ctx: Context, private val onState: (Boolean) -> Unit) : android.
     override fun dispatchTouchEvent(ev: android.view.MotionEvent?) = false
 
     /** Sends the car's state to the page (about 7 times a second at most, sooner when something other than the speed changes). */
-    fun push(speedKmh: Float, head: Boolean, brake: Boolean, left: Boolean, right: Boolean, reverse: Boolean, paint: Int) {
+    private var lastSteer = 999f
+    /** Front wheel angle: follows the compass bend of the road (positive = right). */
+    fun setSteer(bend: Float) {
+        if (!live) return
+        val d = Math.round(bend * 0.8f * 2f) / 2f
+        if (d == lastSteer) return
+        lastSteer = d
+        evaluateJavascript("window.car3d&&car3d.set({turn:$d})", null)
+    }
+
+    fun push(speedKmh: Float, head: Int, brake: Boolean, left: Boolean, right: Boolean, reverse: Boolean, paint: Int) {
         if (!live) return
         val hex = String.format("#%06x", paint and 0xFFFFFF)
         val sp = Math.round(speedKmh * 2f) / 2f
