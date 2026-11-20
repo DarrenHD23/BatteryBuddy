@@ -3288,10 +3288,13 @@ class MainActivity : Activity() {
             else { height = FrameLayout.LayoutParams.MATCH_PARENT; setMargins(dp(8), dp(topM - up), dp(8), dp(gaugeBottom + up)) }
         }
         // full screen and the 2/3 split (room of 200 dp or more under the cards): the battery bar and buttons sit 14 dp higher and the buttons are bigger
-        val l2Big = l2 && !l2Third && ((hDp - lowerBottom - 4) - (topM + l2RowH + 8)) >= 200
+        val l2RoomPre = (hDp - lowerBottom - 4) - (topM + l2RowH + 8)
+        val l2Big = l2 && !l2Third && l2RoomPre >= 200
+        // 50/50 split: the battery bar a little higher, and Media / Climate under it on the same side
+        val l2Half = l2 && !l2Third && l2RoomPre < 200
         if (l2) {
             val speedLeft = prefs().getBoolean("speedLeft", false)
-            val rowBottomY = if (l2Third) topM + l2RowH - 12 else l2BarTop + 34 + 68 - (if (l2Big) 14 else 0)      // battery bar and the Climate / Media buttons sit 68 dp lower
+            val rowBottomY = if (l2Third) topM + l2RowH - 12 else l2BarTop + 34 + 68 - (if (l2Big) 14 else if (l2Half) 12 else 0)      // battery bar and the Climate / Media buttons sit 68 dp lower
             (chargeBar.layoutParams as FrameLayout.LayoutParams).apply {
                 width = dp(maxOf(gaugeWdp.toInt() - 8, 100)); height = dp(30)
                 gravity = Gravity.TOP or (if (speedLeft) Gravity.END else Gravity.START)
@@ -3357,11 +3360,30 @@ class MainActivity : Activity() {
             climateBtn.visibility = if (l2 && (inline || !climOn)) View.GONE else View.VISIBLE
             mediaBtn.visibility = if (l2) climateBtn.visibility else View.VISIBLE      // Layout 2: Media sits just beside Climate
             // optional: Media and Climate buttons under the driver's side gauge in the 50/50 and 2/3 splits, where the panel is already showing
-            val splitBtns = l2 && inline && !l2Third && prefs().getBoolean("l2SplitBtns", false)
+            val splitBtns = l2 && !l2Third && ((inline && prefs().getBoolean("l2SplitBtns", false)) || l2Half)
             if (!splitBtns) l2ClimHidden = false
             else {
                 val rhdB = prefs().getBoolean("rhd", false); val slB = prefs().getBoolean("speedLeft", false)
                 val hasBar = if (rhdB) slB else !slB          // the battery bar sits under the power gauge: then the buttons go in the gap under it
+                if (l2Half) {
+                    // 50/50: both buttons under the battery bar, on its side, same size and font
+                    val barEnd = slB      // the bar is at the end (right) when the speed gauge is on the left
+                    val bwH = l2BtnW; val edgeH = dp(12); val hH = dp(28)
+                    val gvH = Gravity.TOP or (if (barEnd) Gravity.END else Gravity.START)
+                    val topH = dp(l2BtnRowBottom - 2)
+                    (mediaBtn.layoutParams as FrameLayout.LayoutParams).apply {
+                        width = dp(bwH); height = hH; gravity = gvH; topMargin = topH
+                        if (barEnd) { rightMargin = edgeH + dp(bwH) + dp(6); leftMargin = 0 } else { leftMargin = edgeH; rightMargin = 0 }
+                    }
+                    (climateBtn.layoutParams as FrameLayout.LayoutParams).apply {
+                        width = dp(bwH); height = hH; gravity = gvH; topMargin = topH
+                        if (barEnd) { rightMargin = edgeH; leftMargin = 0 } else { leftMargin = edgeH + dp(bwH) + dp(6); rightMargin = 0 }
+                    }
+                    mediaBtn.textSize = 13f; climateBtn.textSize = 13f
+                    mediaBtn.setPadding(0, 0, 0, 0); climateBtn.setPadding(0, 0, 0, 0)
+                    mediaBtn.visibility = View.VISIBLE; climateBtn.visibility = View.VISIBLE
+                    mediaBtn.requestLayout(); climateBtn.requestLayout()
+                } else {
                 val bw2 = l2BtnW; val edge2 = dp(12)
                 val topB = if (hasBar) dp(l2BtnRowBottom - 2) else dp(maxOf(l2BtnRowBottom - 34, 0)); val hB = dp(if (hasBar) (if (l2Big) 32 else 21) else (if (l2Big) 38 else 30))
                 val gv = Gravity.TOP or (if (rhdB) Gravity.END else Gravity.START)
@@ -3377,6 +3399,7 @@ class MainActivity : Activity() {
                 mediaBtn.textSize = ts; climateBtn.textSize = ts
                 mediaBtn.visibility = View.VISIBLE; climateBtn.visibility = View.VISIBLE
                 mediaBtn.requestLayout(); climateBtn.requestLayout()
+                }
             }
             l2MiniNow = mini && !l2Third
             if (l2MediaInPlace && !l2MiniNow) l2MediaInPlace = false
