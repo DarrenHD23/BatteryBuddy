@@ -9,4 +9,6 @@ Build the APK:
   (unzip it, the .apk is inside). Install it on your phone (allow "install unknown apps").
 - Android Studio: File > Open this folder, let it sync, then Build > Build APK(s).
 
-Many Thanks to Gabriello Gambale (UnFiskered), MoistPope, Ben Kay, and Majd J. Srour whom without their expertise, creativity and innovation, this app would not have been possible!
+Many Thanks to Gabriello Gambale (UnFiskered), MoistPope, Ben Kay, and Majd J. Srour whom without their expertise, creativity and innovation, this app would not have been possible!  Shout out to JoseDB for his suggestions, graphic designs, bug reports and more!
+
+"Fisker Ocean (low-poly)" (https://skfb.ly/oR7xy) by LagzDesign is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).
