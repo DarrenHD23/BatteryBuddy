@@ -1069,7 +1069,7 @@ class MainActivity : Activity() {
         val cur = prefs().getString("dispTheme", "night")
         val rn = RadioButton(this).apply { text = "Night (dark)"; id = View.generateViewId(); isChecked = cur == "night" }
         val rd = RadioButton(this).apply { text = "Day (light)"; id = View.generateViewId(); isChecked = cur == "day" }
-        val ra = RadioButton(this).apply { text = "Follow the headlights (on = night, off = day)"; id = View.generateViewId(); isChecked = cur == "auto" }
+        val ra = RadioButton(this).apply { text = "Follow the headlights (low or high beam on = night, otherwise day)"; id = View.generateViewId(); isChecked = cur == "auto" }
         val rtg = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL; addView(rn); addView(rd); addView(ra) }
         rtg.setOnCheckedChangeListener { _, checkedId ->
             prefs().edit().putString("dispTheme", when (checkedId) { rd.id -> "day"; ra.id -> "auto"; else -> "night" }).apply()
@@ -2385,7 +2385,7 @@ class MainActivity : Activity() {
     /** Day or night for the dashboard, from the setting (and the headlights when set to follow them). */
     private fun wantDay(): Boolean = when (prefs().getString("dispTheme", "night")) {
         "day" -> true
-        "auto" -> canSnap.headlights == false   // lights off = day; on or unknown = night
+        "auto" -> canSnap.beamsOn != true       // low or high beam on = night; everything else (daytime running lamps, lights off, unknown) = day
         else -> false
     }
 
