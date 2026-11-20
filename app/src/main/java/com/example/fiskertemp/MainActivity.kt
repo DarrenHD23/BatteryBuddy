@@ -3269,6 +3269,8 @@ class MainActivity : Activity() {
         // Layout 2 in a 50/50 window: the grey road fades out upward to the top of the screen, under READY
         roadView.car = carView; roadView.visibility = if (l2) View.VISIBLE else View.GONE; roadView.invalidate()
         l2Mid.clipChildren = false; dashRoot.clipChildren = false; dashGaugeRow.clipChildren = false
+        // everything between the car view and the dashboard root must let the car's glow and sensor arcs draw above the view
+        run { var pv: android.view.ViewParent? = carView.parent; while (pv is ViewGroup) { pv.clipChildren = false; pv.clipToPadding = false; if (pv === dashRoot) break; pv = pv.parent } }
         if (l2) {
             // middle column: the car and the road lines fill the top 162 dp (the car is drawn 114 x 104 dp inside it); the two cards 145 dp tall at the bottom of the row
             (carView.layoutParams as LinearLayout.LayoutParams).apply { width = -1; height = dp(162); weight = 0f; topMargin = 0 }
