@@ -3281,7 +3281,9 @@ class MainActivity : Activity() {
             l2ClimTop = climTop; l2ClimH = room; l2ClimInline = inline
             l2FreeTop = top; l2FreeBottom = bottom; l2Room = bottom - top
             if (l2Third) { l2FreeTop = hDp - lowerBottom - 4; l2FreeBottom = hDp - 4 }   // third-height window: the media card covers the stat rows
-            climateView.compact = inline && room < 300
+            val mini = inline && room >= 200 && room < 300     // a 2/3 split: the full climate screen, drawn smaller
+            climateView.mini = mini
+            climateView.compact = inline && room < 300 && !mini
             // Media is on the swipe cards; Climate only needs its button when the panel is not already showing
             climateBtn.visibility = if (l2 && (inline || !climOn)) View.GONE else View.VISIBLE
             mediaBtn.visibility = if (l2) climateBtn.visibility else View.VISIBLE      // Layout 2: Media sits just beside Climate
@@ -6340,6 +6342,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     private val tempBtnInfo = ArrayList<Pair<Boolean, Int>>()
     var compact = false                               // Layout 2: a short panel under the cards: the two temperatures and the function tiles only
         set(v) { if (field != v) { field = v; invalidate() } }
+    var mini = false                                  // Layout 2, a 2/3 split: the whole climate screen drawn smaller (about 390 dp worth of layout) so it fits the short panel
+        set(v) { if (field != v) { field = v; invalidate() } }
     var l2 = false                                    // Layout 2: one Close button, dials follow the drive side, seat heating buttons
         set(v) { if (field != v) { field = v; invalidate() } }
     var rhd = false                                   // right-hand drive: the driver's dial is on the right (Layout 2 only)
@@ -6377,7 +6381,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         postInvalidateOnAnimation()
     }
 
-    private val d = ctx.resources.displayMetrics.density
+    private val baseD = ctx.resources.displayMetrics.density
+    private var d = baseD                              // the drawing scale: baseD, or smaller while [mini] draws the full screen into a short panel
     private fun dp(v: Float) = v * d
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     var accent = Color.parseColor("#3B9DFF")                         // the selected skin's accent: lit buttons, fan level, power button
@@ -7060,6 +7065,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         canvas = c
         val w = width.toFloat(); val h = height.toFloat()
         val s = snap
+        d = if (mini && !compact && h > 0f) baseD * (h / baseD / 390f).coerceIn(0.55f, 1f) else baseD
         val hd = h / d
         val small = hd < 470f                          // a third-height window: everything a little tighter
         // background: the dashboard's colour, a touch lighter at the top
