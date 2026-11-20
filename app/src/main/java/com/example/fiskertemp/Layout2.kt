@@ -430,19 +430,7 @@ class RoadView(ctx: Context) : View(ctx) {
             p.color = Color.WHITE
             c.drawRect(cxs - hw, top, cxs + hw, 162f, p)
             p.shader = null
-            val phase = (roadOff * 0.35f) % 30f
-            for (sd in intArrayOf(-1, 1)) {
-                var y = top - 30f + phase
-                while (y < 162f) {
-                    val y1 = Math.max(y, top); val y2 = Math.min(y + 14f, 162f)
-                    if (y2 > y1) {
-                        val fade = if (top < 0f) 0.3f + 0.7f * (((y1 + y2) / 2f - top) / (-top)).coerceIn(0f, 1f) else 1f
-                        p.color = Color.argb((0.75f * 255 * fade).toInt().coerceIn(0, 255), 255, 255, 255)
-                        c.drawRect(cxs + sd * hw - 1.7f, y1, cxs + sd * hw + 1.7f, y2, p)
-                    }
-                    y += 30f
-                }
-            }
+            // (no lane lines in the overhead view: they fade in with the perspective road as the car starts to drive)
             c.restoreToCount(lay0)
         }
         val lay = if (tilt < 0.999f) c.saveLayerAlpha(-2000f, -2000f, 4000f, 2000f, (tilt * 255).toInt()) else -1

@@ -3360,7 +3360,8 @@ class MainActivity : Activity() {
             climateBtn.visibility = if (l2 && (inline || !climOn)) View.GONE else View.VISIBLE
             mediaBtn.visibility = if (l2) climateBtn.visibility else View.VISIBLE      // Layout 2: Media sits just beside Climate
             // optional: Media and Climate buttons under the driver's side gauge in the 50/50 and 2/3 splits, where the panel is already showing
-            val splitBtns = l2 && !l2Third && ((inline && prefs().getBoolean("l2SplitBtns", false)) || l2Half)
+            val splitBtns = l2 && !l2Third && prefs().getBoolean("l2SplitBtns", false) && (inline || l2Half)
+            if (l2Half && !splitBtns) { climateBtn.visibility = View.GONE; mediaBtn.visibility = View.GONE }     // 50/50: the buttons only show when the setting is on
             if (!splitBtns) l2ClimHidden = false
             else {
                 val rhdB = prefs().getBoolean("rhd", false); val slB = prefs().getBoolean("speedLeft", false)
