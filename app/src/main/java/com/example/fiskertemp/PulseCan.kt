@@ -863,14 +863,19 @@ object EventLog {
         } catch (e: Exception) { /* ignore */ }
     }
 
-    @Synchronized fun add(msg: String) {
+    // writes go through one background thread, so logging never waits on storage (and no forced disk sync per line)
+    private val io = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "eventlog").apply { isDaemon = true } }
+
+    fun add(msg: String) {
         val f = file ?: return
-        try {
-            java.io.FileOutputStream(f, true).use { o ->
-                o.write("${fmt.format(java.util.Date())} $msg\n".toByteArray())
-                o.fd.sync()
-            }
-        } catch (e: Exception) { /* ignore */ }
+        val line = "${stamp()} $msg\n"
+        try { io.execute { write(f, line) } } catch (e: Exception) { /* ignore */ }
+    }
+
+    @Synchronized private fun stamp(): String = fmt.format(java.util.Date())
+
+    @Synchronized private fun write(f: java.io.File, line: String) {
+        try { java.io.FileOutputStream(f, true).use { o -> o.write(line.toByteArray()) } } catch (e: Exception) { /* ignore */ }
     }
 
     @Synchronized fun text(maxLines: Int = 250): String = try {
