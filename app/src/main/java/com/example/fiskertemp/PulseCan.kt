@@ -116,8 +116,6 @@ class PulseCan(
     @Volatile private var running = false
     @Volatile private var filtersDone = false
     @Volatile var frames = 0L          // frames received, for the event log
-    @Volatile var hdgFrames = 0L       // 0x179 (compass heading) frames received, for the event log
-    @Volatile var hdgRaw = "-"          // the last 0x179 heading bytes, for the event log
     /** Safe mode: never touch the CAN chips' filters (power and climate may then not show). Set by the app. */
     @Volatile var safeMode = false
     private val lastSeen = HashMap<String, Long>()
@@ -160,8 +158,6 @@ class PulseCan(
         snap = snap.copy(regenKwh = 0.0, tripKm = 0.0, tripKwh = 0.0, tripMoveSecs = 0.0, tripStartMs = tripStartMs)
     }
 
-    private var headInvalid = false      // the last 0x179 carried no valid heading
-    private var headNoteAt = 0L
     private val seenFirst = HashSet<String>()      // "bus/id" of the uncommon IDs already reported (reader thread only)
 
     private val held = HashMap<String, String>()   // "bus/id" -> last payload (reader thread only)
@@ -623,7 +619,7 @@ class PulseCan(
         if (id == 0x534 && bytes.size == 8) { last534[bus] = bytes; last534At[bus] = System.currentTimeMillis() }
         if (id == 0x528 && bytes.size == 8) { last528[bus] = bytes; last528At[bus] = System.currentTimeMillis() }
         // note once where the less common IDs turn up (they may be on either bus)
-        if ((id == 0x179 || id == 0x1A9 || id == 0x5EA || id == 0x505 || id == 0x491 || id == 0x373 || id == 0x386 || id == 0x313 || id == 0x530 || id == 0x534) && seenFirst.add("$bus/$id"))
+        if ((id == 0x1A9 || id == 0x5EA || id == 0x505 || id == 0x491 || id == 0x373 || id == 0x386 || id == 0x313 || id == 0x530 || id == 0x534) && seenFirst.add("$bus/$id"))
             onStatus("First frame of 0x" + Integer.toHexString(id).uppercase() + " seen on IBUS$bus")
         val key = "$bus/$id"
         // keep the load down: a frame of the same ID is used at most every 90 ms (40 ms for brake and drive mode)
@@ -667,15 +663,7 @@ class PulseCan(
         // 0x179 TBOX_0x179 (IBUS1, every 100 ms): vehicle heading, 0.01 degrees per bit
         if (bus == 1 && id == 0x179) {
             val deg = ((b[2] shl 8) or b[3]) * 0.01
-            val okHead = deg <= 359.99
-            hdgFrames++; hdgRaw = String.format("%02X%02X", b[2] and 0xFF, b[3] and 0xFF)
-            val tn = System.currentTimeMillis()
-            if (okHead == headInvalid && tn - headNoteAt > 5000L) {      // note when the car starts or stops reporting a heading, with the raw bytes
-                headNoteAt = tn
-                onStatus(if (okHead) "compass: the car reports a heading again" else "compass: the car reports no heading (0x179 raw " + String.format("%02X %02X", b[2] and 0xFF, b[3] and 0xFF) + ")")
-            }
-            if (okHead == headInvalid) headInvalid = !okHead
-            return s.copy(headingDeg = if (okHead) deg else null)
+            return s.copy(headingDeg = if (deg <= 359.99) deg else null)
         }
         // 0x318 ESP_0x318 (IBUS1, every 20 ms): vehicle speed, 0.1 km/h per bit; ESP_VehSpdVld 2 = fault
         if (bus == 1 && id == 0x318) {
