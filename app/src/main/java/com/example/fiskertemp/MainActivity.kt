@@ -4359,7 +4359,7 @@ class MainActivity : Activity() {
                 try { Thread.sleep(2_000) } catch (e: InterruptedException) { return@Thread }
                 val answered = uiPong >= sent
                 val n = pulse?.frames ?: 0L
-                EventLog.add("alive up=" + uptimeSecs() + "s " + EventLog.system() + " frames=$n ui=" + (if (answered) "ok" else "NOT ANSWERING") + " " + CanDiag.quick())
+                EventLog.add("alive up=" + uptimeSecs() + "s " + EventLog.system() + " frames=$n ui=" + (if (answered) "ok" else "NOT ANSWERING") + " compass[frames=" + (pulse?.hdgFrames ?: 0L) + " raw=" + (pulse?.hdgRaw ?: "-") + "] " + CanDiag.quick())
             }
         }.also { it.isDaemon = true }.start()
     }
