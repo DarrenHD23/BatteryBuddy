@@ -1534,11 +1534,13 @@ class MainActivity : Activity() {
         for (v in listOf<View>(dashSlot, dashLight, dashLightDist, carView)) { v.translationX = 0f; v.translationY = 0f }
         (dashSignSrc.layoutParams as FrameLayout.LayoutParams).apply { gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; topMargin = 0 }
         if (l2 || !l1cApplied) l2Mid.addView(carView, 0, LinearLayout.LayoutParams(-1, 0, 0.38f))
-        if (!l1cApplied || l2) dashSlot.addView(dashLight, 0, FrameLayout.LayoutParams(dp(42), dp(88), Gravity.CENTER))
+        if (!l1cApplied && !l2) dashSlot.addView(dashLight, 0, FrameLayout.LayoutParams(dp(42), dp(88), Gravity.CENTER))
         if (l2) {
             dashMid.addView(l2Mid, LinearLayout.LayoutParams(-1, -1))
-            dashRoot.addView(dashSlot, FrameLayout.LayoutParams(dp(72), dp(92), Gravity.TOP or Gravity.END))
-            dashRoot.addView(dashLightDist, FrameLayout.LayoutParams(dp(72), -2, Gravity.TOP or Gravity.END))
+            // Layout 2 uses the same overlays as Layout 1 with the 3D car: the sign on the speed gauge, the traffic light above the car (placed in placeL1Overlays)
+            dashRoot.addView(dashSlot, FrameLayout.LayoutParams(dp(72), dp(92), Gravity.TOP or Gravity.START))
+            dashRoot.addView(dashLight, FrameLayout.LayoutParams(dp(42), dp(88), Gravity.TOP or Gravity.START))
+            dashRoot.addView(dashLightDist, FrameLayout.LayoutParams(dp(72), -2, Gravity.TOP or Gravity.START))
             dashRoot.addView(chargeBar, FrameLayout.LayoutParams(dp(200), dp(30), Gravity.TOP or Gravity.START))
             dashRoot.addView(dashReady, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(4) })
             dashRoot.addView(dashBrake, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(30) })
@@ -2109,14 +2111,14 @@ class MainActivity : Activity() {
     /** Creates / removes the live 3D car and keeps it exactly over the car square (150 x 150 units in the 302 x 162 unit middle column). */
     /** Layout 1 with the 3D car: the speed sign sits on the speed gauge (left of its reading, wherever the gauges are), the traffic light above the car. */
     private fun placeL1Overlays(root: FrameLayout) {
-        if (!l1cApplied || !::dashSlot.isInitialized || !::carView.isInitialized || !::dashSpeedGauge.isInitialized) return
-        carView.translationY = dp(14).toFloat()        // Layout 1: the car sits 14 dp lower
+        if (!(l1cApplied || l2Applied) || !::dashSlot.isInitialized || !::carView.isInitialized || !::dashSpeedGauge.isInitialized) return
+        carView.translationY = if (l1cApplied) dp(14).toFloat() else 0f        // Layout 1: the car sits 14 dp lower (Layout 2's car stays put)
         val g = dashSpeedGauge
         if (g.width <= 0 || carView.width <= 0 || dashSlot.width <= 0) return
         val r = IntArray(2); val ga = IntArray(2); val ca = IntArray(2)
         root.getLocationInWindow(r); g.getLocationInWindow(ga); carView.getLocationInWindow(ca)
-        val diam = minOf(g.width, g.height).toFloat()
-        val gcx = ga[0] - r[0] + g.width / 2f; val gcy = ga[1] - r[1] + g.height / 2f
+        val diam = minOf(g.width, g.height) * g.scaleX           // Layout 2 draws the gauges 10% bigger (scale about the centre)
+        val gcx = ga[0] - r[0] + g.width * g.scaleX / 2f; val gcy = ga[1] - r[1] + g.height * g.scaleY / 2f
         dashSlot.translationX = gcx - 0.30f * diam - dashSlot.width / 2f + dp(16)       // 16 dp toward the reading
         dashSlot.translationY = gcy - 0.02f * diam - dashSlot.height / 2f + dp(8)
         val u = carView.height / 162f
@@ -3175,8 +3177,8 @@ class MainActivity : Activity() {
         val readyUnderPanel = midLevel == 1 && hideBar && !readyBelow && !l1c
         val modeKey = "$midLevel/$readyBelow/$readyUnderPanel/$brakeUnder"
         readyBeside = midLevel == 1 && brakeUnder && !readyBelow && !readyUnderPanel && !l1c
-        if (l1c) {
-            if (statusMode != modeKey) {
+        if (l1c || l2) {
+            if (l1c && statusMode != modeKey) {
                 statusMode = modeKey
                 for (v in listOf<View>(dashReady, dashBrake)) { (v.parent as? ViewGroup)?.removeView(v) }
                 dashMid.addView(dashReady, 0, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
@@ -3392,18 +3394,6 @@ class MainActivity : Activity() {
                 gravity = Gravity.TOP or (if (speedLeft) Gravity.END else Gravity.START)
                 setMargins(if (speedLeft) 0 else dp(12), dp(maxOf(rowBottomY - 34, 0)), if (speedLeft) dp(12) else 0, 0)
             }
-            val signSide = dp(gaugeWdp.toInt() + 16)      // the speed sign and its distance sit beside the speed gauge, not over it
-            // left-hand drive: the traffic light / speed sign, its distance and its source label sit left of the road lines
-            val signLeft = speedLeft || !rhd
-            val sg = Gravity.TOP or (if (signLeft) Gravity.START else Gravity.END)
-            (dashSlot.layoutParams as FrameLayout.LayoutParams).apply {
-                width = dp(72); height = dp(92); gravity = sg
-                setMargins(if (signLeft) signSide else 0, dp(maxOf(topM - 24, 6) + 30), if (signLeft) 0 else signSide, 0)
-            }
-            (dashLightDist.layoutParams as FrameLayout.LayoutParams).apply {
-                width = dp(72); gravity = sg
-                setMargins(if (signLeft) signSide else 0, dp(maxOf(topM - 24, 6) + 124), if (signLeft) 0 else signSide, 0)
-            }
             // Climate and Media sit under the speed gauge, level with the battery bar under the power gauge
             val bw = maxOf((gaugeWdp.toInt() - 8 - 6) / 2, 60)
             val bg2 = Gravity.TOP or (if (speedLeft) Gravity.START else Gravity.END)
@@ -3420,7 +3410,7 @@ class MainActivity : Activity() {
             mediaBtn.textSize = if (l2Big) 15f else 13f; climateBtn.textSize = mediaBtn.textSize
             l2BtnRowBottom = rowBottomY; l2BtnW = bw
             mediaBtn.requestLayout(); climateBtn.requestLayout()
-            chargeBar.requestLayout(); dashSlot.requestLayout(); dashLightDist.requestLayout()
+            chargeBar.requestLayout()
         }
         // Layout 2: the Climate panel sits in the free space under the cards, when there is enough of it
         run {
@@ -3508,7 +3498,7 @@ class MainActivity : Activity() {
             wasL2Clim = inline
         }
         if (!l2) { mediaBtn.textSize = 12f; climateBtn.textSize = 12f }
-        if (!l1c) (dashLight.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 22 else if (short) 26 else 42); height = dp(if (midLevel == 2) 46 else if (short) 56 else 88) }
+        if (!l1c && !l2) (dashLight.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 22 else if (short) 26 else 42); height = dp(if (midLevel == 2) 46 else if (short) 56 else 88) }
         dashReady.textSize = if (midLevel == 2 || (midLevel == 1 && brakeUnder)) 11f else if (midLevel == 1) 12f else 15f
         dashReady.letterSpacing = if (midLevel == 1 && brakeUnder && !readyUnderPanel) 0.06f else 0.18f
         // in a short window the gauges reach the top corners, so the mode badge gets its own strip above them
@@ -3545,9 +3535,9 @@ class MainActivity : Activity() {
             (dashReady.layoutParams as? FrameLayout.LayoutParams)?.apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(2) }
             (dashBrake.layoutParams as? FrameLayout.LayoutParams)?.apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(28); leftMargin = 0 }
         }
-        (dashSign.layoutParams as FrameLayout.LayoutParams).apply { val sz = if (l1c) (wDp * 0.07f).toInt() else if (l2) 58 else if (midLevel == 2) 38 else if (short) 48 else 64; width = dp(sz); height = dp(sz) }
+        (dashSign.layoutParams as FrameLayout.LayoutParams).apply { val sz = if (l1c || l2) (wDp * 0.07f).toInt() else if (midLevel == 2) 38 else if (short) 48 else 64; width = dp(sz); height = dp(sz) }
         poolBar.requestLayout(); lowerBox.requestLayout()
-        dashSignSrc.visibility = if (midLevel == 0 || l1c) View.VISIBLE else View.GONE
+        dashSignSrc.visibility = if (midLevel == 0 || l1c || l2) View.VISIBLE else View.GONE
         dashStrip.requestLayout(); dashRow.requestLayout(); dashGaugeRow.requestLayout(); dashLight.requestLayout(); dashSign.requestLayout()
     }
 
