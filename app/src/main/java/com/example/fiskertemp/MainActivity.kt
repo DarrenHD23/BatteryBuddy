@@ -2130,7 +2130,7 @@ class MainActivity : Activity() {
     /** Layout 1 with the 3D car: the speed sign sits on the speed gauge (left of its reading, wherever the gauges are), the traffic light above the car. */
     private fun placeL1Overlays(root: FrameLayout) {
         if (!(l1cApplied || l2Applied) || !::dashSlot.isInitialized || !::carView.isInitialized || !::dashSpeedGauge.isInitialized) return
-        carView.translationY = if (l1cApplied) dp(14).toFloat() else 0f        // Layout 1: the car sits 14 dp lower (Layout 2's car stays put)
+        carView.translationY = if (l1cApplied || l2Applied) dp(14).toFloat() else 0f        // Layouts 1 and 2: the car sits 14 dp lower
         val g = dashSpeedGauge
         if (g.width <= 0 || carView.width <= 0 || dashSlot.width <= 0) return
         val r = IntArray(2); val ga = IntArray(2); val ca = IntArray(2)
