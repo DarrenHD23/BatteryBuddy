@@ -386,8 +386,11 @@ class RoadView(ctx: Context) : View(ctx) {
     private var curveTarget = 0f
     private var curveShown = 0f
     var onCurve: ((Float) -> Unit)? = null        // the 3D car steers its front wheels with the same bend
+    private var testCurve: Float? = null
+    fun setTestCurve(a: Float?) { testCurve = a; curveTarget = a ?: 0f; if (!animating) postInvalidateOnAnimation() }      // developer test: the bend set by hand
     fun noteHeading(h: Double?) {
         val now = SystemClock.uptimeMillis()
+        testCurve?.let { curveTarget = it; if (!animating) postInvalidateOnAnimation(); return }
         if (h == null) { histT.clear(); histH.clear(); curveTarget = 0f; invalidate(); return }
         histT.add(now); histH.add(h)
         while (histT.size > 1 && now - histT[0] > 3000) { histT.removeAt(0); histH.removeAt(0) }
@@ -983,11 +986,12 @@ class Car3dView(ctx: Context, private val onState: (Boolean) -> Unit) : android.
         evaluateJavascript("window.car3d&&car3d.set({turn:$d})", null)
     }
 
+    var follow = true       // Settings: turn the car body toward the road bend
     fun push(speedKmh: Float, head: Int, brake: Boolean, left: Boolean, right: Boolean, reverse: Boolean, paint: Int) {
         if (!live) return
         val hex = String.format("#%06x", paint and 0xFFFFFF)
         val sp = Math.round(speedKmh * 2f) / 2f
-        val json = "{speed:$sp,head:$head,brake:$brake,left:$left,right:$right,rev:$reverse,paint:'$hex'}"
+        val json = "{speed:$sp,head:$head,brake:$brake,left:$left,right:$right,rev:$reverse,follow:$follow,paint:'$hex'}"
         if (json == lastJson) return
         val now = SystemClock.uptimeMillis()
         val onlySpeed = lastJson.substringAfter(",head:") == json.substringAfter(",head:")
