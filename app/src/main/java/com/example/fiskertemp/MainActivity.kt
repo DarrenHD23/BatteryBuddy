@@ -1195,6 +1195,23 @@ class MainActivity : Activity() {
         val sgp = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL; addView(sus); addView(seu) }
         sgp.setOnCheckedChangeListener { _, checkedId -> prefs().edit().putString("signStyle", if (checkedId == seu.id) "eu" else "us").apply() }
         box.add(sgp, 6)
+        box.add(TextView(this).apply { text = "LAYOUT 1"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
+        box.add(CheckBox(this).apply {
+            text = "Show the 3D car in the middle instead of the Trip Information (small trip readouts go under the car; the Climate screen uses the 3D car too)"; isChecked = prefs().getBoolean("l1Car3d", false)
+            setOnCheckedChangeListener { _, on ->
+                prefs().edit().putBoolean("l1Car3d", on).apply()
+                if (::climateView.isInitialized) { climateView.l1Car3d = on; climateView.invalidate() }
+                relayout()
+            }
+        }, 4)
+        box.add(CheckBox(this).apply {
+            text = "Hide the \"Brake light on\" message"; isChecked = prefs().getBoolean("hideBrakeNote1", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideBrakeNote1", on).apply() }
+        }, 4)
+        box.add(CheckBox(this).apply {
+            text = "Hide the trip information"; isChecked = prefs().getBoolean("hideTrip", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideTrip", on).apply(); relayout() }
+        }, 4)
         box.add(TextView(this).apply { text = "DASHBOARD"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
         box.add(CheckBox(this).apply {
             text = "Show the dashboard when the app starts"; isChecked = prefs().getBoolean("dashDefault", false)
@@ -1237,10 +1254,6 @@ class MainActivity : Activity() {
         box.add(CheckBox(this).apply {
             text = "Hide the speed limit sign"; isChecked = prefs().getBoolean("hideSign", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideSign", on).apply() }
-        }, 4)
-        box.add(CheckBox(this).apply {
-            text = "Hide the trip information"; isChecked = prefs().getBoolean("hideTrip", false)
-            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideTrip", on).apply(); relayout() }
         }, 4)
         box.add(CheckBox(this).apply {
             text = "Hide the battery bar under the trip information (small windows give the space to the trip information)"; isChecked = prefs().getBoolean("hideBatteryBar", false)
@@ -1320,14 +1333,6 @@ class MainActivity : Activity() {
         box.add(CheckBox(this).apply {
             text = "Layout 2: hide the \"Brake light on\" message"; isChecked = prefs().getBoolean("hideBrakeNote", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideBrakeNote", on).apply() }
-        }, 4)
-        box.add(CheckBox(this).apply {
-            text = "Layout 1: show the 3D car in the middle instead of the Trip Information (small trip readouts go under the car; the Climate screen uses the 3D car too)"; isChecked = prefs().getBoolean("l1Car3d", false)
-            setOnCheckedChangeListener { _, on ->
-                prefs().edit().putBoolean("l1Car3d", on).apply()
-                if (::climateView.isInitialized) { climateView.l1Car3d = on; climateView.invalidate() }
-                relayout()
-            }
         }, 4)
         box.add(CheckBox(this).apply {
             text = "Layout 2: 3D car in the Climate screen (turn off to use the original drawn car)"; isChecked = prefs().getBoolean("l2ClimateCar3d", true)
@@ -2880,7 +2885,7 @@ class MainActivity : Activity() {
                 bottom = maxOf(root.height - dp(l2FreeTop) - hgt, 0)
                 grav = Gravity.BOTTOM; placed = true
             }
-            if (!placed && half && ref != null && ref.width > 0 && rowV != null && root.height > 0) {
+            if (!placed && (half || !l2Applied) && ref != null && ref.width > 0 && rowV != null && root.height > 0) {
                 val a = IntArray(2); val b = IntArray(2); val c = IntArray(2)
                 ref.getLocationInWindow(a); root.getLocationInWindow(b); rowV.getLocationInWindow(c)
                 val freeW = if (rhd) root.width - (a[0] - b[0] + ref.width) - dp(28) else (a[0] - b[0]) - dp(28)
@@ -3115,7 +3120,7 @@ class MainActivity : Activity() {
         tripBtn.visibility = if (l1c || midRows > 0 || hideTrip) View.GONE else View.VISIBLE
         tripPanel.cols = if (l1c) 4 else 2
         tripPanel.title = if (l1c) null else "Trip Information"
-        (tripPanel.layoutParams as LinearLayout.LayoutParams).apply { if (l1c) { height = dp(46); weight = 0f; topMargin = dp(2) } else { height = 0; weight = 1f; topMargin = dp(4) } }
+        (tripPanel.layoutParams as LinearLayout.LayoutParams).apply { if (l1c) { height = dp(58); weight = 0f; topMargin = dp(2) } else { height = 0; weight = 1f; topMargin = dp(4) } }
         if (l1c) (carView.layoutParams as LinearLayout.LayoutParams).apply { width = -1; height = 0; weight = 1f; topMargin = 0 }
         tripPanel.requestLayout(); tripPanel.invalidate()
         if (!l2 && !l1c) {
@@ -3139,12 +3144,17 @@ class MainActivity : Activity() {
                 dashMid.addView(dashReady, 0, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
                 dashMid.addView(dashBrake, 1, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
             }
-            // the speed sign and the traffic light both sit left of the road lines, in the gap beside the left gauge; positions are fractions of the screen
+            // the speed sign sits left of the car and the traffic light right of it; centres are fractions of the screen width, measured down from the top by width too
             val signSz = (wDp * 0.055f).toInt()
-            fun leftOf(centreFrac: Float) = dp((wDp * 2f * (0.5f - centreFrac)).toInt())      // right margin that puts a top-centred view's centre at this fraction of the width
-            (dashSlot.layoutParams as FrameLayout.LayoutParams).apply { width = signSz; height = signSz; gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; setMargins(0, dp((hDp * 0.255f).toInt()), leftOf(0.345f + 0.055f / 2f), 0) }
-            (dashLight.layoutParams as FrameLayout.LayoutParams).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; setMargins(0, dp((hDp * 0.175f).toInt()), leftOf(0.345f + 0.035f), 0) }
-            (dashLightDist.layoutParams as FrameLayout.LayoutParams).apply { width = dp(72); gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; setMargins(0, dp((hDp * 0.175f).toInt() + 90), leftOf(0.345f + 0.035f), 0) }
+            fun place(lp: FrameLayout.LayoutParams, centre: Float, top: Int) {
+                val d = dp((wDp * 2f * Math.abs(0.5f - centre)).toInt()); val t = dp(maxOf(top, 0))
+                lp.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                if (centre < 0.5f) lp.setMargins(0, t, d, 0) else lp.setMargins(d, t, 0, 0)
+            }
+            val lightTop = (wDp * 0.053f).toInt() - 44
+            (dashSlot.layoutParams as FrameLayout.LayoutParams).apply { width = signSz; height = signSz; place(this, 0.365f, (wDp * 0.094f).toInt() - signSz / 2) }
+            (dashLight.layoutParams as FrameLayout.LayoutParams).apply { place(this, 0.623f, lightTop) }
+            (dashLightDist.layoutParams as FrameLayout.LayoutParams).apply { width = dp(72); place(this, 0.623f, lightTop + 90) }
             dashSlot.requestLayout(); dashLight.requestLayout(); dashLightDist.requestLayout()
         } else if (!l2 && statusMode != modeKey) {
             statusMode = modeKey
@@ -4059,7 +4069,7 @@ class MainActivity : Activity() {
         checkForUpdate(false)
         dashPowerGauge.refresh()
 
-        dashBrake.visibility = if ((s.brakeBcm ?: s.brakeVcu ?: false) && !(l2Applied && prefs().getBoolean("hideBrakeNote", false))) View.VISIBLE else View.INVISIBLE
+        dashBrake.visibility = if ((s.brakeBcm ?: s.brakeVcu ?: false) && !prefs().getBoolean(if (l2Applied) "hideBrakeNote" else "hideBrakeNote1", false)) View.VISIBLE else View.INVISIBLE
         updateDashTheme()
         fun t(c: Double?) = if (c == null) "--" else fmt(c, "\u00B0C", 0)
         val nowMs = System.currentTimeMillis()
