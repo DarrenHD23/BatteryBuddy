@@ -2128,7 +2128,9 @@ class MainActivity : Activity() {
         if (l2Applied && ::testBtn.isInitialized && testBtn.width > 0) {
             // Layout 2: the traffic light sits directly right of the Test button, its top edge level with the button's top edge, its distance under it
             val ta = IntArray(2); testBtn.getLocationInWindow(ta)
-            val lx = ta[0] - r[0] + testBtn.width + dp(6).toFloat()
+            val lx0 = ta[0] - r[0] + testBtn.width + dp(6).toFloat()
+            // right-hand drive: the light moves to the other side of the car, mirrored across the screen, at the same height
+            val lx = if (prefs().getBoolean("rhd", false)) root.width - lx0 - dashLight.width else lx0
             val ly = (ta[1] - r[1]).toFloat()
             dashLight.translationX = lx
             dashLight.translationY = ly
