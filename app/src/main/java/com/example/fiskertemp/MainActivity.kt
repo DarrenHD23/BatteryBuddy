@@ -1744,6 +1744,7 @@ class MainActivity : Activity() {
     private var lightSeenAt = 0L
     private var lightShown = false
     private lateinit var testBtn: TextView
+    private val SHOW_TEST_BUTTON = false
     private var signTest = false                          // the Test sign button: shows a speed limit sign and a cycling traffic light so they can be checked parked
     private lateinit var exitBtn: Button
     private lateinit var dashStrip: StatusStripView
@@ -2504,6 +2505,9 @@ class MainActivity : Activity() {
                 renderDash()
             }
         }
+        // hidden in releases: it stays in the layout (invisible, not tappable) because the Layout 2 traffic light is placed next to it.
+        // Set SHOW_TEST_BUTTON to true to bring it back.
+        testBtn.visibility = if (SHOW_TEST_BUTTON) View.VISIBLE else View.INVISIBLE
         f.addView(testBtn, FrameLayout.LayoutParams(-2, dp(30), Gravity.TOP or Gravity.START).apply { setMargins(dp(176), dp(14), 0, 0) })
         updateBtn = TextView(this).apply {
             text = "Update Available"; textSize = 11f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
