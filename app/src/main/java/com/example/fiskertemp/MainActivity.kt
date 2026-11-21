@@ -2126,8 +2126,10 @@ class MainActivity : Activity() {
         root.getLocationInWindow(r); g.getLocationInWindow(ga); carView.getLocationInWindow(ca)
         val diam = minOf(g.width, g.height) * g.scaleX           // Layout 2 draws the gauges 10% bigger (scale about the centre)
         val gcx = ga[0] - r[0] + g.width * g.scaleX / 2f; val gcy = ga[1] - r[1] + g.height * g.scaleY / 2f
-        // Layout 1: left of the reading; Layout 2: the other side, right of the reading (the mirror image)
-        dashSlot.translationX = if (l2Applied) gcx + 0.30f * diam - dashSlot.width / 2f - dp(16) else gcx - 0.30f * diam - dashSlot.width / 2f + dp(16)       // 16 dp toward the reading
+        // the sign sits on the inner side of the speed reading (toward the middle of the screen): right of it when the speed gauge is on the left,
+        // left of it when the speed gauge is on the right. Same in Layout 1 and 2, with gauges swapped or in right-hand drive.
+        val inward = if (gcx < root.width / 2f) 1f else -1f
+        dashSlot.translationX = gcx + inward * 0.30f * diam - dashSlot.width / 2f - inward * dp(16)       // 16 dp toward the reading
         dashSlot.translationY = gcy - 0.02f * diam - dashSlot.height / 2f + dp(8)
         val u = carView.height / 162f
         val cxc = ca[0] - r[0] + carView.width / 2f
