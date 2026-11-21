@@ -2114,7 +2114,7 @@ class MainActivity : Activity() {
         root.getLocationInWindow(r); g.getLocationInWindow(ga); carView.getLocationInWindow(ca)
         val diam = minOf(g.width, g.height).toFloat()
         val gcx = ga[0] - r[0] + g.width / 2f; val gcy = ga[1] - r[1] + g.height / 2f
-        dashSlot.translationX = gcx - 0.30f * diam - dashSlot.width / 2f + dp(10)       // 10 dp toward the reading
+        dashSlot.translationX = gcx - 0.30f * diam - dashSlot.width / 2f + dp(16)       // 16 dp toward the reading
         dashSlot.translationY = gcy - 0.02f * diam - dashSlot.height / 2f + dp(8)
         val u = carView.height / 162f
         val cxc = ca[0] - r[0] + carView.width / 2f
