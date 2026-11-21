@@ -3201,7 +3201,7 @@ class MainActivity : Activity() {
             val signSz = (wDp * 0.07f).toInt()
             (dashSlot.layoutParams as FrameLayout.LayoutParams).apply { width = dp(signSz); height = dp(signSz); gravity = Gravity.TOP or Gravity.START; setMargins(0, 0, 0, 0) }
             dashSlot.clipChildren = false; dashSlot.clipToPadding = false
-            (dashSignSrc.layoutParams as FrameLayout.LayoutParams).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(signSz + if (l2) 15 else 0) }     // "Camera + Map" sits just below the sign (Layout 2: 15 dp lower)
+            (dashSignSrc.layoutParams as FrameLayout.LayoutParams).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(signSz + if (l2) 35 else 0) }     // "Camera + Map" sits just below the sign (Layout 2: 35 dp lower)
             (dashLight.layoutParams as FrameLayout.LayoutParams).apply { width = dp(34); height = dp(72); gravity = Gravity.TOP or Gravity.START; setMargins(0, 0, 0, 0) }
             (dashLightDist.layoutParams as FrameLayout.LayoutParams).apply { width = -2; gravity = Gravity.TOP or Gravity.START; setMargins(0, 0, 0, 0) }
             dashSlot.requestLayout(); dashLight.requestLayout(); dashLightDist.requestLayout()
