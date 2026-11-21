@@ -4183,7 +4183,7 @@ class MainActivity : Activity() {
             dashMode.background = GradientDrawable().apply { shape = GradientDrawable.RECTANGLE; setColor(Color.parseColor(col)) }
             dashMode.visibility = View.VISIBLE
         }
-        val hd = s.headingDeg
+        val hd = s.headingDeg ?: gpsHeadingNow()      // the car's heading, or the Pulse's GPS heading when the car sends none
         if (l2Applied || l1cApplied) {
             carView.speedKmh = (s.speedKmh ?: 0.0).toFloat(); roadView.speedKmh = carView.speedKmh; roadView.noteHeading(hd)
             run {
@@ -4413,6 +4413,7 @@ class MainActivity : Activity() {
     }
 
     override fun onResume() {
+        ensureGps()
         super.onResume()
         ensureAudioPermission()
         EventLog.add("resumed")
@@ -4452,7 +4453,56 @@ class MainActivity : Activity() {
         if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), 1) else loadPairedDevices()
     }
 
+    // ---------------------------------------------------------- GPS heading (used only when the car sends no compass heading)
+    private var gpsHeading = -1.0
+    private var gpsHeadingAt = 0L
+    private var gpsListener: android.location.LocationListener? = null
+    private var gpsAsked = false
+    private fun gpsHeadingNow(): Double? = if (gpsHeading >= 0 && android.os.SystemClock.uptimeMillis() - gpsHeadingAt < 120_000L) gpsHeading else null
+    private fun ensureGps() {
+        if (gpsListener != null) return
+        val perm = Manifest.permission.ACCESS_FINE_LOCATION
+        if (checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED) { startGps(); return }
+        if (gpsAsked) return
+        gpsAsked = true
+        Thread {
+            // the Pulse is rooted: grant it quietly first, and only ask on screen if that does not work
+            try { Root.exec("pm grant $packageName $perm") } catch (e: Exception) { }
+            ui.post {
+                if (checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED) startGps()
+                else { EventLog.add("gps heading: asking for the location permission"); requestPermissions(arrayOf(perm), 2) }
+            }
+        }.start()
+    }
+    private fun startGps() {
+        if (gpsListener != null) return
+        try {
+            val lm = getSystemService(LOCATION_SERVICE) as android.location.LocationManager
+            val l = object : android.location.LocationListener {
+                override fun onLocationChanged(loc: android.location.Location) {
+                    if (loc.hasBearing() && loc.hasSpeed() && loc.speed >= 1.5f) {
+                        if (gpsHeading < 0) EventLog.add("gps heading: first bearing " + loc.bearing.toInt() + " deg from " + loc.provider)
+                        gpsHeading = loc.bearing.toDouble(); gpsHeadingAt = android.os.SystemClock.uptimeMillis()
+                    }
+                }
+                @Deprecated("old API") override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
+                override fun onProviderEnabled(provider: String) {}
+                override fun onProviderDisabled(provider: String) {}
+            }
+            val got = ArrayList<String>()
+            for (p in listOf(android.location.LocationManager.GPS_PROVIDER, android.location.LocationManager.PASSIVE_PROVIDER)) {
+                try { if (lm.allProviders.contains(p)) { lm.requestLocationUpdates(p, 1000L, 0f, l, Looper.getMainLooper()); got.add(p) } } catch (e: Exception) { EventLog.add("gps heading: $p failed: ${e.message}") }
+            }
+            gpsListener = l
+            EventLog.add("gps heading: listening to " + (if (got.isEmpty()) "nothing (no location provider on this device)" else got.joinToString()))
+        } catch (e: Exception) { EventLog.add("gps heading: could not start: ${e.message}") }
+    }
+
     override fun onRequestPermissionsResult(code: Int, perms: Array<out String>, results: IntArray) {
+        if (code == 2) {
+            if (results.isNotEmpty() && results.all { it == PackageManager.PERMISSION_GRANTED }) startGps() else EventLog.add("gps heading: location permission denied")
+            return
+        }
         if (results.isNotEmpty() && results.all { it == PackageManager.PERMISSION_GRANTED }) loadPairedDevices()
         else log("Bluetooth permission denied.")
     }
@@ -4635,7 +4685,7 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onDestroy() { EventLog.add("app stopped"); InApp.useExternal(); if (layoutRecreating) pulse?.saveTrip(); mediaWatcher?.stop(); try { btReceiver?.let { unregisterReceiver(it) } } catch (e: Exception) { }; pulse?.stop(); ui.removeCallbacksAndMessages(null); close(); super.onDestroy() }
+    override fun onDestroy() { EventLog.add("app stopped"); try { gpsListener?.let { (getSystemService(LOCATION_SERVICE) as android.location.LocationManager).removeUpdates(it) } } catch (e: Exception) { }; InApp.useExternal(); if (layoutRecreating) pulse?.saveTrip(); mediaWatcher?.stop(); try { btReceiver?.let { unregisterReceiver(it) } } catch (e: Exception) { }; pulse?.stop(); ui.removeCallbacksAndMessages(null); close(); super.onDestroy() }
 
     /** Send an AT or OBD command; read until the ELM '>' prompt (3 s timeout). */
     @Synchronized

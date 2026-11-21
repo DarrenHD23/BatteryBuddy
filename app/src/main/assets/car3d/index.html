@@ -18,7 +18,7 @@ const target=new THREE.Vector3(0,.55,0);
 const mats=new Map(),rolls=[],steers=[],beams={Dipped:[],High:[]},glows={};let brakeMesh=null;
 let st={speed:0,head:0,turn:0,brake:false,left:false,right:false,rev:false,follow:true,red:false,paint:'#e7e8e3'},tilt=0,spin=0,last=performance.now(),lastDraw=0,dirty=true,loaded=false,size=0;
 const smooth=x=>x*x*(3-2*x);
-const WHEEL_W=.49,WHEEL_S=.81,STEER_K=.93,BEAM_LEN=2.94,DRL_BRIGHT=.35,DRL_LEN=.8,DRL_LAMP=.4,BODY_K=.18,BODY_S=.35,YAW_K=.5,YAW_MAX=14,INDR_BRIGHT=10,IND_GLOW=.4,IND_GLOW_SIZE=.85;     // wheel width / size, how far they turn, driving beam length (parked is 1)
+const WHEEL_W=.49,WHEEL_S=.81,STEER_K=.93,BEAM_LEN=2.94,DRL_BRIGHT=.35,DRL_LEN=.8,DRL_LAMP=.4,BODY_K=.18,BODY_S=.35,YAW_K=.5,YAW_MAX=14,INDR_BRIGHT=3,IND_GLOW=.4,IND_GLOW_SIZE=.85;     // wheel width / size, how far they turn, driving beam length (parked is 1)
 const em=(n,c,k)=>{for(const m of mats.get(n)||[])if(m.emissive){m.emissive.setRGB(...c);m.emissiveIntensity=k}};
 let Z0=0,Z1=1,lastK=-1;const deform=[],nodes=[],_v=new THREE.Vector3(),_m=new THREE.Matrix4();
 const ramp=z=>{const t=(Z1-z)/(Z1-Z0),u=Math.min(1,Math.max(0,(t-BODY_S)/(1-BODY_S)));return u*u*(3-2*u)};
@@ -45,8 +45,8 @@ function lamps(now){
         const q=b.userData.p,sz=(1+(BEAM_LEN-1)*tilt)*(drl&&k==='Dipped'?DRL_LEN:1);b.scale.set(1,1,sz);b.position.set(q.pos.x+(b.userData.fx!==undefined?b.userData.fx-b.userData.bx:0),q.pos.y,q.pz+(q.pos.z-q.pz)*sz)}      // driving: the beam stretches forward from the lamp
       else b.scale.setScalar(0)}
     for(const m of mats.get('Beam_'+k)||[]){m.transparent=true;m.opacity=on?(k==='High'?.8:(drl?.7*DRL_BRIGHT:.7)):0;m.color.set('#e8f5ff');if(m.emissive){m.emissive.setRGB(.65,.75,1);m.emissiveIntensity=on?(k==='High'?2.2:(drl?1.4*DRL_BRIGHT:1.4)):0}m.depthWrite=false}}
-  {const rd=st.red,ic=rd?[1,.06,.05]:[1,.45,0],k=rd?INDR_BRIGHT:3,lit={L:st.left,R:st.right};em('Mat_Indicator_L',ic,st.left?k:0);em('Mat_Indicator_R',ic,st.right?k:0);
-   for(const key in glows){const g=glows[key];if(g&&g.userData.side){g.material.color.setRGB(ic[0],Math.min(1,ic[1]*1.6),Math.min(1,ic[2]*1.6));g.material.opacity=lit[g.userData.side]?IND_GLOW:0}}}     // red (USA / Canada) or amber (Euro / UK) lamps with a small soft glow on the rear ones
+  {const rd=st.red,ic=rd?[1,.03,.02]:[1,.45,0],k=rd?INDR_BRIGHT:3,lit={L:st.left,R:st.right};em('Mat_Indicator_L',ic,st.left?k:0);em('Mat_Indicator_R',ic,st.right?k:0);
+   for(const key in glows){const g=glows[key];if(g&&g.userData.side){if(rd)g.material.color.setHex(0xff2a1a);else g.material.color.setRGB(1,.72,0);g.material.opacity=lit[g.userData.side]?IND_GLOW:0}}}     // red (USA / Canada) or amber (Euro / UK) lamps with a small soft glow on the rear ones
 }
 function paint(){for(const m of mats.get('Paint_Body')||[]){m.color.set(st.paint);m.metalness=.1;m.roughness=.76;if('clearcoat'in m)m.clearcoat=0}}
 function resize(){const w=cv.clientWidth,h=cv.clientHeight;if(!w||!h)return;const r=Math.min(window.devicePixelRatio||1,2);if(size!==w*1000+h){size=w*1000+h;renderer.setPixelRatio(r);renderer.setSize(w,h,false);dirty=true}}
@@ -69,7 +69,7 @@ new GLTFLoader().parse(u8.buffer,'',g=>{
   function glow(name,color,size,front,sy,rot){const n=model.getObjectByName(name);if(!n)return null;const b=new THREE.Box3().setFromObject(n),c=b.getCenter(new THREE.Vector3());if(front){c.z=b.min.z-.04;c.x+=(c.x<0?-1:1)*.14}       // front: put it on the very front edge of the lamp (forward is -Z)
     const s=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color,transparent:true,blending:THREE.AdditiveBlending,depthTest:false,depthWrite:false,opacity:0}));
     s.position.copy(c);s.userData.b=c.clone();s.scale.set(size,sy||size,1);if(rot)s.material.rotation=rot;s.renderOrder=10;scene.add(s);return s}
-  glows.brakeC=glow("Lamp_Brake_Centre",0xff2a1a,.85,false,.3);brakeMesh=model.getObjectByName('Lamp_Brake_Centre');if(brakeMesh)brakeMesh.scale.x=1.3;glows.tailL=glow('Lamp_Tail_L',0xff2a1a,.7);glows.tailR=glow('Lamp_Tail_R',0xff2a1a,.7);
+  glows.brakeC=glow("Lamp_Brake_Centre",0xff2a1a,1.05,false,.3);brakeMesh=model.getObjectByName('Lamp_Brake_Centre');if(brakeMesh)brakeMesh.scale.x=1.6;glows.tailL=glow('Lamp_Tail_L',0xff2a1a,.7);glows.tailR=glow('Lamp_Tail_R',0xff2a1a,.7);
   {let n=0;model.traverse(o=>{if(!o.isMesh)return;for(const m of Array.isArray(o.material)?o.material:[o.material]){const mm=/^Mat_Indicator_([LR])$/.exec(m.name);if(!mm)continue;const c=new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3());if(c.z<0)continue;   // the rear indicator lamps only (forward is -Z)
     const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:0xff2010,transparent:true,blending:THREE.AdditiveBlending,depthTest:false,depthWrite:false,opacity:0}));sp.position.copy(c);sp.userData.b=c.clone();sp.userData.side=mm[1];sp.scale.set(IND_GLOW_SIZE,IND_GLOW_SIZE,1);sp.renderOrder=11;scene.add(sp);glows['ind'+(n++)]=sp}})}
 
