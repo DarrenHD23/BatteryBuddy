@@ -6616,6 +6616,9 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     var bgTopColor = Color.parseColor("#050A14")       // the top of that gradient
     var onPower: ((Boolean) -> Unit)? = null        // true = turn the climate system on, false = shut it down
     private val powerRect = RectF()
+    // two fixed gradients of the car drawing, made once instead of on every frame
+    private val gradBody by lazy { LinearGradient(0f, -10f, 0f, 460f, 0xFF14213B.toInt(), 0xFF0B1426.toInt(), Shader.TileMode.CLAMP) }
+    private val gradRoof by lazy { LinearGradient(0f, 64f, 0f, 134f, 0xFF26375A.toInt(), 0xFF121D35.toInt(), Shader.TileMode.CLAMP) }
     private var lastFanTap = 0L
     private val fanRect = RectF(); private val rearRect = RectF()
     private var noticeText = ""; private var noticeAt = 0L
@@ -7007,14 +7010,14 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             canvas.translate(150f, 0f); canvas.scale(C3F, C3F / sy); canvas.translate(-150f, 166.55f)
             val d = c3Dest
             val lay = canvas.saveLayer(d.left, d.top, d.right, d.bottom, null)
-            p.style = Paint.Style.FILL; p.shader = LinearGradient(0f, -10f, 0f, 460f, 0xFF14213B.toInt(), 0xFF0B1426.toInt(), Shader.TileMode.CLAMP)
+            p.style = Paint.Style.FILL; p.shader = gradBody
             canvas.drawRect(d.left, d.top, d.right, d.bottom, p); p.shader = null
             val wsP = Path()
             wsP.moveTo(36f, 64f); wsP.cubicTo(36f, 22f, 62f, -16f, 112f, -22f); wsP.quadTo(150f, -26f, 188f, -22f); wsP.cubicTo(238f, -16f, 264f, 22f, 264f, 64f); wsP.close()
             val rwP = Path(); rwP.moveTo(72f, 440f); rwP.lineTo(228f, 440f); rwP.lineTo(246f, 492f); rwP.lineTo(54f, 492f); rwP.close()
             // dash
             path.reset(); path.moveTo(38f, 64f); path.lineTo(262f, 64f); path.lineTo(262f, 122f); path.quadTo(150f, 136f, 38f, 122f); path.close()
-            p.style = Paint.Style.FILL; p.shader = LinearGradient(0f, 64f, 0f, 134f, 0xFF26375A.toInt(), 0xFF121D35.toInt(), Shader.TileMode.CLAMP); canvas.drawPath(path, p); p.shader = null
+            p.style = Paint.Style.FILL; p.shader = gradRoof; canvas.drawPath(path, p); p.shader = null
             strokeP(0xFF4A6190.toInt(), 1.4f); canvas.drawPath(path, p)
             both(58f, 78f, 56f, 10f, 3f, 0xFF0A1220.toInt(), 0xFF5B7299.toInt(), 1f)
             fillP(0xFF6F86AD.toInt()); for (vx in floatArrayOf(38f, 112f, 164f, 238f)) rr(vx, 72f, 24f, 5f, 2f); rr(137f, 62f, 26f, 5f, 2f)
@@ -7161,7 +7164,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         path.reset()
         path.moveTo(52f, -10f); path.lineTo(248f, -10f); path.quadTo(280f, -10f, 280f, 40f); path.lineTo(280f, 422f); path.quadTo(280f, 460f, 248f, 460f)
         path.lineTo(52f, 460f); path.quadTo(20f, 460f, 20f, 422f); path.lineTo(20f, 40f); path.quadTo(20f, -10f, 52f, -10f); path.close()
-        p.style = Paint.Style.FILL; p.shader = LinearGradient(0f, -10f, 0f, 460f, 0xFF14213B.toInt(), 0xFF0B1426.toInt(), Shader.TileMode.CLAMP); canvas.drawPath(path, p); p.shader = null
+        p.style = Paint.Style.FILL; p.shader = gradBody; canvas.drawPath(path, p); p.shader = null
         strokeP(0xFF1B2540.toInt(), 3f); canvas.drawPath(path, p)
         val wsPath = Path()
         wsPath.moveTo(34f, 63f); wsPath.cubicTo(34f, 34f, 48f, 2f, 84f, -5f); wsPath.quadTo(150f, -15f, 216f, -5f); wsPath.cubicTo(252f, 2f, 266f, 34f, 266f, 63f); wsPath.close()
@@ -7172,7 +7175,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         both(24f, 80f, 12f, 344f, 5f, 0xFF18264A.toInt(), 0xFF2F4270.toInt(), 1f); both(264f, 80f, 12f, 344f, 5f, 0xFF18264A.toInt(), 0xFF2F4270.toInt(), 1f)
         // dash
         path.reset(); path.moveTo(38f, 64f); path.lineTo(262f, 64f); path.lineTo(262f, 122f); path.quadTo(150f, 136f, 38f, 122f); path.close()
-        p.style = Paint.Style.FILL; p.shader = LinearGradient(0f, 64f, 0f, 134f, 0xFF26375A.toInt(), 0xFF121D35.toInt(), Shader.TileMode.CLAMP); canvas.drawPath(path, p); p.shader = null
+        p.style = Paint.Style.FILL; p.shader = gradRoof; canvas.drawPath(path, p); p.shader = null
         strokeP(0xFF4A6190.toInt(), 1.4f); canvas.drawPath(path, p)
         both(58f, 78f, 56f, 10f, 3f, 0xFF0A1220.toInt(), 0xFF5B7299.toInt(), 1f)
         fillP(0xFF6F86AD.toInt()); for (vx in floatArrayOf(38f, 112f, 164f, 238f)) rr(vx, 72f, 24f, 5f, 2f); rr(137f, 62f, 26f, 5f, 2f)
