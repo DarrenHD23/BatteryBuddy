@@ -1743,6 +1743,7 @@ class MainActivity : Activity() {
     private var lightColor = 0
     private var lightSeenAt = 0L
     private var lightShown = false
+    private lateinit var testBtn: TextView
     private var signTest = false                          // the Test sign button: shows a speed limit sign and a cycling traffic light so they can be checked parked
     private lateinit var exitBtn: Button
     private lateinit var dashStrip: StatusStripView
@@ -2124,17 +2125,15 @@ class MainActivity : Activity() {
         val u = carView.height / 162f
         val cxc = ca[0] - r[0] + carView.width / 2f
         val lightY = ca[1] - r[1] - carView.translationY + 11f * u - dashLight.height      // the light stays put when the car is nudged down
-        if (l2Applied && ::dashPowerGauge.isInitialized && dashPowerGauge.width > 0) {
-            // Layout 2: the traffic light is overlaid on the other (power) gauge, mirroring the sign: right of its reading, at the sign's height
-            val pg = dashPowerGauge; val pa = IntArray(2); pg.getLocationInWindow(pa)
-            val pd = minOf(pg.width, pg.height) * pg.scaleX
-            val pcx = pa[0] - r[0] + pg.width * pg.scaleX / 2f; val pcy = pa[1] - r[1] + pg.height * pg.scaleY / 2f
-            val lcx = pcx + 0.30f * pd - dp(16)
-            val lcy = pcy - 0.02f * pd + dp(8)
-            dashLight.translationX = lcx - dashLight.width / 2f
-            dashLight.translationY = lcy - dashLight.height / 2f
-            dashLightDist.translationX = lcx - dashLightDist.width / 2f
-            dashLightDist.translationY = lcy + dashLight.height / 2f
+        if (l2Applied && ::testBtn.isInitialized && testBtn.width > 0) {
+            // Layout 2: the traffic light sits directly right of the Test button, its top edge level with the button's top edge, its distance under it
+            val ta = IntArray(2); testBtn.getLocationInWindow(ta)
+            val lx = ta[0] - r[0] + testBtn.width + dp(6).toFloat()
+            val ly = (ta[1] - r[1]).toFloat()
+            dashLight.translationX = lx
+            dashLight.translationY = ly
+            dashLightDist.translationX = lx + dashLight.width / 2f - dashLightDist.width / 2f
+            dashLightDist.translationY = ly + dashLight.height
             return
         }
         dashLight.translationX = cxc - dashLight.width / 2f
@@ -2487,7 +2486,7 @@ class MainActivity : Activity() {
         dashClock = DashClockView(this).apply { visibility = View.GONE }
         f.addView(dashClock, FrameLayout.LayoutParams(dp(150), dp(80), Gravity.TOP or Gravity.START).apply { setMargins(dp(14), dp(8), 0, 0) })
         // a test button in the empty space beside the clock: shows the speed sign and the traffic light (cycling red / amber / green) with nothing else moving
-        val testBtn = TextView(this).apply {
+        testBtn = TextView(this).apply {
             text = "Test sign"; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
             setPadding(dp(9), 0, dp(9), 0)
             background = chipBg(12)
