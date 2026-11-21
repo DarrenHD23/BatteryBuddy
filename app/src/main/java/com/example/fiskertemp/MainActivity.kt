@@ -1739,6 +1739,7 @@ class MainActivity : Activity() {
     private var lightColor = 0
     private var lightSeenAt = 0L
     private var lightShown = false
+    private var signTest = false                          // the Test sign button: shows a speed limit sign and a cycling traffic light so they can be checked parked
     private lateinit var exitBtn: Button
     private lateinit var dashStrip: StatusStripView
     private lateinit var dashSign: SpeedSignView
@@ -2468,6 +2469,18 @@ class MainActivity : Activity() {
         f.addView(dashTop, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(6), dp(8), 0) })
         dashClock = DashClockView(this).apply { visibility = View.GONE }
         f.addView(dashClock, FrameLayout.LayoutParams(dp(150), dp(80), Gravity.TOP or Gravity.START).apply { setMargins(dp(14), dp(8), 0, 0) })
+        // a test button in the empty space beside the clock: shows the speed sign and the traffic light (cycling red / amber / green) with nothing else moving
+        val testBtn = TextView(this).apply {
+            text = "Test sign"; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+            setPadding(dp(9), 0, dp(9), 0)
+            background = chipBg(12)
+            setOnClickListener {
+                signTest = !signTest
+                text = if (signTest) "Test: on" else "Test sign"
+                renderDash()
+            }
+        }
+        f.addView(testBtn, FrameLayout.LayoutParams(-2, dp(30), Gravity.TOP or Gravity.START).apply { setMargins(dp(176), dp(14), 0, 0) })
         updateBtn = TextView(this).apply {
             text = "Update Available"; textSize = 11f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
             setPadding(dp(12), 0, dp(12), 0); visibility = View.GONE
@@ -4094,11 +4107,11 @@ class MainActivity : Activity() {
         fun t(c: Double?) = if (c == null) "--" else fmt(c, "\u00B0C", 0)
         val nowMs = System.currentTimeMillis()
         // speed limit sign: shown in the dashboard's own speed unit; fades in and out with the car's knowledge of the limit
-        val lim = if (prefs().getBoolean("hideSign", false)) null else s.limit
+        val lim = if (signTest) 50 else if (prefs().getBoolean("hideSign", false)) null else s.limit
         if (lim != null) {
             val mphWanted = speedMph()
             val shownLim = when {
-                s.limitMph == mphWanted -> lim
+                signTest || s.limitMph == mphWanted -> lim
                 mphWanted -> Math.round(lim * 0.621371 / 5.0).toInt() * 5     // km/h -> mph, to the nearest 5
                 else -> Math.round(lim * 1.609344 / 5.0).toInt() * 5          // mph -> km/h, to the nearest 5
             }
@@ -4108,12 +4121,12 @@ class MainActivity : Activity() {
             dashSign.metric = !mphWanted
             dashSign.euro = prefs().getString("signStyle", "us") == "eu"
             dashSign.invalidate()
-            val tm = s.tsrMode ?: 0
+            val tm = if (signTest) 2 else (s.tsrMode ?: 0)
             dashSignSrc.text = when (tm) { 2 -> "Camera + Map"; 3 -> "Camera"; 4 -> "Map"; 5 -> "sign data error"; else -> "" }
             dashSignSrc.setTextColor(if (dashDay) Color.argb(200, 20, 32, 46) else Color.argb(200, 255, 255, 255))
             if (tm != lastTsrMode) { lastTsrMode = tm; EventLog.add("speed limit source: " + (dashSignSrc.text.ifEmpty { "unknown" })) }
         }
-        val lc = if (prefs().getBoolean("hideLight", false)) null else s.lightColor
+        val lc = if (signTest) 1 + ((nowMs / 3000L) % 3L).toInt() else if (prefs().getBoolean("hideLight", false)) null else s.lightColor
         if (lc != null) { lightColor = lc; lightSeenAt = nowMs; dashLight.setColor(lc) }
         val seen = lc != null || nowMs - lightSeenAt < 1500   // brief hold so one missed frame does not flicker
         val lightEnded = lightShown && !seen
@@ -4124,7 +4137,7 @@ class MainActivity : Activity() {
             dashLightDist.animate().alpha(to).setDuration(if (seen) 200L else 700L).start()
         }
         // the speed sign gives way to the traffic light (same spot), and fades back in once the light has gone
-        val wantSign = (lim != null || nowMs - signSeenAt < 1500) && !seen
+        val wantSign = (lim != null || nowMs - signSeenAt < 1500) && (!seen || signTest)
         if (wantSign != signShown) {
             signShown = wantSign
             dashSignSrc.animate().alpha(if (wantSign) 1f else 0f).setDuration(if (wantSign) 300L else 250L).start()
@@ -4137,7 +4150,7 @@ class MainActivity : Activity() {
             val g = if (!wantSign && !seen) Gravity.CENTER else (Gravity.CENTER_VERTICAL or Gravity.START)
             if (rlp != null && rlp.gravity != g) { rlp.gravity = g; rlp.leftMargin = if (g == Gravity.CENTER) 0 else dp(4); dashReady.layoutParams = rlp }
         }
-        dashLightDist.text = if (lc == null) "" else s.lightDistM?.let { "$it m" } ?: ""
+        dashLightDist.text = if (signTest) "120 m" else if (lc == null) "" else s.lightDistM?.let { "$it m" } ?: ""
         val dm = s.driveMode
         if (dm == null) dashMode.visibility = View.INVISIBLE else {
             val (name, col) = when (dm) {
