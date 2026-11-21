@@ -1836,6 +1836,7 @@ class MainActivity : Activity() {
     }
     private lateinit var l2FlyBtn: TextView
     private lateinit var roadView: RoadView
+    private var speedTest: Float? = null     // developer test: the speed set by hand for the car and road (null = real speed)
     private var angleTest: Float? = null     // developer test: the compass turn set by hand (null = off). The car and road then behave as if driving.
     private var car3d: Car3dView? = null
     private lateinit var l2ClimBtn: TextView
@@ -2536,7 +2537,19 @@ class MainActivity : Activity() {
                     override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
                 })
             }
-            val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; background = chipBg(12); setPadding(dp(12), dp(6), dp(12), dp(6)); addView(lbl, LinearLayout.LayoutParams(-1, -2)); addView(bar, LinearLayout.LayoutParams(-1, -2)) }
+            val lbl2 = TextView(this).apply { text = "Speed test: off"; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER }
+            val bar2 = android.widget.SeekBar(this).apply {
+                max = 120; progress = 0
+                setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(sb: android.widget.SeekBar?, p: Int, fromUser: Boolean) {
+                        lbl2.text = if (p == 0) "Speed test: off (real speed)" else "Speed test: $p km/h"
+                        speedTest = if (p == 0) null else p.toFloat()
+                    }
+                    override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+                    override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
+                })
+            }
+            val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; background = chipBg(12); setPadding(dp(12), dp(6), dp(12), dp(6)); addView(lbl, LinearLayout.LayoutParams(-1, -2)); addView(bar, LinearLayout.LayoutParams(-1, -2)); addView(lbl2, LinearLayout.LayoutParams(-1, -2)); addView(bar2, LinearLayout.LayoutParams(-1, -2)) }
             f.addView(box, FrameLayout.LayoutParams(dp(280), -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { setMargins(0, dp(6), 0, 0) })
         }
         updateBtn = TextView(this).apply {
@@ -4205,7 +4218,7 @@ class MainActivity : Activity() {
         }
         val hd = s.headingDeg
         if (l2Applied || l1cApplied) {
-            carView.speedKmh = (s.speedKmh ?: 0.0).toFloat().let { if (angleTest != null) maxOf(it, 40f) else it }; roadView.speedKmh = carView.speedKmh; roadView.noteHeading(hd)
+            carView.speedKmh = (s.speedKmh ?: 0.0).toFloat().let { speedTest ?: if (angleTest != null) maxOf(it, 40f) else it }; roadView.speedKmh = carView.speedKmh; roadView.noteHeading(hd)
             run {
                 val alerts = prefs().getBoolean("l2Alerts", true); val nowMs = System.currentTimeMillis()
                 val bFresh = alerts && nowMs - s.bsdAt < 2500
