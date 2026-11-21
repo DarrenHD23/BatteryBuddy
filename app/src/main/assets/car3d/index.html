@@ -37,7 +37,7 @@ function lamps(now){
   for(const s of['L','R']){em('Mat_Head_'+s,[.9,.96,1],dip?2+(high?5:0):(drl?2*DRL_LAMP:0));em('Mat_Tail_'+s,[1,.03,.02],st.brake?3:(dip?1:0));em('Mat_Reverse_'+s,[1,1,1],st.rev?2.5:0)}
   em('Mat_Brake_Centre',[1,.03,.02],st.brake?3:0);
   const gs=(s,o)=>{if(s)s.material.opacity=o};
-  gs(glows.brakeC,st.brake?1:0);gs(glows.tailL,st.brake?.9:(dip?.25:0));gs(glows.tailR,st.brake?.9:(dip?.25:0));
+  gs(glows.brakeC,st.brake?.95:0);gs(glows.tailL,st.brake?.855:(dip?.25:0));gs(glows.tailR,st.brake?.855:(dip?.25:0));
   // the model's own light beams (low beam: wide soft fan; high beam adds two long strips); no extra glow on the hood
   for(const k of['Dipped','High']){const on=k==='Dipped'?(dip||drl):high;
     for(const b of beams[k]){b.visible=on;
@@ -69,7 +69,7 @@ new GLTFLoader().parse(u8.buffer,'',g=>{
   function glow(name,color,size,front,sy,rot){const n=model.getObjectByName(name);if(!n)return null;const b=new THREE.Box3().setFromObject(n),c=b.getCenter(new THREE.Vector3());if(front){c.z=b.min.z-.04;c.x+=(c.x<0?-1:1)*.14}       // front: put it on the very front edge of the lamp (forward is -Z)
     const s=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color,transparent:true,blending:THREE.AdditiveBlending,depthTest:false,depthWrite:false,opacity:0}));
     s.position.copy(c);s.userData.b=c.clone();s.scale.set(size,sy||size,1);if(rot)s.material.rotation=rot;s.renderOrder=10;scene.add(s);return s}
-  glows.brakeC=glow("Lamp_Brake_Centre",0xff2a1a,1.05,false,.3);brakeMesh=model.getObjectByName('Lamp_Brake_Centre');if(brakeMesh)brakeMesh.scale.x=1.6;glows.tailL=glow('Lamp_Tail_L',0xff2a1a,.7);glows.tailR=glow('Lamp_Tail_R',0xff2a1a,.7);
+  glows.brakeC=glow("Lamp_Brake_Centre",0xff2a1a,1.155,false,.3);brakeMesh=model.getObjectByName('Lamp_Brake_Centre');if(brakeMesh)brakeMesh.scale.x=1.76;glows.tailL=glow('Lamp_Tail_L',0xff2a1a,.7);glows.tailR=glow('Lamp_Tail_R',0xff2a1a,.7);
   {let n=0;model.traverse(o=>{if(!o.isMesh)return;for(const m of Array.isArray(o.material)?o.material:[o.material]){const mm=/^Mat_Indicator_([LR])$/.exec(m.name);if(!mm)continue;const c=new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3());if(c.z<0)continue;   // the rear indicator lamps only (forward is -Z)
     const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:0xff2010,transparent:true,blending:THREE.AdditiveBlending,depthTest:false,depthWrite:false,opacity:0}));sp.position.copy(c);sp.userData.b=c.clone();sp.userData.side=mm[1];sp.scale.set(IND_GLOW_SIZE,IND_GLOW_SIZE,1);sp.renderOrder=11;scene.add(sp);glows['ind'+(n++)]=sp}})}
 
@@ -90,7 +90,8 @@ function loop(now){
   {const w=wantYaw();yaw+=(w-yaw)*Math.min(1,dt*(Math.abs(w)<Math.abs(yaw)?9:5));if(Math.abs(yaw-w)<.02)yaw=w;model.rotation.y=-yaw*Math.PI/180*tilt;for(const k in glows){const q=glows[k];if(q&&q.userData.b)q.position.copy(q.userData.b).applyAxisAngle(Y_AXIS,model.rotation.y)}}     // the glow sprites live in the scene, so they turn with the car
   resize();applyBody();lamps(now);
   const pitch=90+(24-90)*tilt,H=(7.4+(5.0-7.4)*tilt)*150/162/1.2,rad=pitch*Math.PI/180;
-  cam.left=-H/2;cam.right=H/2;cam.top=H/2+H*120/150;cam.bottom=-H/2;cam.updateProjectionMatrix();
+  const wr=cv.clientWidth/(cv.clientHeight*150/270)||1;cam.left=-H/2*wr;cam.right=H/2*wr;     // the view is wider than the car square, so the headlight beams are not cut off at its sides
+  cam.top=H/2+H*120/150;cam.bottom=-H/2;cam.updateProjectionMatrix();
   cam.position.set(0,target.y+14*Math.sin(rad),14*Math.cos(rad));cam.lookAt(target);
   renderer.render(scene,cam);dirty=false;
 }

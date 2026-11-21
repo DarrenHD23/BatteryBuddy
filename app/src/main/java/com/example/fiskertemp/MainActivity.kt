@@ -2185,8 +2185,10 @@ class MainActivity : Activity() {
         val extra = (120f * u).toInt()         // room above the nose for the headlight beams
         val y = b[1] - a[1] + (3f * u).toInt() - extra
         val lp = v.layoutParams as FrameLayout.LayoutParams
-        if (lp.width != side || lp.height != side + extra || lp.leftMargin != x || lp.topMargin != y) {
-            lp.width = side; lp.height = side + extra; lp.leftMargin = x; lp.topMargin = y; v.layoutParams = lp
+        // the view is wider than the car square (room each side for the headlight beams, which may reach over the road edges and the gauges); the car stays in the middle of it
+        val pad = (side * 0.7f).toInt().coerceAtMost(x).coerceAtMost(root.width - x - side).coerceAtLeast(0)
+        if (lp.width != side + 2 * pad || lp.height != side + extra || lp.leftMargin != x - pad || lp.topMargin != y) {
+            lp.width = side + 2 * pad; lp.height = side + extra; lp.leftMargin = x - pad; lp.topMargin = y; v.layoutParams = lp
         }
         if (v.live) { v.visibility = View.VISIBLE; carView.spriteCar = false }
     }

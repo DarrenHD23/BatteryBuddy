@@ -965,6 +965,7 @@ class Car3dView(ctx: Context, private val onState: (Boolean) -> Unit) : android.
     private var lastJson = ""
     private var lastPush = 0L
     val live: Boolean get() = ready && !failed
+    override fun onTouchEvent(event: android.view.MotionEvent): Boolean = false      // the view reaches over the gauges beside the car, so it never takes a touch
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
 
     init {
