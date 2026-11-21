@@ -2893,20 +2893,15 @@ class MainActivity : Activity() {
         ui.removeCallbacks(hideMediaPopup)
     }
 
-    /** Layout 2 clock: right beside the drive mode badge, with room for the compass heading between them only when there is one. */
-    private fun l2ClockMargin(): Int {
-        val modeW = maxOf(dashMode.width, dp(84))
-        val hasHeading = ::dashHeading.isInitialized && dashHeading.text.isNotEmpty()
-        return dp(8) + modeW + dp(14) + (if (hasHeading) dp(96) else 0)
-    }
+    /** Layout 2 clock: beside the gear handle (left of it in right-hand drive, right of it in left-hand drive). */
     private fun placeL2Clock() {
         if (!l2Applied || !::dashClock.isInitialized) return
         val lp = dashClock.layoutParams as FrameLayout.LayoutParams
-        // left-hand drive: the time sits at the top left, just right of the gear handle
-        val lhd = !prefs().getBoolean("rhd", false)
-        val cm = if (lhd) dp(56) else l2ClockMargin()
-        if (lp.leftMargin != cm || lp.rightMargin != 0) {
-            lp.setMargins(cm, dp(5), 0, 0)
+        val rh = prefs().getBoolean("rhd", false)
+        val g = Gravity.TOP or (if (rh) Gravity.END else Gravity.START)
+        if (lp.gravity != g || lp.leftMargin != (if (rh) 0 else dp(56)) || lp.rightMargin != (if (rh) dp(56) else 0)) {
+            lp.gravity = g; dashClock.alignRight = rh
+            if (rh) lp.setMargins(0, dp(5), dp(56), 0) else lp.setMargins(dp(56), dp(5), 0, 0)
             dashClock.requestLayout()
         }
     }
@@ -3156,11 +3151,11 @@ class MainActivity : Activity() {
             if (!l2) { width = dp(gaugeWdp.toInt() - 6); height = dp(clockH) }
             if (l2) {
                 // Layout 2: the time sits in the top row beside the drive mode, away from the settings handle
-                // left-hand drive: top left, just right of the gear handle; right-hand drive: beside the drive mode as before
+                // next to the gear handle: left-hand drive: top left, just right of it; right-hand drive: top right, just left of it
                 width = dp(112); height = dp(26)
-                dashClock.alignRight = false
-                gravity = Gravity.TOP or Gravity.START
-                setMargins(if (!rhd) dp(56) else l2ClockMargin(), dp(5), 0, 0)
+                dashClock.alignRight = rhd
+                gravity = Gravity.TOP or (if (rhd) Gravity.END else Gravity.START)
+                if (rhd) setMargins(0, dp(5), dp(56), 0) else setMargins(dp(56), dp(5), 0, 0)
             } else {
                 gravity = Gravity.TOP or (if (rhd) Gravity.END else Gravity.START)
                 val ct = if (third && clockH == 24) 2 else topM
