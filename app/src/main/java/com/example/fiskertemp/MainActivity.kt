@@ -2027,6 +2027,11 @@ class MainActivity : Activity() {
     }
 
     private fun showBetaGate() {
+        // the password is asked only once: after it was entered correctly (or the beta is already on) the beta screen opens straight away
+        if (prefs().getBoolean("betaUnlocked", false) || prefs().getBoolean("betaOn", false)) {
+            prefs().edit().putBoolean("betaUnlocked", true).apply()
+            showBetaOptions(); return
+        }
         val pw = EditText(this).apply {
             hint = "Password"; setTextColor(Color.WHITE); setHintTextColor(Color.parseColor("#8893A3"))
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
@@ -2040,8 +2045,8 @@ class MainActivity : Activity() {
                 d.dismiss()
                 if (prefs().getBoolean("betaOn", false)) showBetaOptions()      // already in the beta: the screen with the opt-out tick box
                 else {
-                    // joining: remember it, then offer the newest beta build straight away
-                    prefs().edit().putBoolean("betaOn", true).putInt("updDeferred", 0).apply()
+                    // joining: remember the password was right (never asked again) and turn the beta on, then offer the newest beta build straight away
+                    prefs().edit().putBoolean("betaUnlocked", true).putBoolean("betaOn", true).putInt("updDeferred", 0).apply()
                     EventLog.add("beta builds on (joined with the password)")
                     toast("You joined the beta. Checking for the latest beta build...")
                     checkForUpdate(true)
