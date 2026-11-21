@@ -7472,7 +7472,10 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         // ---- header: power, title, cabin and outside readings
         run {
             val ps = headH * 0.80f
-            powerRect.set(m, topY + (headH - ps) / 2, m + ps, topY + (headH + ps) / 2)
+            // right-hand drive: the whole header is mirrored (power button on the right, readings on the left)
+            val flip = rhdSide
+            if (flip) powerRect.set(w - m - ps, topY + (headH - ps) / 2, w - m, topY + (headH + ps) / 2)
+            else powerRect.set(m, topY + (headH - ps) / 2, m + ps, topY + (headH + ps) / 2)
             val isOff = s.climSeen && s.climFan == 0
             val pc = if (isOff) Color.parseColor("#FF5A5A") else on
             p.style = Paint.Style.FILL; p.color = Color.argb(22, Color.red(pc), Color.green(pc), Color.blue(pc))
@@ -7481,10 +7484,20 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             c.drawRoundRect(powerRect, ps * 0.30f, ps * 0.30f, p)
             stroke(pc, 1.8f); c.drawRoundRect(powerRect, ps * 0.30f, ps * 0.30f, p)
             powerIcon(powerRect.centerX(), powerRect.centerY() + ps * 0.03f, ps * 0.26f, Color.WHITE)
-            text("Climate", powerRect.right + dp(12f), powerRect.centerY(), if (small) 18f else 22f, Color.WHITE, true, Paint.Align.LEFT)
+            if (flip) text("Climate", powerRect.left - dp(12f), powerRect.centerY(), if (small) 18f else 22f, Color.WHITE, true, Paint.Align.RIGHT)
+            else text("Climate", powerRect.right + dp(12f), powerRect.centerY(), if (small) 18f else 22f, Color.WHITE, true, Paint.Align.LEFT)
             val ph = dp(if (small) 26f else 32f)
-            val l1 = pill(w - m, powerRect.centerY(), ph, "Outside", temp(s.outsideC), small)
-            pill(l1 - dp(8f), powerRect.centerY(), ph, "Cabin", temp(s.cabinC), small)
+            if (flip) {
+                val out = temp(s.outsideC); val cab = temp(s.cabinC)
+                val pw = { lab: String, v: String -> p.typeface = Typeface.DEFAULT; p.textSize = dp(if (small) 11f else 12f); val a = p.measureText(lab)
+                    p.typeface = Typeface.DEFAULT_BOLD; p.textSize = dp(if (small) 13f else 15f); dp(12f) * 2 + a + dp(6f) + p.measureText(v) }
+                val oW = pw("Outside", out)
+                pill(m + oW, powerRect.centerY(), ph, "Outside", out, small)
+                pill(m + oW + dp(8f) + pw("Cabin", cab), powerRect.centerY(), ph, "Cabin", cab, small)
+            } else {
+                val l1 = pill(w - m, powerRect.centerY(), ph, "Outside", temp(s.outsideC), small)
+                pill(l1 - dp(8f), powerRect.centerY(), ph, "Cabin", temp(s.cabinC), small)
+            }
         }
 
         // ---- the two dials and the cabin between them
