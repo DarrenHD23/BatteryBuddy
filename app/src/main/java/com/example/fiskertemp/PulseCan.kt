@@ -116,6 +116,8 @@ class PulseCan(
     @Volatile private var running = false
     @Volatile private var filtersDone = false
     @Volatile var frames = 0L          // frames received, for the event log
+    @Volatile var hdgFrames = 0L       // 0x179 (compass heading) frames received, for the event log
+    @Volatile var hdgRaw = "-"          // the last 0x179 heading bytes, for the event log
     /** Safe mode: never touch the CAN chips' filters (power and climate may then not show). Set by the app. */
     @Volatile var safeMode = false
     private val lastSeen = HashMap<String, Long>()
@@ -666,6 +668,7 @@ class PulseCan(
         if (bus == 1 && id == 0x179) {
             val deg = ((b[2] shl 8) or b[3]) * 0.01
             val okHead = deg <= 359.99
+            hdgFrames++; hdgRaw = String.format("%02X%02X", b[2] and 0xFF, b[3] and 0xFF)
             val tn = System.currentTimeMillis()
             if (okHead == headInvalid && tn - headNoteAt > 5000L) {      // note when the car starts or stops reporting a heading, with the raw bytes
                 headNoteAt = tn
