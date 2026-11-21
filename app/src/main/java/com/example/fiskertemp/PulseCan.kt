@@ -158,7 +158,7 @@ class PulseCan(
 
     private val seenFirst = HashSet<String>()      // "bus/id" of the uncommon IDs already reported (reader thread only)
 
-    private var lastLamp335 = -1      // lamp test: the last byte 5 of 0x335 that was logged
+    private var lastFull335 = ""      // indicator test: the last whole 0x335 message that was logged
     private val held = HashMap<String, String>()   // "bus/id" -> last payload (reader thread only)
 
     companion object {
@@ -656,11 +656,14 @@ class PulseCan(
         }
         // 0x335 BCM_0x335 (IBUS1): BCM_BrkLampOutpCmd, the brake lamp output command (1 = on)
         if (bus == 1 && id == 0x335) {
-            // lamp test: log byte 5 whenever it changes, so low beam, high beam, position and daytime lamps can be told apart
-            val lb = b[5] and 0xFF
-            if (lb != lastLamp335) {
-                lastLamp335 = lb
-                onStatus("lamps 0x335 byte5 = 0x" + String.format("%02X", lb) + " = " + Integer.toBinaryString(lb or 0x100).substring(1) + "  (bit3 " + ((lb shr 3) and 1) + ", bit4 " + ((lb shr 4) and 1) + ", bits5-6 field " + ((lb shr 5) and 3) + ", bit7 " + ((lb shr 7) and 1) + ")")
+            // indicator test: log the whole 0x335 message whenever any byte changes (the lamp byte is byte 5), with the bytes that changed marked
+            val full = b.joinToString(" ") { String.format("%02X", it and 0xFF) }
+            if (full != lastFull335) {
+                val prev = lastFull335.split(" ")
+                val now = full.split(" ")
+                val ch = now.indices.filter { prev.size != now.size || prev[it] != now[it] }.joinToString(",")
+                lastFull335 = full
+                onStatus("0x335 = $full  (changed: byte $ch)  byte5 lamps: bit3 ${(b[5] shr 3) and 1}, bit4 ${(b[5] shr 4) and 1}, field ${(b[5] shr 5) and 3}")
             }
             val lamps = ((b[5] shr 3) and 1) == 1 || ((b[5] shr 4) and 1) == 1 || ((b[5] shr 5) and 3) != 0
             return s.copy(brakeBcm = ((b[5] shr 7) and 1) == 1, headlights = lamps, highBeamOn = ((b[5] shr 3) and 1) == 1, beamsOn = ((b[5] shr 3) and 1) == 1 || ((b[5] shr 4) and 1) == 1, rearDefrost = ((b[4] shr 3) and 1) == 1)
