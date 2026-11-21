@@ -413,7 +413,8 @@ class RoadView(ctx: Context) : View(ctx) {
     private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val path = Path()
     private val la = IntArray(2); private val lb = IntArray(2)
-    // the road bends with the compass: the heading change over the last 3 seconds (up to 30 degrees) turns the far road left or right
+    // the road bends with the compass: the heading change over the last 1.6 seconds, scaled up to a 3 second change (up to 30 degrees), turns the far road left or right.
+    // A shorter window lets the bend fall away sooner when the road straightens.
     private val histT = ArrayList<Long>(); private val histH = ArrayList<Double>()
     private var curveTarget = 0f
     private var curveShown = 0f
@@ -422,8 +423,8 @@ class RoadView(ctx: Context) : View(ctx) {
         val now = SystemClock.uptimeMillis()
         if (h == null) { histT.clear(); histH.clear(); curveTarget = 0f; invalidate(); return }
         histT.add(now); histH.add(h)
-        while (histT.size > 1 && now - histT[0] > 3000) { histT.removeAt(0); histH.removeAt(0) }
-        var d = h - histH[0]
+        while (histT.size > 1 && now - histT[0] > 1600) { histT.removeAt(0); histH.removeAt(0) }
+        var d = (h - histH[0]) * (3000.0 / 1600.0)
         if (d > 180) d -= 360; if (d < -180) d += 360
         curveTarget = if (speedKmh >= 5f) d.coerceIn(-30.0, 30.0).toFloat() else 0f
         if (!animating) postInvalidateOnAnimation()
@@ -439,7 +440,7 @@ class RoadView(ctx: Context) : View(ctx) {
         shown += (target - shown) * min(1f, dt * 4f)
         if (target == 0f && shown < 0.5f) shown = 0f
         roadOff += 200f * Math.pow((shown / 200f).toDouble(), 0.4).toFloat() * dt * 1.1f
-        curveShown += (curveTarget - curveShown) * min(1f, dt * 3f)
+        curveShown += (curveTarget - curveShown) * min(1f, dt * (if (Math.abs(curveTarget) < Math.abs(curveShown)) 8f else 4f))     // it eases back to straight about twice as fast as it eases into a bend
         if (Math.abs(curveShown - curveTarget) < 0.05f) curveShown = curveTarget
         onCurve?.invoke(curveShown)
         getLocationInWindow(la); cv.getLocationInWindow(lb)

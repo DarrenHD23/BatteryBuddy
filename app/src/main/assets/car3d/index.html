@@ -87,7 +87,7 @@ function loop(now){
   tilt+=(g-tilt)*Math.min(1,dt*1.1);if(Math.abs(tilt-g)<.004)tilt=g;
   if(moving){spin-=st.speed/3.6/0.38*dt;for(const r of rolls)r.rotation.x=spin}
   const steer=Math.max(-28,Math.min(28,st.turn))*STEER_K;for(const o of steers)o.rotation.y=-steer*Math.PI/180;     // positive = right turn
-  {const w=wantYaw();yaw+=(w-yaw)*Math.min(1,dt*4);if(Math.abs(yaw-w)<.02)yaw=w;model.rotation.y=-yaw*Math.PI/180*tilt;for(const k in glows){const q=glows[k];if(q&&q.userData.b)q.position.copy(q.userData.b).applyAxisAngle(Y_AXIS,model.rotation.y)}}     // the glow sprites live in the scene, so they turn with the car
+  {const w=wantYaw();yaw+=(w-yaw)*Math.min(1,dt*(Math.abs(w)<Math.abs(yaw)?9:5));if(Math.abs(yaw-w)<.02)yaw=w;model.rotation.y=-yaw*Math.PI/180*tilt;for(const k in glows){const q=glows[k];if(q&&q.userData.b)q.position.copy(q.userData.b).applyAxisAngle(Y_AXIS,model.rotation.y)}}     // the glow sprites live in the scene, so they turn with the car
   resize();applyBody();lamps(now);
   const pitch=90+(24-90)*tilt,H=(7.4+(5.0-7.4)*tilt)*150/162/1.2,rad=pitch*Math.PI/180;
   cam.left=-H/2;cam.right=H/2;cam.top=H/2+H*120/150;cam.bottom=-H/2;cam.updateProjectionMatrix();
