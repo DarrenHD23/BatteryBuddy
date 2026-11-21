@@ -1532,6 +1532,7 @@ class MainActivity : Activity() {
     private fun fillMid(l2: Boolean) {
         for (v in listOf<View>(dashReady, dashSlot, dashLightDist, dashBrake, tripSpacer, tripPanel, chargeBar, l2Mid, carView, dashLight, mediaBtn, climateBtn, l2FlyBtn)) (v.parent as? ViewGroup)?.removeView(v)
         for (v in listOf<View>(dashSlot, dashLight, dashLightDist, carView)) { v.translationX = 0f; v.translationY = 0f }
+        (dashSignSrc.layoutParams as FrameLayout.LayoutParams).apply { gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; topMargin = 0 }
         if (l2 || !l1cApplied) l2Mid.addView(carView, 0, LinearLayout.LayoutParams(-1, 0, 0.38f))
         if (!l1cApplied || l2) dashSlot.addView(dashLight, 0, FrameLayout.LayoutParams(dp(42), dp(88), Gravity.CENTER))
         if (l2) {
@@ -2106,7 +2107,7 @@ class MainActivity : Activity() {
     /** Layout 1 with the 3D car: the speed sign sits on the speed gauge (left of its reading, wherever the gauges are), the traffic light above the car. */
     private fun placeL1Overlays(root: FrameLayout) {
         if (!l1cApplied || !::dashSlot.isInitialized || !::carView.isInitialized || !::dashSpeedGauge.isInitialized) return
-        carView.translationY = dp(8).toFloat()        // Layout 1: the car sits 8 dp lower
+        carView.translationY = dp(14).toFloat()        // Layout 1: the car sits 14 dp lower
         val g = dashSpeedGauge
         if (g.width <= 0 || carView.width <= 0 || dashSlot.width <= 0) return
         val r = IntArray(2); val ga = IntArray(2); val ca = IntArray(2)
@@ -2114,7 +2115,7 @@ class MainActivity : Activity() {
         val diam = minOf(g.width, g.height).toFloat()
         val gcx = ga[0] - r[0] + g.width / 2f; val gcy = ga[1] - r[1] + g.height / 2f
         dashSlot.translationX = gcx - 0.30f * diam - dashSlot.width / 2f + dp(10)       // 10 dp toward the reading
-        dashSlot.translationY = gcy - 0.02f * diam - dashSlot.height / 2f + dp(5)
+        dashSlot.translationY = gcy - 0.02f * diam - dashSlot.height / 2f + dp(8)
         val u = carView.height / 162f
         val cxc = ca[0] - r[0] + carView.width / 2f
         val lightY = ca[1] - r[1] - carView.translationY + 11f * u - dashLight.height      // the light stays put when the car is nudged down
@@ -3170,6 +3171,8 @@ class MainActivity : Activity() {
             // both are positioned from the real gauge / car bounds in placeL1Overlays (translation only, so nothing else moves)
             val signSz = (wDp * 0.07f).toInt()
             (dashSlot.layoutParams as FrameLayout.LayoutParams).apply { width = dp(signSz); height = dp(signSz); gravity = Gravity.TOP or Gravity.START; setMargins(0, 0, 0, 0) }
+            dashSlot.clipChildren = false; dashSlot.clipToPadding = false
+            (dashSignSrc.layoutParams as FrameLayout.LayoutParams).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(signSz) }     // "Camera + Map" sits just below the sign
             (dashLight.layoutParams as FrameLayout.LayoutParams).apply { width = dp(34); height = dp(72); gravity = Gravity.TOP or Gravity.START; setMargins(0, 0, 0, 0) }
             (dashLightDist.layoutParams as FrameLayout.LayoutParams).apply { width = -2; gravity = Gravity.TOP or Gravity.START; setMargins(0, 0, 0, 0) }
             dashSlot.requestLayout(); dashLight.requestLayout(); dashLightDist.requestLayout()
@@ -3529,7 +3532,7 @@ class MainActivity : Activity() {
         }
         (dashSign.layoutParams as FrameLayout.LayoutParams).apply { val sz = if (l1c) (wDp * 0.07f).toInt() else if (l2) 58 else if (midLevel == 2) 38 else if (short) 48 else 64; width = dp(sz); height = dp(sz) }
         poolBar.requestLayout(); lowerBox.requestLayout()
-        dashSignSrc.visibility = if (midLevel == 0) View.VISIBLE else View.GONE
+        dashSignSrc.visibility = if (midLevel == 0 || l1c) View.VISIBLE else View.GONE
         dashStrip.requestLayout(); dashRow.requestLayout(); dashGaugeRow.requestLayout(); dashLight.requestLayout(); dashSign.requestLayout()
     }
 
