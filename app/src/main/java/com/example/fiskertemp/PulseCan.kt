@@ -656,14 +656,14 @@ class PulseCan(
         }
         // 0x335 BCM_0x335 (IBUS1): BCM_BrkLampOutpCmd, the brake lamp output command (1 = on)
         if (bus == 1 && id == 0x335) {
-            // indicator test: log the whole 0x335 message whenever any byte changes (the lamp byte is byte 5), with the bytes that changed marked
-            val full = b.joinToString(" ") { String.format("%02X", it and 0xFF) }
-            if (full != lastFull335) {
+            // indicator test: log the 0x335 message whenever bytes 2-7 change (byte 0 is a checksum and byte 1 a rolling counter, which change every frame)
+            val body = (2 until 8).joinToString(" ") { String.format("%02X", b[it] and 0xFF) }
+            if (body != lastFull335) {
                 val prev = lastFull335.split(" ")
-                val now = full.split(" ")
-                val ch = now.indices.filter { prev.size != now.size || prev[it] != now[it] }.joinToString(",")
-                lastFull335 = full
-                onStatus("0x335 = $full  (changed: byte $ch)  byte5 lamps: bit3 ${(b[5] shr 3) and 1}, bit4 ${(b[5] shr 4) and 1}, field ${(b[5] shr 5) and 3}")
+                val now = body.split(" ")
+                val ch = now.indices.filter { prev.size != now.size || prev[it] != now[it] }.map { it + 2 }.joinToString(",")
+                lastFull335 = body
+                onStatus("0x335 bytes 2-7 = $body  (changed: byte $ch)")
             }
             val lamps = ((b[5] shr 3) and 1) == 1 || ((b[5] shr 4) and 1) == 1 || ((b[5] shr 5) and 3) != 0
             return s.copy(brakeBcm = ((b[5] shr 7) and 1) == 1, headlights = lamps, highBeamOn = ((b[5] shr 3) and 1) == 1, beamsOn = ((b[5] shr 3) and 1) == 1 || ((b[5] shr 4) and 1) == 1, rearDefrost = ((b[4] shr 3) and 1) == 1)
