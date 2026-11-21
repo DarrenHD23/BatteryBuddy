@@ -18,6 +18,7 @@ const target=new THREE.Vector3(0,.55,0);
 const mats=new Map(),rolls=[],steers=[],beams={Dipped:[],High:[]},glows={};let brakeMesh=null;
 let st={speed:0,head:0,turn:0,brake:false,left:false,right:false,rev:false,paint:'#e7e8e3'},tilt=0,spin=0,last=performance.now(),lastDraw=0,dirty=true,loaded=false,size=0;
 const smooth=x=>x*x*(3-2*x);
+const WHEEL_W=.49,WHEEL_S=.81,STEER_K=.93,BEAM_LEN=2.94;     // wheel width / size, how far they turn, driving beam length (parked is 1)
 const em=(n,c,k)=>{for(const m of mats.get(n)||[])if(m.emissive){m.emissive.setRGB(...c);m.emissiveIntensity=k}};
 function lamps(now){
   const blink=Math.floor(now/380)%2===0,dip=st.head>=1,high=st.head===2;
@@ -27,7 +28,10 @@ function lamps(now){
   gs(glows.brakeC,st.brake?1:0);gs(glows.tailL,st.brake?.9:(dip?.25:0));gs(glows.tailR,st.brake?.9:(dip?.25:0));
   // the model's own light beams (low beam: wide soft fan; high beam adds two long strips); no extra glow on the hood
   for(const k of['Dipped','High']){const on=k==='Dipped'?dip:high;
-    for(const b of beams[k]){b.visible=on;b.scale.setScalar(on?1:0)}
+    for(const b of beams[k]){b.visible=on;
+      if(on){if(!b.userData.p){b.scale.setScalar(1);b.updateMatrixWorld(true);const bx=new THREE.Box3().setFromObject(b);b.userData.p={pos:b.position.clone(),pz:bx.max.z}}
+        const q=b.userData.p,sz=1+(BEAM_LEN-1)*tilt;b.scale.set(1,1,sz);b.position.set(q.pos.x,q.pos.y,q.pz+(q.pos.z-q.pz)*sz)}      // driving: the beam stretches forward from the lamp
+      else b.scale.setScalar(0)}
     for(const m of mats.get('Beam_'+k)||[]){m.transparent=true;m.opacity=on?(k==='High'?.8:.7):0;m.color.set('#e8f5ff');if(m.emissive){m.emissive.setRGB(.65,.75,1);m.emissiveIntensity=on?(k==='High'?2.2:1.4):0}m.depthWrite=false}}
   em('Mat_Indicator_L',[1,.45,0],st.left&&blink?3:0);em('Mat_Indicator_R',[1,.45,0],st.right&&blink?3:0);
 }
@@ -47,7 +51,7 @@ new GLTFLoader().parse(u8.buffer,'',g=>{
     const s=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color,transparent:true,blending:THREE.AdditiveBlending,depthTest:false,depthWrite:false,opacity:0}));
     s.position.copy(c);s.scale.set(size,sy||size,1);if(rot)s.material.rotation=rot;s.renderOrder=10;scene.add(s);return s}
   glows.brakeC=glow("Lamp_Brake_Centre",0xff2a1a,.85,false,.3);brakeMesh=model.getObjectByName('Lamp_Brake_Centre');if(brakeMesh)brakeMesh.scale.x=1.3;glows.tailL=glow('Lamp_Tail_L',0xff2a1a,.7);glows.tailR=glow('Lamp_Tail_R',0xff2a1a,.7);
-  for(const n of['FL','FR','RL','RR']){const o=model.getObjectByName('Roll_'+n);if(o)rolls.push(o)}
+  for(const n of['FL','FR','RL','RR']){const o=model.getObjectByName('Roll_'+n);if(o){rolls.push(o);o.scale.set(WHEEL_W,WHEEL_S,WHEEL_S)}}
   for(const n of['FL','FR']){const o=model.getObjectByName('Steer_'+n);if(o)steers.push(o)}
   paint();loaded=true;bridge.ready();requestAnimationFrame(loop);
 },e=>bridge.fail('model: '+(e&&e.message)));
@@ -60,10 +64,10 @@ function loop(now){
   if(!(moving||settling||blinking||dirty))return;     // idle: draw nothing
   tilt+=(g-tilt)*Math.min(1,dt*1.1);if(Math.abs(tilt-g)<.004)tilt=g;
   if(moving){spin-=st.speed/3.6/0.38*dt;for(const r of rolls)r.rotation.x=spin}
-  const steer=Math.max(-28,Math.min(28,st.turn));for(const o of steers)o.rotation.y=-steer*Math.PI/180;     // positive = right turn
+  const steer=Math.max(-28,Math.min(28,st.turn))*STEER_K;for(const o of steers)o.rotation.y=-steer*Math.PI/180;     // positive = right turn
   resize();lamps(now);
   const pitch=90+(24-90)*tilt,H=(7.4+(5.0-7.4)*tilt)*150/162/1.2,rad=pitch*Math.PI/180;
-  cam.left=-H/2;cam.right=H/2;cam.top=H/2+H*70/150;cam.bottom=-H/2;cam.updateProjectionMatrix();
+  cam.left=-H/2;cam.right=H/2;cam.top=H/2+H*120/150;cam.bottom=-H/2;cam.updateProjectionMatrix();
   cam.position.set(0,target.y+14*Math.sin(rad),14*Math.cos(rad));cam.lookAt(target);
   renderer.render(scene,cam);dirty=false;
 }

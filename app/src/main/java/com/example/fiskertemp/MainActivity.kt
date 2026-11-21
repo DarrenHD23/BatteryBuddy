@@ -2118,7 +2118,7 @@ class MainActivity : Activity() {
         root.getLocationInWindow(a); carView.getLocationInWindow(b)
         val side = (150f * u).toInt().coerceAtLeast(1)
         val x = b[0] - a[0] + ((carView.width - 302f * u) / 2f + 76f * u).toInt()
-        val extra = (70f * u).toInt()         // room above the nose for the headlight beams
+        val extra = (120f * u).toInt()         // room above the nose for the headlight beams
         val y = b[1] - a[1] + (3f * u).toInt() - extra
         val lp = v.layoutParams as FrameLayout.LayoutParams
         if (lp.width != side || lp.height != side + extra || lp.leftMargin != x || lp.topMargin != y) {
