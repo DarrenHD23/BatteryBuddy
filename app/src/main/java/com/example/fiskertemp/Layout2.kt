@@ -636,6 +636,16 @@ class NavCardView(ctx: Context) : View(ctx) {
 
 class ShortTile(val label: String, val icon: Drawable?, val slot: Int)
 
+/** When a card last swiped or changed page: the shortcut tiles ignore touches for a moment after, so a quick second touch cannot open an app by accident. */
+object ShortcutGuard {
+    @Volatile var lastSwipe = 0L
+    const val LOCKOUT_MS = 400L
+    const val MIN_TAP_MS = 50L      // a shorter touch is a brush, not a tap
+    const val MAX_TAP_MS = 400L     // a longer one that stays put is a hesitation (the long press still works)
+    fun mark() { lastSwipe = android.os.SystemClock.uptimeMillis() }
+    fun locked() = android.os.SystemClock.uptimeMillis() - lastSwipe < LOCKOUT_MS
+}
+
 /** Shortcuts card: app tiles, four to a page (2 x 2), swipe for more pages; the last tile adds an app. */
 class ShortcutsCardView(ctx: Context) : View(ctx) {
     var onTile: ((ShortTile) -> Unit)? = null
@@ -670,7 +680,7 @@ class ShortcutsCardView(ctx: Context) : View(ctx) {
     private var longDone = false
     // a press only counts as a tap if the finger barely moves sideways (swipes are sideways, so 4 dp), a little more up and down
     private val tapSlopX = 4f * ctx.resources.displayMetrics.density
-    private val tapSlopY = 8f * ctx.resources.displayMetrics.density
+    private val tapSlopY = 5f * ctx.resources.displayMetrics.density
     private val longRun = Runnable {
         val t = downTile
         if (t != null && t.slot >= 0) { longDone = true; onLong?.invoke(t) }
@@ -686,7 +696,7 @@ class ShortcutsCardView(ctx: Context) : View(ctx) {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = e.x; downY = e.y; longDone = false
-                downTile = tileAt(e.x, e.y)
+                downTile = if (ShortcutGuard.locked()) null else tileAt(e.x, e.y)     // just after a swipe: this touch is not a tap
                 if (downTile != null) postDelayed(longRun, android.view.ViewConfiguration.getLongPressTimeout().toLong())
                 invalidate()
                 return true
@@ -698,7 +708,8 @@ class ShortcutsCardView(ctx: Context) : View(ctx) {
                 removeCallbacks(longRun)
                 val t = downTile; downTile = null
                 invalidate()
-                if (t != null && !longDone && tileAt(e.x, e.y) === t && Math.abs(e.x - downX) <= tapSlopX && Math.abs(e.y - downY) <= tapSlopY) onTile?.invoke(t)
+                val held = e.eventTime - e.downTime
+                if (t != null && !longDone && !ShortcutGuard.locked() && held in ShortcutGuard.MIN_TAP_MS..ShortcutGuard.MAX_TAP_MS && tileAt(e.x, e.y) === t && Math.abs(e.x - downX) <= tapSlopX && Math.abs(e.y - downY) <= tapSlopY) onTile?.invoke(t)
                 return true
             }
             MotionEvent.ACTION_CANCEL -> { removeCallbacks(longRun); downTile = null; invalidate() }
@@ -849,6 +860,7 @@ class PagerCardView(ctx: Context) : android.widget.FrameLayout(ctx) {
 
     fun show(i: Int) {
         if (i < 0 || i >= pages.size || i == index) return
+        ShortcutGuard.mark()
         val old = pages[index]; val new = pages[i]
         val dirn = if (i > index) 1f else -1f
         val w = width.toFloat().coerceAtLeast(1f)
@@ -863,7 +875,7 @@ class PagerCardView(ctx: Context) : android.widget.FrameLayout(ctx) {
     override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> { downX = e.x; downY = e.y; swiping = false }
-            MotionEvent.ACTION_MOVE -> if (!swiping && Math.abs(e.x - downX) > slop * 1.5f && Math.abs(e.x - downX) > Math.abs(e.y - downY)) { swiping = true; parent?.requestDisallowInterceptTouchEvent(true); return true }
+            MotionEvent.ACTION_MOVE -> if (!swiping && Math.abs(e.x - downX) > slop * 1.5f && Math.abs(e.x - downX) > Math.abs(e.y - downY)) { swiping = true; ShortcutGuard.mark(); parent?.requestDisallowInterceptTouchEvent(true); return true }
         }
         return false
     }
@@ -875,6 +887,7 @@ class PagerCardView(ctx: Context) : android.widget.FrameLayout(ctx) {
                 // judged here from the finger's travel, so a page that handles no touches of its own (the compass) still swipes
                 val dx = e.x - downX; val dy = e.y - downY
                 if (Math.abs(dx) > 28f * d && Math.abs(dx) > Math.abs(dy) * 1.0f) show(if (dx < 0) index + 1 else index - 1)
+                if (swiping) ShortcutGuard.mark()
                 swiping = false
             }
             MotionEvent.ACTION_CANCEL -> swiping = false
