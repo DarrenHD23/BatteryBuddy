@@ -2191,6 +2191,8 @@ class MainActivity : Activity() {
             lp.width = side + 2 * pad; lp.height = side + extra; lp.leftMargin = x - pad; lp.topMargin = y; v.layoutParams = lp
         }
         if (v.live) { v.visibility = View.VISIBLE; carView.spriteCar = false }
+        // Layout 1: the traffic light (and its distance) sit on top of the 3D car's headlight glow; it is moved once, not on every layout pass
+        if (l1cApplied && ::dashLight.isInitialized) for (t in listOf<View>(dashLight, dashLightDist)) if (t.parent === root && root.indexOfChild(t) < root.indexOfChild(v)) t.bringToFront()
     }
     private var failed3d = false
 
