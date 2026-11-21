@@ -156,6 +156,8 @@ class PulseCan(
     }
 
     private val seenFirst = HashSet<String>()      // "bus/id" of the uncommon IDs already reported (reader thread only)
+
+    private var lastLamp335 = -1      // lamp test: the last byte 5 of 0x335 that was logged
     private val held = HashMap<String, String>()   // "bus/id" -> last payload (reader thread only)
 
     companion object {
@@ -653,6 +655,12 @@ class PulseCan(
         }
         // 0x335 BCM_0x335 (IBUS1): BCM_BrkLampOutpCmd, the brake lamp output command (1 = on)
         if (bus == 1 && id == 0x335) {
+            // lamp test: log byte 5 whenever it changes, so low beam, high beam, position and daytime lamps can be told apart
+            val lb = b[5] and 0xFF
+            if (lb != lastLamp335) {
+                lastLamp335 = lb
+                onStatus("lamps 0x335 byte5 = 0x" + String.format("%02X", lb) + " = " + Integer.toBinaryString(lb or 0x100).substring(1) + "  (bit3 " + ((lb shr 3) and 1) + ", bit4 " + ((lb shr 4) and 1) + ", bits5-6 field " + ((lb shr 5) and 3) + ", bit7 " + ((lb shr 7) and 1) + ")")
+            }
             val lamps = ((b[5] shr 3) and 1) == 1 || ((b[5] shr 4) and 1) == 1 || ((b[5] shr 5) and 3) != 0
             return s.copy(brakeBcm = ((b[5] shr 7) and 1) == 1, headlights = lamps, beamsOn = ((b[5] shr 3) and 1) == 1 || ((b[5] shr 4) and 1) == 1, rearDefrost = ((b[4] shr 3) and 1) == 1)
         }
