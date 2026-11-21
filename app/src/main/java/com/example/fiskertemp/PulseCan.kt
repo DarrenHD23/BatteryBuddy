@@ -617,7 +617,6 @@ class PulseCan(
         for (i in bytes.indices) bytes[i] = hex.substring(i * 2, i * 2 + 2).toIntOrNull(16) ?: return
 
         frames++
-        watchBits(bus, id, bytes)
         if (id == 0x530 && bytes.size == 8) { last530[bus] = bytes; last530At[bus] = System.currentTimeMillis() }
         if (id == 0x534 && bytes.size == 8) { last534[bus] = bytes; last534At[bus] = System.currentTimeMillis() }
         if (id == 0x528 && bytes.size == 8) { last528[bus] = bytes; last528At[bus] = System.currentTimeMillis() }
@@ -641,42 +640,6 @@ class PulseCan(
         val next = decode(snap, bus, id, bytes) ?: return
         snap = next
         onUpdate(next)
-    }
-
-    // door test (temporary): log every bit of every message that flips, except bits that flip all the time (counters, checksums, measurements).
-    // A bit counts as busy when it has flipped about 5 times in the last few seconds, so a door switch that flips once is logged and a counter is not.
-    private class BitWatch(var last: IntArray, val heat: DoubleArray = DoubleArray(64), val at: LongArray = LongArray(64), val muted: BooleanArray = BooleanArray(64))
-    private val watches = HashMap<String, BitWatch>()
-    private var watchSecond = 0L
-    private var watchLines = 0
-    private val watchStart = System.currentTimeMillis()
-    private fun watchBits(bus: Int, id: Int, b: IntArray) {
-        val key = "$bus/$id"
-        val w = watches[key]
-        if (w == null || w.last.size != b.size) { watches[key] = BitWatch(b.copyOf()); return }
-        var same = true
-        for (i in b.indices) if (b[i] != w.last[i]) { same = false; break }
-        if (same) return
-        val now = System.currentTimeMillis()
-        for (i in 0 until minOf(b.size, 8)) {
-            val x = (b[i] xor w.last[i]) and 0xFF
-            if (x == 0) continue
-            for (bit in 0 until 8) {
-                if ((x shr bit) and 1 == 0) continue
-                val k = i * 8 + bit
-                if (w.muted[k]) continue
-                val dt = (now - w.at[k]) / 1000.0
-                val heat = w.heat[k] * Math.pow(0.5, dt / 20.0)
-                w.heat[k] = heat + 1.0; w.at[k] = now
-                if (heat + 1.0 >= 4.0) { w.muted[k] = true; continue }     // flips every few seconds: a counter or a measurement, ignore it from now on
-                if (now - watchStart > 25_000L) {
-                    val sec = now / 1000
-                    if (sec != watchSecond) { watchSecond = sec; watchLines = 0 }
-                    if (++watchLines <= 25) onStatus("door test: 0x" + Integer.toHexString(id).uppercase() + " IBUS$bus byte $i bit $bit -> " + ((b[i] shr bit) and 1) + "  (" + b.joinToString(" ") { String.format("%02X", it and 0xFF) } + ")")
-                }
-            }
-        }
-        w.last = b.copyOf()
     }
 
     private fun decode(s: CanSnapshot, bus: Int, id: Int, b: IntArray): CanSnapshot? {
