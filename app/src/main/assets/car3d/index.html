@@ -23,7 +23,7 @@ const em=(n,c,k)=>{for(const m of mats.get(n)||[])if(m.emissive){m.emissive.setR
 let Z0=0,Z1=1,lastK=-1;const deform=[],nodes=[],_v=new THREE.Vector3(),_m=new THREE.Matrix4();
 const ramp=z=>{const t=(Z1-z)/(Z1-Z0),u=Math.min(1,Math.max(0,(t-BODY_S)/(1-BODY_S)));return u*u*(3-2*u)};
 function applyBody(){
-  const k=BODY_K*tilt;if(Math.abs(k-lastK)<1e-4)return;lastK=k;
+  const k=BODY_K*tilt;if(Math.abs(k-lastK)<.004&&!(k===0&&lastK!==0)&&!(k===BODY_K&&lastK!==BODY_K))return;lastK=k;
   for(const o of deform){const base=o.userData.base,pos=o.geometry.attributes.position,M=o.matrixWorld;_m.copy(M).invert();
     for(let i=0;i<pos.count;i++){_v.set(base[i*3],base[i*3+1],base[i*3+2]).applyMatrix4(M);_v.x*=1-k*ramp(_v.z);_v.applyMatrix4(_m);pos.setXYZ(i,_v.x,_v.y,_v.z)}
     pos.needsUpdate=true;o.geometry.computeVertexNormals()}
