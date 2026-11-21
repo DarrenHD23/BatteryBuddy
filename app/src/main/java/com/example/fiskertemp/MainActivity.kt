@@ -1753,7 +1753,6 @@ class MainActivity : Activity() {
     private var lightShown = false
     private lateinit var testBtn: TextView
     private val SHOW_TEST_BUTTON = false
-    private val SHOW_ANGLE_TEST = true       // developer builds: a slider to set the compass turn by hand and see the car angle. Set to false for a beta.
     private var signTest = false                          // the Test sign button: shows a speed limit sign and a cycling traffic light so they can be checked parked
     private lateinit var exitBtn: Button
     private lateinit var dashStrip: StatusStripView
@@ -1836,8 +1835,6 @@ class MainActivity : Activity() {
     }
     private lateinit var l2FlyBtn: TextView
     private lateinit var roadView: RoadView
-    private var speedTest: Float? = null     // developer test: the speed set by hand for the car and road (null = real speed)
-    private var angleTest: Float? = null     // developer test: the compass turn set by hand (null = off). The car and road then behave as if driving.
     private var car3d: Car3dView? = null
     private lateinit var l2ClimBtn: TextView
     private lateinit var l2MediaBtn: TextView
@@ -2522,36 +2519,6 @@ class MainActivity : Activity() {
         // Set SHOW_TEST_BUTTON to true to bring it back.
         testBtn.visibility = if (SHOW_TEST_BUTTON) View.VISIBLE else View.INVISIBLE
         f.addView(testBtn, FrameLayout.LayoutParams(-2, dp(30), Gravity.TOP or Gravity.START).apply { setMargins(dp(176), dp(14), 0, 0) })
-        if (SHOW_ANGLE_TEST) {
-            val lbl = TextView(this).apply { text = "Compass test: off"; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER }
-            val bar = android.widget.SeekBar(this).apply {
-                max = 60; progress = 30
-                setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
-                    override fun onProgressChanged(sb: android.widget.SeekBar?, p: Int, fromUser: Boolean) {
-                        val a = p - 30
-                        lbl.text = if (a == 0) "Compass test: off" else "Compass test: " + (if (a > 0) "right " else "left ") + Math.abs(a) + "\u00B0"
-                        angleTest = if (a == 0) null else a.toFloat()
-                        roadView.setTestCurve(angleTest)
-                    }
-                    override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
-                    override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
-                })
-            }
-            val lbl2 = TextView(this).apply { text = "Speed test: off"; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER }
-            val bar2 = android.widget.SeekBar(this).apply {
-                max = 120; progress = 0
-                setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
-                    override fun onProgressChanged(sb: android.widget.SeekBar?, p: Int, fromUser: Boolean) {
-                        lbl2.text = if (p == 0) "Speed test: off (real speed)" else "Speed test: $p km/h"
-                        speedTest = if (p == 0) null else p.toFloat()
-                    }
-                    override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
-                    override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
-                })
-            }
-            val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; background = chipBg(12); setPadding(dp(12), dp(6), dp(12), dp(6)); addView(lbl, LinearLayout.LayoutParams(-1, -2)); addView(bar, LinearLayout.LayoutParams(-1, -2)); addView(lbl2, LinearLayout.LayoutParams(-1, -2)); addView(bar2, LinearLayout.LayoutParams(-1, -2)) }
-            f.addView(box, FrameLayout.LayoutParams(dp(280), -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { setMargins(0, dp(6), 0, 0) })
-        }
         updateBtn = TextView(this).apply {
             text = "Update Available"; textSize = 11f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
             setPadding(dp(12), 0, dp(12), 0); visibility = View.GONE
@@ -4218,14 +4185,15 @@ class MainActivity : Activity() {
         }
         val hd = s.headingDeg
         if (l2Applied || l1cApplied) {
-            carView.speedKmh = (s.speedKmh ?: 0.0).toFloat().let { speedTest ?: if (angleTest != null) maxOf(it, 40f) else it }; roadView.speedKmh = carView.speedKmh; roadView.noteHeading(hd)
+            carView.speedKmh = (s.speedKmh ?: 0.0).toFloat(); roadView.speedKmh = carView.speedKmh; roadView.noteHeading(hd)
             run {
                 val alerts = prefs().getBoolean("l2Alerts", true); val nowMs = System.currentTimeMillis()
                 val bFresh = alerts && nowMs - s.bsdAt < 2500
                 carView.bsdL = if (bFresh && s.bsdLeft in 1..3) s.bsdLeft else 0; carView.bsdR = if (bFresh && s.bsdRight in 1..3) s.bsdRight else 0
                 carView.dowL = if (bFresh && s.dowLeft in 1..4) s.dowLeft else 0; carView.dowR = if (bFresh && s.dowRight in 1..4) s.dowRight else 0
                 carView.uss = if (alerts && s.uss != null && nowMs - s.ussAt < 3000) s.uss.toIntArray() else null
-            }; carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true); carView.beamsOn = (s.beamsOn == true); carView.highBeam = (s.highBeamOn == true); carView.leftInd = s.leftInd; carView.rightInd = s.rightInd
+            }; carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true); carView.beamsOn = (s.beamsOn == true); carView.highBeam = (s.highBeamOn == true); carView.leftInd = s.leftInd; carView.rightInd = s.rightInd; carView.redInd = prefs().getString("signStyle", "us") != "eu"
+            car3d?.red = carView.redInd       // USA / Canada: the turn signals glow red, as the rear lamps do on those cars
             car3d?.follow = prefs().getBoolean(if (l2Applied) "l2CarFollow" else "l1CarFollow", true)
             car3d?.push(carView.speedKmh, if (carView.highBeam) 2 else if (carView.beamsOn) 1 else if (carView.headlights) 3 else 0, carView.braking, carView.leftInd, carView.rightInd, carView.reverse, CAR_PAINTS[carView.paintIdx].second)
             if (l2Applied) {

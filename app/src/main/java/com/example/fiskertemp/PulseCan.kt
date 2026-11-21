@@ -158,6 +158,8 @@ class PulseCan(
         snap = snap.copy(regenKwh = 0.0, tripKm = 0.0, tripKwh = 0.0, tripMoveSecs = 0.0, tripStartMs = tripStartMs)
     }
 
+    private var headInvalid = false      // the last 0x179 carried no valid heading
+    private var headNoteAt = 0L
     private val seenFirst = HashSet<String>()      // "bus/id" of the uncommon IDs already reported (reader thread only)
 
     private val held = HashMap<String, String>()   // "bus/id" -> last payload (reader thread only)
@@ -700,7 +702,14 @@ class PulseCan(
         // 0x179 TBOX_0x179 (IBUS1, every 100 ms): vehicle heading, 0.01 degrees per bit
         if (bus == 1 && id == 0x179) {
             val deg = ((b[2] shl 8) or b[3]) * 0.01
-            return s.copy(headingDeg = if (deg <= 359.99) deg else null)
+            val okHead = deg <= 359.99
+            val tn = System.currentTimeMillis()
+            if (okHead == headInvalid && tn - headNoteAt > 5000L) {      // note when the car starts or stops reporting a heading, with the raw bytes
+                headNoteAt = tn
+                onStatus(if (okHead) "compass: the car reports a heading again" else "compass: the car reports no heading (0x179 raw " + String.format("%02X %02X", b[2] and 0xFF, b[3] and 0xFF) + ")")
+            }
+            if (okHead == headInvalid) headInvalid = !okHead
+            return s.copy(headingDeg = if (okHead) deg else null)
         }
         // 0x318 ESP_0x318 (IBUS1, every 20 ms): vehicle speed, 0.1 km/h per bit; ESP_VehSpdVld 2 = fault
         if (bus == 1 && id == 0x318) {
