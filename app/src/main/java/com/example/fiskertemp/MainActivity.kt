@@ -2124,6 +2124,19 @@ class MainActivity : Activity() {
         val u = carView.height / 162f
         val cxc = ca[0] - r[0] + carView.width / 2f
         val lightY = ca[1] - r[1] - carView.translationY + 11f * u - dashLight.height      // the light stays put when the car is nudged down
+        if (l2Applied && ::dashPowerGauge.isInitialized && dashPowerGauge.width > 0) {
+            // Layout 2: the traffic light is overlaid on the other (power) gauge, mirroring the sign: right of its reading, at the sign's height
+            val pg = dashPowerGauge; val pa = IntArray(2); pg.getLocationInWindow(pa)
+            val pd = minOf(pg.width, pg.height) * pg.scaleX
+            val pcx = pa[0] - r[0] + pg.width * pg.scaleX / 2f; val pcy = pa[1] - r[1] + pg.height * pg.scaleY / 2f
+            val lcx = pcx + 0.30f * pd - dp(16)
+            val lcy = pcy - 0.02f * pd + dp(8)
+            dashLight.translationX = lcx - dashLight.width / 2f
+            dashLight.translationY = lcy - dashLight.height / 2f
+            dashLightDist.translationX = lcx - dashLightDist.width / 2f
+            dashLightDist.translationY = lcy + dashLight.height / 2f
+            return
+        }
         dashLight.translationX = cxc - dashLight.width / 2f
         dashLight.translationY = lightY
         dashLightDist.translationX = cxc + dashLight.width / 2f + dp(6)
