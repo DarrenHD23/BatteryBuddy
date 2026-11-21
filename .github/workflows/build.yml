@@ -57,9 +57,6 @@ jobs:
           # (a public pre-release); real releases are made by hand from a beta.
           if git log -1 --pretty=%B | grep -q -F '[beta]'; then
             MSG=$(printf '%s' "$MSG" | sed 's/ *\[beta\]//g')
-            # builds after #351 are untested: say so at the top of every beta's notes
-            WARN="WARNING: builds beyond #351 are NOT tested. Use at your own risk. Recommend staying on build #351 for now."
-            MSG="$WARN"$'\n\n'"$MSG"
             gh release create "build-${{ github.run_number }}" "$NAME" --target "${{ github.sha }}" --title "Build ${{ github.run_number }}" --notes "$MSG" --prerelease
           else
             gh release create "build-${{ github.run_number }}" "$NAME" --target "${{ github.sha }}" --title "Developer build ${{ github.run_number }}" --notes "$MSG" --draft
