@@ -67,6 +67,29 @@ object Updater {
         }
     } catch (e: Exception) { null }
 
+    /** Every release's notes from the first build to the newest, newest first, as (title, notes). Pre-releases only if [beta]; drafts only with the owner's [token]. Null if offline. Call off the main thread. */
+    fun allNotes(beta: Boolean = false, token: String = ""): List<Pair<String, String>>? = try {
+        val dev = token.isNotEmpty()
+        val found = HashMap<Int, Pair<String, String>>()
+        var page = 1
+        while (page <= 20) {
+            val c = open(API + "&page=" + page, token)
+            if (c.responseCode != 200) { if (page == 1) throw RuntimeException("http " + c.responseCode) else break }
+            val arr = JSONArray(c.inputStream.bufferedReader().readText())
+            if (arr.length() == 0) break
+            for (i in 0 until arr.length()) {
+                val r = arr.getJSONObject(i)
+                if (r.optBoolean("draft") && !dev) continue
+                if (r.optBoolean("prerelease") && !beta && !dev) continue
+                val n = r.optString("tag_name").removePrefix("build-").toIntOrNull() ?: continue
+                found[n] = Pair(r.optString("name", "Build $n"), cleanNotes(r.optString("body")))
+            }
+            if (arr.length() < 100) break
+            page++
+        }
+        found.keys.sortedDescending().map { found[it]!! }
+    } catch (e: Exception) { null }
+
     /** Release notes without the commit trailers. */
     fun cleanNotes(raw: String): String =
         raw.lines().filterNot { it.startsWith("Co-Authored-By", true) || it.startsWith("Claude-Session", true) }.joinToString("\n").trim()

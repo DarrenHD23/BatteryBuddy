@@ -1053,6 +1053,10 @@ class MainActivity : Activity() {
             text = "Join the Beta"; isAllCaps = false
             setOnClickListener { showBetaGate() }
         }, 8)
+        box.add(Button(this).apply {
+            text = "Read all Release notes"; isAllCaps = false
+            setOnClickListener { showAllReleaseNotes() }
+        }, 8)
         box.add(TextView(this).apply { text = "SKIN AND LAYOUT"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
         // --- Skin
         box.add(TextView(this).apply { text = "Skin"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
@@ -3792,6 +3796,23 @@ class MainActivity : Activity() {
         updPos?.apply { isEnabled = true; text = "Try again" }
         updNeg?.isEnabled = true
         updateDialog?.setCancelable(true)
+    }
+
+    /** Settings > "Read all Release notes": every release's notes since the first build, newest first. */
+    private fun showAllReleaseNotes() {
+        val light = Color.parseColor("#F0F3F8")
+        val tv = TextView(this).apply { text = "Loading\u2026"; textSize = 14f; setTextColor(light); setLineSpacing(0f, 1.1f) }
+        val sv = ScrollView(this).apply { addView(tv); setPadding(dp(22), dp(10), dp(22), dp(4)) }
+        darkDialog().setTitle("Release notes").setView(sv).setPositiveButton("Close", null).showDark()
+        val beta = prefs().getBoolean("betaOn", false); val tok = prefs().getString("devToken", "") ?: ""
+        Thread {
+            val list = Updater.allNotes(beta, tok)
+            runOnUiThread {
+                tv.text = if (list == null) "Couldn't load the release notes. Check the internet connection and try again."
+                    else if (list.isEmpty()) "No release notes yet."
+                    else list.joinToString("\n\n") { (t, n) -> t + "\n" + n }
+            }
+        }.start()
     }
 
     private fun showUpdateDialog(r: Updater.Release) {
