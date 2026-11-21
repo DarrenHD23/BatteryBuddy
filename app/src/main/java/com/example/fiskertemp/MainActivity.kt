@@ -1531,7 +1531,7 @@ class MainActivity : Activity() {
     /** Layout 2 takes the middle column and the corners over; Original puts everything back where it was. */
     private fun fillMid(l2: Boolean) {
         for (v in listOf<View>(dashReady, dashSlot, dashLightDist, dashBrake, tripSpacer, tripPanel, chargeBar, l2Mid, carView, dashLight, mediaBtn, climateBtn, l2FlyBtn)) (v.parent as? ViewGroup)?.removeView(v)
-        for (v in listOf<View>(dashSlot, dashLight, dashLightDist)) { v.translationX = 0f; v.translationY = 0f }
+        for (v in listOf<View>(dashSlot, dashLight, dashLightDist, carView)) { v.translationX = 0f; v.translationY = 0f }
         if (l2 || !l1cApplied) l2Mid.addView(carView, 0, LinearLayout.LayoutParams(-1, 0, 0.38f))
         if (!l1cApplied || l2) dashSlot.addView(dashLight, 0, FrameLayout.LayoutParams(dp(42), dp(88), Gravity.CENTER))
         if (l2) {
@@ -2106,17 +2106,18 @@ class MainActivity : Activity() {
     /** Layout 1 with the 3D car: the speed sign sits on the speed gauge (left of its reading, wherever the gauges are), the traffic light above the car. */
     private fun placeL1Overlays(root: FrameLayout) {
         if (!l1cApplied || !::dashSlot.isInitialized || !::carView.isInitialized || !::dashSpeedGauge.isInitialized) return
+        carView.translationY = dp(8).toFloat()        // Layout 1: the car sits 8 dp lower
         val g = dashSpeedGauge
         if (g.width <= 0 || carView.width <= 0 || dashSlot.width <= 0) return
         val r = IntArray(2); val ga = IntArray(2); val ca = IntArray(2)
         root.getLocationInWindow(r); g.getLocationInWindow(ga); carView.getLocationInWindow(ca)
         val diam = minOf(g.width, g.height).toFloat()
         val gcx = ga[0] - r[0] + g.width / 2f; val gcy = ga[1] - r[1] + g.height / 2f
-        dashSlot.translationX = gcx - 0.30f * diam - dashSlot.width / 2f
-        dashSlot.translationY = gcy - 0.02f * diam - dashSlot.height / 2f
+        dashSlot.translationX = gcx - 0.30f * diam - dashSlot.width / 2f + dp(10)       // 10 dp toward the reading
+        dashSlot.translationY = gcy - 0.02f * diam - dashSlot.height / 2f + dp(5)
         val u = carView.height / 162f
         val cxc = ca[0] - r[0] + carView.width / 2f
-        val lightY = ca[1] - r[1] + 11f * u - dashLight.height
+        val lightY = ca[1] - r[1] - carView.translationY + 11f * u - dashLight.height      // the light stays put when the car is nudged down
         dashLight.translationX = cxc - dashLight.width / 2f
         dashLight.translationY = lightY
         dashLightDist.translationX = cxc + dashLight.width / 2f + dp(6)
@@ -2474,7 +2475,7 @@ class MainActivity : Activity() {
         }
         f.addView(updateBtn, FrameLayout.LayoutParams(-2, dp(30), Gravity.TOP or Gravity.START).apply { setMargins(dp(160), dp(10), 0, 0) })
         // Layout 2: the live 3D car, a transparent layer over the car square; off (images used instead) when the setting is off or the page fails
-        f.viewTreeObserver.addOnGlobalLayoutListener { syncCar3d(f); placeL1Overlays(f) }
+        f.viewTreeObserver.addOnGlobalLayoutListener { placeL1Overlays(f); syncCar3d(f) }
         return f
     }
 
@@ -3169,7 +3170,7 @@ class MainActivity : Activity() {
             // both are positioned from the real gauge / car bounds in placeL1Overlays (translation only, so nothing else moves)
             val signSz = (wDp * 0.07f).toInt()
             (dashSlot.layoutParams as FrameLayout.LayoutParams).apply { width = dp(signSz); height = dp(signSz); gravity = Gravity.TOP or Gravity.START; setMargins(0, 0, 0, 0) }
-            (dashLight.layoutParams as FrameLayout.LayoutParams).apply { width = dp(36); height = dp(76); gravity = Gravity.TOP or Gravity.START; setMargins(0, 0, 0, 0) }
+            (dashLight.layoutParams as FrameLayout.LayoutParams).apply { width = dp(34); height = dp(72); gravity = Gravity.TOP or Gravity.START; setMargins(0, 0, 0, 0) }
             (dashLightDist.layoutParams as FrameLayout.LayoutParams).apply { width = -2; gravity = Gravity.TOP or Gravity.START; setMargins(0, 0, 0, 0) }
             dashSlot.requestLayout(); dashLight.requestLayout(); dashLightDist.requestLayout()
         } else if (!l2 && statusMode != modeKey) {
