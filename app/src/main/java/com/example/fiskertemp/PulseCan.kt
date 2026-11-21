@@ -55,6 +55,7 @@ data class CanSnapshot(
     val soh12: Double? = null,         // 12V battery state of health, % (0x2AC on IBUS1, byte 1, 0.5)
     val rangeKm: Double? = null,       // estimated range left, km (0x504 on IBUS2, bytes 5-6, 0.1 per bit)
     val beamsOn: Boolean? = null,      // low or high beam on (0x335 byte 5 bits 3-4); the position / daytime lamps do not count: the dashboard theme follows this
+    val highBeamOn: Boolean? = null,   // high beam on (0x335 byte 5 bit 4; the low beam is bit 3 and is off while the high beam is on)
     val headlights: Boolean? = null,   // low beam, high beam or position lamps on (0x335 on IBUS1, byte 5 bits 6-3)
     val lightColor: Int? = null,       // traffic light the car sees ahead: 1 red, 2 amber, 3 green (0x210 on IBUS2); null = none
     val lightDistM: Int? = null,       // distance to it in metres (0x351 on IBUS2, byte 6)
@@ -662,7 +663,7 @@ class PulseCan(
                 onStatus("lamps 0x335 byte5 = 0x" + String.format("%02X", lb) + " = " + Integer.toBinaryString(lb or 0x100).substring(1) + "  (bit3 " + ((lb shr 3) and 1) + ", bit4 " + ((lb shr 4) and 1) + ", bits5-6 field " + ((lb shr 5) and 3) + ", bit7 " + ((lb shr 7) and 1) + ")")
             }
             val lamps = ((b[5] shr 3) and 1) == 1 || ((b[5] shr 4) and 1) == 1 || ((b[5] shr 5) and 3) != 0
-            return s.copy(brakeBcm = ((b[5] shr 7) and 1) == 1, headlights = lamps, beamsOn = ((b[5] shr 3) and 1) == 1 || ((b[5] shr 4) and 1) == 1, rearDefrost = ((b[4] shr 3) and 1) == 1)
+            return s.copy(brakeBcm = ((b[5] shr 7) and 1) == 1, headlights = lamps, highBeamOn = ((b[5] shr 4) and 1) == 1, beamsOn = ((b[5] shr 3) and 1) == 1 || ((b[5] shr 4) and 1) == 1, rearDefrost = ((b[4] shr 3) and 1) == 1)
         }
         // 0x179 TBOX_0x179 (IBUS1, every 100 ms): vehicle heading, 0.01 degrees per bit
         if (bus == 1 && id == 0x179) {
