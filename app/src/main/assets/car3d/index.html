@@ -18,8 +18,18 @@ const target=new THREE.Vector3(0,.55,0);
 const mats=new Map(),rolls=[],steers=[],beams={Dipped:[],High:[]},glows={};let brakeMesh=null;
 let st={speed:0,head:0,turn:0,brake:false,left:false,right:false,rev:false,paint:'#e7e8e3'},tilt=0,spin=0,last=performance.now(),lastDraw=0,dirty=true,loaded=false,size=0;
 const smooth=x=>x*x*(3-2*x);
-const WHEEL_W=.49,WHEEL_S=.81,STEER_K=.93,BEAM_LEN=2.94;     // wheel width / size, how far they turn, driving beam length (parked is 1)
+const WHEEL_W=.49,WHEEL_S=.81,STEER_K=.93,BEAM_LEN=2.94,BODY_K=.18,BODY_S=.35;     // wheel width / size, how far they turn, driving beam length (parked is 1)
 const em=(n,c,k)=>{for(const m of mats.get(n)||[])if(m.emissive){m.emissive.setRGB(...c);m.emissiveIntensity=k}};
+let Z0=0,Z1=1,lastK=-1;const deform=[],nodes=[],_v=new THREE.Vector3(),_m=new THREE.Matrix4();
+const ramp=z=>{const t=(Z1-z)/(Z1-Z0),u=Math.min(1,Math.max(0,(t-BODY_S)/(1-BODY_S)));return u*u*(3-2*u)};
+function applyBody(){
+  const k=BODY_K*tilt;if(Math.abs(k-lastK)<1e-4)return;lastK=k;
+  for(const o of deform){const base=o.userData.base,pos=o.geometry.attributes.position,M=o.matrixWorld;_m.copy(M).invert();
+    for(let i=0;i<pos.count;i++){_v.set(base[i*3],base[i*3+1],base[i*3+2]).applyMatrix4(M);_v.x*=1-k*ramp(_v.z);_v.applyMatrix4(_m);pos.setXYZ(i,_v.x,_v.y,_v.z)}
+    pos.needsUpdate=true;o.geometry.computeVertexNormals()}
+  for(const n of nodes){const z=n.userData.wz!==undefined?n.userData.wz:n.userData.bz,x0=n.userData.x!==undefined?n.userData.x:n.userData.bx;n.userData.fx=x0*(1-k*ramp(z))}
+  for(const n of nodes)if(n.name.startsWith('Steer_'))n.position.x=n.userData.fx;
+}
 function lamps(now){
   const blink=Math.floor(now/380)%2===0,dip=st.head>=1,high=st.head===2;
   for(const s of['L','R']){em('Mat_Head_'+s,[.9,.96,1],dip?2+(high?5:0):0);em('Mat_Tail_'+s,[1,.03,.02],st.brake?3:(dip?1:0));em('Mat_Reverse_'+s,[1,1,1],st.rev?2.5:0)}
@@ -30,7 +40,7 @@ function lamps(now){
   for(const k of['Dipped','High']){const on=k==='Dipped'?dip:high;
     for(const b of beams[k]){b.visible=on;
       if(on){if(!b.userData.p){b.scale.setScalar(1);b.updateMatrixWorld(true);const bx=new THREE.Box3().setFromObject(b);b.userData.p={pos:b.position.clone(),pz:bx.max.z}}
-        const q=b.userData.p,sz=1+(BEAM_LEN-1)*tilt;b.scale.set(1,1,sz);b.position.set(q.pos.x,q.pos.y,q.pz+(q.pos.z-q.pz)*sz)}      // driving: the beam stretches forward from the lamp
+        const q=b.userData.p,sz=1+(BEAM_LEN-1)*tilt;b.scale.set(1,1,sz);b.position.set(q.pos.x+(b.userData.fx!==undefined?b.userData.fx-b.userData.bx:0),q.pos.y,q.pz+(q.pos.z-q.pz)*sz)}      // driving: the beam stretches forward from the lamp
       else b.scale.setScalar(0)}
     for(const m of mats.get('Beam_'+k)||[]){m.transparent=true;m.opacity=on?(k==='High'?.8:.7):0;m.color.set('#e8f5ff');if(m.emissive){m.emissive.setRGB(.65,.75,1);m.emissiveIntensity=on?(k==='High'?2.2:1.4):0}m.depthWrite=false}}
   em('Mat_Indicator_L',[1,.45,0],st.left&&blink?3:0);em('Mat_Indicator_R',[1,.45,0],st.right&&blink?3:0);
@@ -45,6 +55,12 @@ new GLTFLoader().parse(u8.buffer,'',g=>{
     if(/Spot|Anchor/.test(o.name)||o.isLight)o.visible=false;
     const bm=/^Beam_(Dipped|High)_[LR]$/.exec(o.name);if(bm){beams[bm[1]].push(o);o.visible=false;o.scale.setScalar(0)}});
   model.updateMatrixWorld(true);
+  // driving: the body narrows from partway along toward the nose (parked stays as is); front wheels and beams follow it in
+  {const bb=new THREE.Box3().setFromObject(model);Z0=bb.min.z;Z1=bb.max.z;
+   model.traverse(o=>{if(!o.isMesh)return;let p=o,skip=false;while(p){if(/^(Roll_|Steer_|Beam_)/.test(p.name)){skip=true;break}p=p.parent}
+     if(skip)return;o.geometry=o.geometry.clone();o.userData.base=o.geometry.attributes.position.array.slice();deform.push(o)});
+   for(const n of['FL','FR']){const o=model.getObjectByName('Steer_'+n);if(o){o.userData.x=o.position.x;o.userData.wz=new THREE.Vector3().setFromMatrixPosition(o.matrixWorld).z;nodes.push(o)}}
+   for(const k of['Dipped','High'])for(const b of beams[k]){b.userData.bx=b.position.x;b.userData.bz=new THREE.Box3().setFromObject(b).getCenter(new THREE.Vector3()).z;nodes.push(b)}}
   const glowTex=(()=>{const c=document.createElement('canvas');c.width=c.height=64;const x=c.getContext('2d'),g=x.createRadialGradient(32,32,0,32,32,32);g.addColorStop(0,'rgba(255,255,255,1)');g.addColorStop(.25,'rgba(255,255,255,.55)');g.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=g;x.fillRect(0,0,64,64);return new THREE.CanvasTexture(c)})();
   // soft glows on the lamps, always facing the camera, so the lights still show when the car is seen from straight above
   function glow(name,color,size,front,sy,rot){const n=model.getObjectByName(name);if(!n)return null;const b=new THREE.Box3().setFromObject(n),c=b.getCenter(new THREE.Vector3());if(front){c.z=b.min.z-.04;c.x+=(c.x<0?-1:1)*.14}       // front: put it on the very front edge of the lamp (forward is -Z)
@@ -65,7 +81,7 @@ function loop(now){
   tilt+=(g-tilt)*Math.min(1,dt*1.1);if(Math.abs(tilt-g)<.004)tilt=g;
   if(moving){spin-=st.speed/3.6/0.38*dt;for(const r of rolls)r.rotation.x=spin}
   const steer=Math.max(-28,Math.min(28,st.turn))*STEER_K;for(const o of steers)o.rotation.y=-steer*Math.PI/180;     // positive = right turn
-  resize();lamps(now);
+  resize();applyBody();lamps(now);
   const pitch=90+(24-90)*tilt,H=(7.4+(5.0-7.4)*tilt)*150/162/1.2,rad=pitch*Math.PI/180;
   cam.left=-H/2;cam.right=H/2;cam.top=H/2+H*120/150;cam.bottom=-H/2;cam.updateProjectionMatrix();
   cam.position.set(0,target.y+14*Math.sin(rad),14*Math.cos(rad));cam.lookAt(target);
