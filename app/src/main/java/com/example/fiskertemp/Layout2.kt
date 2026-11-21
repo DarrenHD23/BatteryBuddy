@@ -55,6 +55,24 @@ class CarView(ctx: Context) : View(ctx) {
         set(v) { if (field != v) { field = v; invalidate() } }
     var reverse = false
         set(v) { if (field != v) { field = v; invalidate() } }
+    private val glowP = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val lampCache = HashMap<Bitmap, FloatArray?>()
+    /** The centre of the rear lamp in a turn signal sprite (0..1 of the sprite): the lower half of its lit pixels, found once per sprite. */
+    private fun rearLamp(b: Bitmap): FloatArray? {
+        if (lampCache.containsKey(b)) return lampCache[b]
+        val w = b.width; val h = b.height; val px = IntArray(w * h); b.getPixels(px, 0, w, 0, 0, w, h)
+        val ys = ArrayList<Int>()
+        for (i in px.indices) if ((px[i] ushr 24) > 40) ys.add(i / w)
+        var res: FloatArray? = null
+        if (ys.isNotEmpty()) {
+            ys.sort(); val med = ys[ys.size / 2]
+            var sx = 0L; var sy = 0L; var n = 0
+            for (i in px.indices) if ((px[i] ushr 24) > 40 && i / w >= med) { sx += i % w; sy += i / w; n++ }
+            if (n > 0) res = floatArrayOf(sx.toFloat() / n / w, sy.toFloat() / n / h)
+        }
+        lampCache[b] = res
+        return res
+    }
     var redInd = false      // USA / Canada: the turn signal lamps are drawn red instead of orange
     private val redFilter = android.graphics.ColorMatrixColorFilter(floatArrayOf(1f, 0f, 0f, 0f, 0f, 0f, 0.1f, 0f, 0f, 0f, 0f, 0f, 0.45f, 0f, 0f, 0f, 0f, 0f, 1f, 0f))
     var leftInd = false
@@ -220,6 +238,16 @@ class CarView(ctx: Context) : View(ctx) {
         if (leftInd) layer(F_LEFT)       // the car flashes the lamps itself, so these follow its state directly
         if (rightInd) layer(F_RIGHT)
         p.colorFilter = null
+        // a small soft glow on the rear lamp that is flashing: red for USA / Canada, amber for Euro / UK (the same look as the 3D car)
+        fun lampGlow(ids: IntArray) {
+            val a = sprite(ids[if (i1 != i0 && fr > 0.5f) i1 else i0]) ?: return
+            val q = rearLamp(a) ?: return
+            val gx = dst.left + q[0] * dst.width(); val gy = dst.top + q[1] * dst.height(); val gr = dst.width() * 0.085f
+            glowP.shader = RadialGradient(gx, gy, gr, if (redInd) Color.argb(110, 255, 26, 20) else Color.argb(110, 255, 184, 0), Color.argb(0, 255, 60, 0), Shader.TileMode.CLAMP)
+            c.drawCircle(gx, gy, gr, glowP); glowP.shader = null
+        }
+        if (leftInd) lampGlow(F_LEFT)
+        if (rightInd) lampGlow(F_RIGHT)
         }
         drawAlerts(c, cx)
         c.restore()
