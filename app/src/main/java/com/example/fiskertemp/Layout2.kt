@@ -211,7 +211,7 @@ class CarView(ctx: Context) : View(ctx) {
             p.alpha = ((1f - fr) * 255).toInt(); if (a0 != null) c.drawBitmap(a0, null, dst, p)
             p.alpha = (fr * 255).toInt(); c.drawBitmap(a1, null, dst, p); p.alpha = 255
         }
-        if (highBeam || headlights) layer(F_HEAD)
+        if (highBeam || beamsOn) layer(F_HEAD)      // the daytime running lights alone do not light the still-image car
         if (braking) layer(F_BRAKE)
         if (reverse) layer(F_REV)
         if (leftInd || rightInd) {
