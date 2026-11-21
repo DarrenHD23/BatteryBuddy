@@ -43,7 +43,7 @@ function lamps(now){
         const q=b.userData.p,sz=(1+(BEAM_LEN-1)*tilt)*(drl&&k==='Dipped'?DRL_LEN:1);b.scale.set(1,1,sz);b.position.set(q.pos.x+(b.userData.fx!==undefined?b.userData.fx-b.userData.bx:0),q.pos.y,q.pz+(q.pos.z-q.pz)*sz)}      // driving: the beam stretches forward from the lamp
       else b.scale.setScalar(0)}
     for(const m of mats.get('Beam_'+k)||[]){m.transparent=true;m.opacity=on?(k==='High'?.8:(drl?.7*DRL_BRIGHT:.7)):0;m.color.set('#e8f5ff');if(m.emissive){m.emissive.setRGB(.65,.75,1);m.emissiveIntensity=on?(k==='High'?2.2:(drl?1.4*DRL_BRIGHT:1.4)):0}m.depthWrite=false}}
-  em('Mat_Indicator_L',[1,.45,0],st.left&&blink?3:0);em('Mat_Indicator_R',[1,.45,0],st.right&&blink?3:0);
+  em('Mat_Indicator_L',[1,.45,0],st.left?3:0);em('Mat_Indicator_R',[1,.45,0],st.right?3:0);
 }
 function paint(){for(const m of mats.get('Paint_Body')||[]){m.color.set(st.paint);m.metalness=.1;m.roughness=.76;if('clearcoat'in m)m.clearcoat=0}}
 function resize(){const w=cv.clientWidth,h=cv.clientHeight;if(!w||!h)return;const r=Math.min(window.devicePixelRatio||1,2);if(size!==w*1000+h){size=w*1000+h;renderer.setPixelRatio(r);renderer.setSize(w,h,false);dirty=true}}
@@ -77,7 +77,7 @@ function loop(now){
   if(now-lastDraw<33)return;                          // about 30 fps
   const dt=Math.min(.1,(now-last)/1000);last=now;lastDraw=now;
   const g=smooth(Math.min(1,st.speed/10));
-  const moving=st.speed>.5,settling=Math.abs(tilt-g)>.003,blinking=st.left||st.right;
+  const moving=st.speed>.5,settling=Math.abs(tilt-g)>.003,blinking=false;
   if(!(moving||settling||blinking||dirty))return;     // idle: draw nothing
   tilt+=(g-tilt)*Math.min(1,dt*1.1);if(Math.abs(tilt-g)<.004)tilt=g;
   if(moving){spin-=st.speed/3.6/0.38*dt;for(const r of rolls)r.rotation.x=spin}

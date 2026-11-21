@@ -97,6 +97,8 @@ data class CanSnapshot(
     val climFault: Boolean = false,
     val climLimited: Boolean = false,
     val climRemote: Int = 0,               // 0 standby, 1 remote A/C working, 2 fault
+    val leftInd: Boolean = false,          // left turn signal lamp lit right now (0x335 byte 4 bit 6; flashes with the car, both sides for hazards)
+    val rightInd: Boolean = false,         // right turn signal lamp lit right now (0x335 byte 4 bit 7)
     val rearDefrost: Boolean? = null,      // rear window heater on (0x335 BCM_ReDefrstHeatgCmd, IBUS1), status only
     val wheelHeat: Boolean? = null,        // heated steering wheel on (0x386 BCM_HeatedSteerWhlSt, IBUS1); null = not received
     val packKw: Double? = null,            // battery power, kW, positive = drawing (0xE9 on IBUS2, or 0x2F4 on IBUS1 when 0xE9 is filtered out)
@@ -158,7 +160,6 @@ class PulseCan(
 
     private val seenFirst = HashSet<String>()      // "bus/id" of the uncommon IDs already reported (reader thread only)
 
-    private var lastFull335 = ""      // indicator test: the last whole 0x335 message that was logged
     private val held = HashMap<String, String>()   // "bus/id" -> last payload (reader thread only)
 
     companion object {
@@ -656,17 +657,8 @@ class PulseCan(
         }
         // 0x335 BCM_0x335 (IBUS1): BCM_BrkLampOutpCmd, the brake lamp output command (1 = on)
         if (bus == 1 && id == 0x335) {
-            // indicator test: log the 0x335 message whenever bytes 2-7 change (byte 0 is a checksum and byte 1 a rolling counter, which change every frame)
-            val body = (2 until 8).joinToString(" ") { String.format("%02X", b[it] and 0xFF) }
-            if (body != lastFull335) {
-                val prev = lastFull335.split(" ")
-                val now = body.split(" ")
-                val ch = now.indices.filter { prev.size != now.size || prev[it] != now[it] }.map { it + 2 }.joinToString(",")
-                lastFull335 = body
-                onStatus("0x335 bytes 2-7 = $body  (changed: byte $ch)")
-            }
             val lamps = ((b[5] shr 3) and 1) == 1 || ((b[5] shr 4) and 1) == 1 || ((b[5] shr 5) and 3) != 0
-            return s.copy(brakeBcm = ((b[5] shr 7) and 1) == 1, headlights = lamps, highBeamOn = ((b[5] shr 3) and 1) == 1, beamsOn = ((b[5] shr 3) and 1) == 1 || ((b[5] shr 4) and 1) == 1, rearDefrost = ((b[4] shr 3) and 1) == 1)
+            return s.copy(brakeBcm = ((b[5] shr 7) and 1) == 1, headlights = lamps, highBeamOn = ((b[5] shr 3) and 1) == 1, beamsOn = ((b[5] shr 3) and 1) == 1 || ((b[5] shr 4) and 1) == 1, rearDefrost = ((b[4] shr 3) and 1) == 1, leftInd = ((b[4] shr 6) and 1) == 1, rightInd = ((b[4] shr 7) and 1) == 1)
         }
         // 0x179 TBOX_0x179 (IBUS1, every 100 ms): vehicle heading, 0.01 degrees per bit
         if (bus == 1 && id == 0x179) {

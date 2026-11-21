@@ -214,17 +214,12 @@ class CarView(ctx: Context) : View(ctx) {
         if (highBeam || beamsOn) layer(F_HEAD)      // the daytime running lights alone do not light the still-image car
         if (braking) layer(F_BRAKE)
         if (reverse) layer(F_REV)
-        if (leftInd || rightInd) {
-            if ((SystemClock.uptimeMillis() / 380) % 2 == 0L) {
-                if (leftInd) layer(F_LEFT)
-                if (rightInd) layer(F_RIGHT)
-            }
-        }
+        if (leftInd) layer(F_LEFT)       // the car flashes the lamps itself, so these follow its state directly
+        if (rightInd) layer(F_RIGHT)
         }
         drawAlerts(c, cx)
         c.restore()
         if (bsdL > 0 || bsdR > 0 || dowL > 0 || dowR > 0) postInvalidateDelayed(40)
-        if (leftInd || rightInd) postInvalidateDelayed(120)
         animating = shown > 0f || target > 0f || tilt != g
         if (animating) postInvalidateDelayed(30)
     }
