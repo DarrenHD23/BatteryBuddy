@@ -3139,11 +3139,12 @@ class MainActivity : Activity() {
                 dashMid.addView(dashReady, 0, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
                 dashMid.addView(dashBrake, 1, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
             }
-            // the speed sign sits in the gap left of the road lines, the traffic light (and its distance) in the gap on the right, a little higher
-            val gap = dp((wDp * 0.268f).toInt())
-            (dashSlot.layoutParams as FrameLayout.LayoutParams).apply { width = dp(72); height = dp(92); gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; setMargins(0, dp(topM + 34), gap, 0) }
-            (dashLight.layoutParams as FrameLayout.LayoutParams).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; setMargins(gap, dp(topM + 10), 0, 0) }
-            (dashLightDist.layoutParams as FrameLayout.LayoutParams).apply { width = dp(72); gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; setMargins(gap, dp(topM + 10 + 90), 0, 0) }
+            // the speed sign and the traffic light both sit left of the road lines, in the gap beside the left gauge; positions are fractions of the screen
+            val signSz = (wDp * 0.055f).toInt()
+            fun leftOf(centreFrac: Float) = dp((wDp * 2f * (0.5f - centreFrac)).toInt())      // right margin that puts a top-centred view's centre at this fraction of the width
+            (dashSlot.layoutParams as FrameLayout.LayoutParams).apply { width = signSz; height = signSz; gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; setMargins(0, dp((hDp * 0.255f).toInt()), leftOf(0.345f + 0.055f / 2f), 0) }
+            (dashLight.layoutParams as FrameLayout.LayoutParams).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; setMargins(0, dp((hDp * 0.175f).toInt()), leftOf(0.345f + 0.035f), 0) }
+            (dashLightDist.layoutParams as FrameLayout.LayoutParams).apply { width = dp(72); gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; setMargins(0, dp((hDp * 0.175f).toInt() + 90), leftOf(0.345f + 0.035f), 0) }
             dashSlot.requestLayout(); dashLight.requestLayout(); dashLightDist.requestLayout()
         } else if (!l2 && statusMode != modeKey) {
             statusMode = modeKey
@@ -3499,7 +3500,7 @@ class MainActivity : Activity() {
             (dashReady.layoutParams as? FrameLayout.LayoutParams)?.apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(2) }
             (dashBrake.layoutParams as? FrameLayout.LayoutParams)?.apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(28); leftMargin = 0 }
         }
-        (dashSign.layoutParams as FrameLayout.LayoutParams).apply { val sz = if (l2) 58 else if (midLevel == 2) 38 else if (short) 48 else 64; width = dp(sz); height = dp(sz) }
+        (dashSign.layoutParams as FrameLayout.LayoutParams).apply { val sz = if (l1c) (wDp * 0.055f).toInt() else if (l2) 58 else if (midLevel == 2) 38 else if (short) 48 else 64; width = dp(sz); height = dp(sz) }
         poolBar.requestLayout(); lowerBox.requestLayout()
         dashSignSrc.visibility = if (midLevel == 0) View.VISIBLE else View.GONE
         dashStrip.requestLayout(); dashRow.requestLayout(); dashGaugeRow.requestLayout(); dashLight.requestLayout(); dashSign.requestLayout()
