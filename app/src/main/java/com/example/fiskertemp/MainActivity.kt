@@ -2125,7 +2125,8 @@ class MainActivity : Activity() {
         root.getLocationInWindow(r); g.getLocationInWindow(ga); carView.getLocationInWindow(ca)
         val diam = minOf(g.width, g.height) * g.scaleX           // Layout 2 draws the gauges 10% bigger (scale about the centre)
         val gcx = ga[0] - r[0] + g.width * g.scaleX / 2f; val gcy = ga[1] - r[1] + g.height * g.scaleY / 2f
-        dashSlot.translationX = gcx - 0.30f * diam - dashSlot.width / 2f + dp(16)       // 16 dp toward the reading
+        // Layout 1: left of the reading; Layout 2: the other side, right of the reading (the mirror image)
+        dashSlot.translationX = if (l2Applied) gcx + 0.30f * diam - dashSlot.width / 2f - dp(16) else gcx - 0.30f * diam - dashSlot.width / 2f + dp(16)       // 16 dp toward the reading
         dashSlot.translationY = gcy - 0.02f * diam - dashSlot.height / 2f + dp(8)
         val u = carView.height / 162f
         val cxc = ca[0] - r[0] + carView.width / 2f
@@ -3549,7 +3550,7 @@ class MainActivity : Activity() {
             (dashReady.layoutParams as? FrameLayout.LayoutParams)?.apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(2) }
             (dashBrake.layoutParams as? FrameLayout.LayoutParams)?.apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(28); leftMargin = 0 }
         }
-        (dashSign.layoutParams as FrameLayout.LayoutParams).apply { val sz = if (l1c || l2) (wDp * 0.07f).toInt() else if (midLevel == 2) 38 else if (short) 48 else 64; width = dp(sz); height = dp(sz) }
+        (dashSign.layoutParams as FrameLayout.LayoutParams).apply { val sz = if (l2) (wDp * 0.06f).toInt() else if (l1c) (wDp * 0.07f).toInt() else if (midLevel == 2) 38 else if (short) 48 else 64; width = dp(sz); height = dp(sz) }
         poolBar.requestLayout(); lowerBox.requestLayout()
         dashSignSrc.visibility = if (midLevel == 0 || l1c || l2) View.VISIBLE else View.GONE
         dashStrip.requestLayout(); dashRow.requestLayout(); dashGaugeRow.requestLayout(); dashLight.requestLayout(); dashSign.requestLayout()
