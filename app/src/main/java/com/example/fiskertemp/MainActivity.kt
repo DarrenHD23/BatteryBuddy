@@ -1195,23 +1195,6 @@ class MainActivity : Activity() {
         val sgp = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL; addView(sus); addView(seu) }
         sgp.setOnCheckedChangeListener { _, checkedId -> prefs().edit().putString("signStyle", if (checkedId == seu.id) "eu" else "us").apply() }
         box.add(sgp, 6)
-        box.add(TextView(this).apply { text = "LAYOUT 1"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
-        box.add(CheckBox(this).apply {
-            text = "Show the 3D car in the middle instead of the Trip Information (small trip readouts go under the car; the Climate screen uses the 3D car too)"; isChecked = prefs().getBoolean("l1Car3d", false)
-            setOnCheckedChangeListener { _, on ->
-                prefs().edit().putBoolean("l1Car3d", on).apply()
-                if (::climateView.isInitialized) { climateView.l1Car3d = on; climateView.invalidate() }
-                relayout()
-            }
-        }, 4)
-        box.add(CheckBox(this).apply {
-            text = "Hide the \"Brake light on\" message"; isChecked = prefs().getBoolean("hideBrakeNote1", false)
-            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideBrakeNote1", on).apply() }
-        }, 4)
-        box.add(CheckBox(this).apply {
-            text = "Hide the trip information"; isChecked = prefs().getBoolean("hideTrip", false)
-            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideTrip", on).apply(); relayout() }
-        }, 4)
         box.add(TextView(this).apply { text = "DASHBOARD"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
         box.add(CheckBox(this).apply {
             text = "Show the dashboard when the app starts"; isChecked = prefs().getBoolean("dashDefault", false)
@@ -1299,6 +1282,23 @@ class MainActivity : Activity() {
             text = "Speedometer Adjustment"; isAllCaps = false
             setOnClickListener { showSpeedAdjust() }
         }, 8)
+        box.add(TextView(this).apply { text = "LAYOUT 1 OPTIONS"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
+        box.add(CheckBox(this).apply {
+            text = "Show the 3D car in the middle instead of the Trip Information (small trip readouts go under the car; the Climate screen uses the 3D car too)"; isChecked = prefs().getBoolean("l1Car3d", false)
+            setOnCheckedChangeListener { _, on ->
+                prefs().edit().putBoolean("l1Car3d", on).apply()
+                if (::climateView.isInitialized) { climateView.l1Car3d = on; climateView.invalidate() }
+                relayout()
+            }
+        }, 4)
+        box.add(CheckBox(this).apply {
+            text = "Hide the \"Brake light on\" message"; isChecked = prefs().getBoolean("hideBrakeNote1", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideBrakeNote1", on).apply() }
+        }, 4)
+        box.add(CheckBox(this).apply {
+            text = "Hide the trip information"; isChecked = prefs().getBoolean("hideTrip", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideTrip", on).apply(); relayout() }
+        }, 4)
         box.add(TextView(this).apply { text = "LAYOUT 2 OPTIONS"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
         box.add(CheckBox(this).apply {
             text = "Layout 2: show the climate screen under the cards"; isChecked = prefs().getBoolean("l2Climate", true)
@@ -1620,6 +1620,7 @@ class MainActivity : Activity() {
         val cur = prefs().getInt("layout", 1)
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), dp(8)) }
         lateinit var d: AlertDialog
+        var picked = false      // choosing one goes straight to the dashboard; Close goes back to Settings
         val items = listOf(
             Triple(1, "Original", "Gauges either side, trip information in the middle."),
             Triple(2, "Layout 2", "Car, compass and app shortcuts in the middle, speed limit sign by the speed gauge, battery bar under the power gauge. Used when the window is at least about 640 dp wide; narrower windows keep Original."),
@@ -1637,12 +1638,12 @@ class MainActivity : Activity() {
                     LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
                 addView(TextView(context).apply { text = name + if (sel) "  \u2713" else ""; textSize = 16f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD; setPadding(0, dp(8), 0, 0) })
                 addView(TextView(context).apply { text = note; textSize = 12f; setTextColor(Color.parseColor("#B8C2D0")) })
-                setOnClickListener { chooseLayout(id, backToSettings); d.dismiss() }
+                setOnClickListener { picked = true; chooseLayout(id, false); d.dismiss() }
             }
             col.addView(card, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(12) })
         }
         d = darkDialog().setTitle("Layout").setView(ScrollView(this).apply { addView(col) }).setNegativeButton("Close", null).create()
-        if (backToSettings) d.setOnDismissListener { if (!layoutRecreating) ui.post { showSettings() } }   // opened from Settings: go back there, not to the dashboard
+        if (backToSettings) d.setOnDismissListener { if (!picked && !layoutRecreating) ui.post { showSettings() } }   // closed without choosing: back to Settings
         d.show()
         styleDark(d)
     }
@@ -1651,6 +1652,7 @@ class MainActivity : Activity() {
         val cur = Skins.current
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), dp(8)) }
         lateinit var d: AlertDialog
+        var picked = false      // choosing one goes straight to the dashboard; Close goes back to Settings
         for (sk in Skins.list) {
             val sel = sk.id == cur
             val card = LinearLayout(this).apply {
@@ -1664,12 +1666,12 @@ class MainActivity : Activity() {
                     LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
                 addView(TextView(context).apply { text = sk.name + if (sel) "  \u2713" else ""; textSize = 16f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD; setPadding(0, dp(8), 0, 0) })
                 addView(TextView(context).apply { text = sk.note; textSize = 12f; setTextColor(Color.parseColor("#B8C2D0")) })
-                setOnClickListener { chooseSkin(sk.id); d.dismiss() }
+                setOnClickListener { picked = true; chooseSkin(sk.id); d.dismiss() }
             }
             col.addView(card, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(12) })
         }
         d = darkDialog().setTitle("Skin").setView(ScrollView(this).apply { addView(col) }).setNegativeButton("Close", null).create()
-        if (backToSettings) d.setOnDismissListener { ui.post { showSettings() } }
+        if (backToSettings) d.setOnDismissListener { if (!picked) ui.post { showSettings() } }
         d.show()
         styleDark(d)
     }
