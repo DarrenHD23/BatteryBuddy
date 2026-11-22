@@ -761,6 +761,11 @@ class MainActivity : Activity() {
                 EventLog.add("Climate air direction test: $mode: $msg")
                 toast(msg)
             }
+            onRearDefrost = { on ->
+                val msg = pulse?.sendRearDefrost(on) ?: "CAN reader is not running"
+                EventLog.add("Rear defrost: $msg")
+                toast(msg)
+            }
             onWheel = {
                 val msg = pulse?.sendWheelHeat() ?: "CAN reader is not running"
                 EventLog.add("Heated wheel test: $msg")
@@ -1444,8 +1449,8 @@ class MainActivity : Activity() {
             setOnClickListener { Thread { val r = rootCheck(); ui.post { toast(r ?: "Root access is working (${Root.describe()})") } }.start() }
         }, 8)
         box.add(CheckBox(this).apply {
-            text = "TEST: let the Climate screen control the car: power, temperature, fan speed, air direction, A/C, defrost, recirc, sync, auto and the heated wheel. This SENDS commands onto the car's CAN bus (everything else in the app stays read-only). Takes effect after the app restarts"
-            isChecked = prefs().getBoolean("climateTx", false)
+            text = "Let the Climate screen control the car: power, temperature, fan speed, air direction, A/C, front and rear defrost, recirc, sync, auto, the heated wheel and seat heating. This SENDS commands onto the car's CAN bus (everything else in the app stays read-only). On by default; untick it to make the app read-only again. Takes effect after the app restarts"
+            isChecked = prefs().getBoolean("climateTx", true)
             setOnCheckedChangeListener { _, on ->
                 prefs().edit().putBoolean("climateTx", on).apply()
                 EventLog.add("Setting: climate fan test control " + (if (on) "ON" else "off"))
@@ -3027,7 +3032,7 @@ class MainActivity : Activity() {
     private fun openClimate() {
                 climateView.snap = canSnap; climateView.fahrenheit = useFahrenheit
                 applyClimateColors()
-                climateView.fanControl = prefs().getBoolean("climateTx", false)
+                climateView.fanControl = prefs().getBoolean("climateTx", true)
                 placeClimate()
                 climateView.bringToFront(); climateView.visibility = View.VISIBLE
                 if (::cautionView.isInitialized && cautionView.visibility == View.VISIBLE) cautionView.bringToFront()   // the beta notice stays on top
@@ -6669,6 +6674,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         set(v) { field = v; invalidate() }
     var onFan: ((Int) -> Unit)? = null
     var onWheel: (() -> Unit)? = null
+    var onRearDefrost: ((Boolean) -> Unit)? = null     // true = switch the rear window heater on
+    private var fanPend = -1; private var fanPendAt = 0L
     private val wheelRect = RectF()
     private val fanMinus = RectF()
     private val fanPlus = RectF()
@@ -7413,6 +7420,18 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val tw0 = p.measureText(label)
         val ly = bt + barsH + labH * 0.55f
         fanRect.set(x0 - dp(24f), bt - dp(6f), x0 + 7 * bw + 6 * bg + dp(24f), ly + dp(16f))
+        // - and + for the fan speed, either side of the bars
+        run {
+            val br = dp(if (small) 13f else 15f); val fy = bt + barsH * 0.5f
+            val mx = x0 - dp(16f) - br; val px = x0 + 7 * bw + 6 * bg + dp(16f) + br
+            for ((fx, sym) in listOf(mx to "\u2212", px to "+")) {
+                p.style = Paint.Style.FILL; p.color = Color.argb(40, 255, 255, 255); canvas.drawCircle(fx, fy, br, p)
+                p.style = Paint.Style.STROKE; p.strokeWidth = dp(1.3f); p.color = Color.argb(110, 255, 255, 255); canvas.drawCircle(fx, fy, br, p)
+                text(sym, fx, fy, if (small) 18f else 22f, Color.WHITE, true)
+            }
+            val hr = br + dp(8f)
+            fanMinus.set(mx - hr, fy - hr, mx + hr, fy + hr); fanPlus.set(px - hr, fy - hr, px + hr, fy + hr)
+        }
         fan(cx - tw0 / 2 - dp(14f), ly, dp(if (small) 7f else 9f), Color.argb(190, 255, 255, 255))
         text(label, cx + dp(8f), ly, if (small) 13f else 15f, Color.WHITE, true)
     }
@@ -7722,7 +7741,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     /** The short version for Layout 2: driver and passenger temperatures with - / +, then one row of function tiles. */
     private fun drawCompact(w: Float, h: Float, s: CanSnapshot) {
         closeRect.set(-1e4f, -1e4f, -1e4f + 1f, -1e4f + 1f); closeRect2.set(1e4f, 1e4f, 1e4f + 1f, 1e4f + 1f)
-        powerRect.setEmpty(); fanRect.setEmpty(); carRect.setEmpty(); wheelRect.setEmpty(); btnRects.clear(); carZones.clear()
+        powerRect.setEmpty(); fanRect.setEmpty(); fanMinus.setEmpty(); fanPlus.setEmpty(); carRect.setEmpty(); wheelRect.setEmpty(); btnRects.clear(); carZones.clear()
         tempBtns.clear(); tempBtnInfo.clear(); modeRects.clear(); seatRects.clear(); seatWho.clear()
         val m = dp(10f); val gap = dp(6f); val pad = dp(6f)
         val topH = (h * 0.40f).coerceIn(dp(38f), dp(64f))
@@ -7865,8 +7884,23 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             if (bi >= 0) { lastFanTap = System.currentTimeMillis(); onButton?.invoke(bi); return true }
         }
         if (fanControl && !wheelRect.isEmpty() && wheelRect.contains(e.x, e.y) && System.currentTimeMillis() - lastFanTap > 600) { lastFanTap = System.currentTimeMillis(); onWheel?.invoke(); return true }
-        if (!fanRect.isEmpty() && fanRect.contains(e.x, e.y)) { showNotice("Please use the button bar below the screen to adjust fan speed"); return true }
-        if (!rearRect.isEmpty() && rearRect.contains(e.x, e.y)) { showNotice("Please use the button bar below the screen to adjust Rear Defrost"); return true }
+        for ((fr, dir) in listOf(fanMinus to -1, fanPlus to 1)) if (!fr.isEmpty && fr.contains(e.x, e.y)) {
+            val now = System.currentTimeMillis()
+            if (!fanControl) { showNotice("Tick the climate control option in Settings to change the fan speed here"); return true }
+            if (now - lastFanTap < 250) return true
+            lastFanTap = now
+            val base = if (fanPend >= 0 && now - fanPendAt < 2500) fanPend else snap.climFan
+            val t = (base + dir).coerceIn(1, 7)
+            if (dir < 0 && base <= 1) return true       // below 1 is off: that is the power button
+            fanPend = t; fanPendAt = now; onFan?.invoke(t)
+            return true
+        }
+        if (!fanRect.isEmpty() && fanRect.contains(e.x, e.y)) { showNotice("Use the \u2212 and + buttons to change the fan speed"); return true }
+        if (!rearRect.isEmpty() && rearRect.contains(e.x, e.y)) {
+            if (!fanControl) { showNotice("Tick the climate control option in Settings to use rear defrost here"); return true }
+            if (System.currentTimeMillis() - lastFanTap > 600) { lastFanTap = System.currentTimeMillis(); onRearDefrost?.invoke(snap.rearDefrost != true) }
+            return true
+        }
         val cz = carZones.indexOfFirst { it.first.contains(e.x, e.y) }
         if (cz >= 0) { carZoneTap(carZones[cz].second); invalidate(); return true }
         if (!carRect.isEmpty()) {

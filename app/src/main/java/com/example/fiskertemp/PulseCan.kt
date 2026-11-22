@@ -313,6 +313,30 @@ class PulseCan(
     private val txLock = Any()
 
     /**
+     * Rear window defrost on or off. 0x4E (the screen's body message, IBUS1) with every signal idle and ICC_ReDefrstOpenReq (byte 5, bits 5-4)
+     * set to 1 (on) or 2 (off), sent three times 20 ms apart; then the idle frame again after 200 ms, as the car screen does. From the
+     * Oceanfront view's DBC and its sender. The state comes back in 0x335 (rearDefrost).
+     */
+    fun sendRearDefrost(on: Boolean): String {
+        if (!txActive) return "Control is off: tick it in Settings and restart the app"
+        val ifs = txIfaces ?: return "CAN reader not running"
+        val out = txOut ?: return "CAN reader not running"
+        val req = String.format("%02X", if (on) 0x10 else 0x20)
+        val ask = "tx ${ifs.first} 4E 000000007F${req}0000\n"
+        val idle = "tx ${ifs.first} 4E 000000007F000000\n"
+        Thread {
+            synchronized(txLock) {
+                try {
+                    for (i in 0 until 3) { out.write(ask.toByteArray()); out.flush(); if (i < 2) Thread.sleep(20) }
+                    Thread.sleep(180)
+                    out.write(idle.toByteArray()); out.flush()
+                } catch (e: Exception) { onStatus("Rear defrost TX failed: ${e.message}") }
+            }
+        }.start()
+        return "Rear defrost ${if (on) "on" else "off"} requested on IBUS1"
+    }
+
+    /**
      * Ask for fan level 1-7. The frame is the car screen's own last 0x530 with every momentary request bit cleared
      * (A/C, AUTO, SYNC, recirculation, air clean, defrost, windshield blow) and only the fan field set, sent a few times on the
      * bus where that screen's 0x530 was seen. The A/C unit's 0x373 status shows whether it was accepted.
@@ -335,8 +359,11 @@ class PulseCan(
         Thread {
             synchronized(txLock) {
                 try {
-                    // one frame only: repeating it made the car keep stepping the fan up to 7
+                    // one request frame, then (as the car screen does) the same message released after 200 ms; repeating the request made the car keep stepping the fan up to 7
                     out.write(line.toByteArray()); out.flush()
+                    Thread.sleep(200)
+                    val rel = d.copyOf(); rel[3] = rel[3] and 0x80          // fan request inactive, every button request off
+                    out.write(("tx $iface 530 " + rel.joinToString("") { String.format("%02X", it and 0xFF) } + "\n").toByteArray()); out.flush()
                 } catch (e: Exception) { onStatus("Climate TX failed: ${e.message}") }
             }
         }.start()
@@ -551,10 +578,10 @@ class PulseCan(
                     if (why == null) filtersDone = true
                     onStatus(if (why == null) "CAN filters: $filterReadback" else "CAN filters not changed: $why")
                 }
-                txActive = context.getSharedPreferences("prefs", Context.MODE_PRIVATE).getBoolean("climateTx", false)
+                txActive = context.getSharedPreferences("prefs", Context.MODE_PRIVATE).getBoolean("climateTx", true)
                 val base = listOf(bin, "$b1=382,2F5,2F4,554,318,179,234,335,343,2AC,373,507,6DD,1A9,5EA,505,530,534,386,528,512,518", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534,528,313,315,352")
                 // transmit is allowed only for 0x530, 0x528 and 0x534 and only when the test is ticked in Settings; otherwise the helper is receive-only
-                val args = if (txActive) base + listOf("tx:$b1=530,528,534", "tx:$b2=530,528,534") else base
+                val args = if (txActive) base + listOf("tx:$b1=530,528,534,4E", "tx:$b2=530,528,534") else base
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
