@@ -2231,9 +2231,9 @@ class MainActivity : Activity() {
             target -= dp(4)
             val kH = (target - carTop) / carView.height
             kTo = minOf(if (noCards) maxOf(kW, 1.4f * carView.width / (114f * u0)) else kW, kH, if (noCards) 3.2f else 1.8f).coerceAtLeast(1f)
-            // the live 3D car's view is 2.4 car-squares wide (room for the headlight beams); if the screen cannot hold that the car is squeezed sideways and looks stretched, so stop growing before then
+            // the live 3D car's view is 2.4 car-squares wide (room for the headlight beams) and may run past the screen edges; cap it at a width the graphics can draw
             val c3 = car3d
-            if (c3 != null && c3.live) kTo = minOf(kTo, dashRoot.width / 2.4f / (150f * u0)).coerceAtLeast(1f)
+            if (c3 != null && c3.live) kTo = minOf(kTo, 2600f / (2.4f * 150f * u0)).coerceAtLeast(1f)      // (keeps the 3D view's width within what the graphics can draw)
             dyTo = (target - carTop - kTo * carView.height).coerceAtLeast(0f)
         return floatArrayOf(kTo, dyTo)
     }
@@ -2350,7 +2350,8 @@ class MainActivity : Activity() {
         val y = b[1] - a[1] + (3f * u).toInt() - extra
         val lp = v.layoutParams as FrameLayout.LayoutParams
         // the view is wider than the car square (room each side for the headlight beams, which may reach over the road edges and the gauges); the car stays in the middle of it
-        val pad = (side * 0.7f).toInt().coerceAtMost(x).coerceAtMost(root.width - x - side).coerceAtLeast(0)
+        // (in the ADAS view the beam room may run past the screen edges instead of being squeezed, which would stretch the car)
+        val pad = if (adasMode) (side * 0.7f).toInt() else (side * 0.7f).toInt().coerceAtMost(x).coerceAtMost(root.width - x - side).coerceAtLeast(0)
         if (lp.width != side + 2 * pad || lp.height != side + extra || lp.leftMargin != x - pad || lp.topMargin != y) {
             lp.width = side + 2 * pad; lp.height = side + extra; lp.leftMargin = x - pad; lp.topMargin = y; v.layoutParams = lp
         }
