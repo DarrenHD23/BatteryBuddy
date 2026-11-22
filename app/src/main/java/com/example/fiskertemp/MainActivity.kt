@@ -1846,6 +1846,7 @@ class MainActivity : Activity() {
     private var adasDy = 0f
     private var adasAnim: android.animation.ValueAnimator? = null
     private var adasHint: TextView? = null
+    private var adasBar: View? = null
     private var adasHintDone = false
     private val adasHidden = ArrayList<View>()
     private lateinit var objView: ObjectsView
@@ -2144,6 +2145,25 @@ class MainActivity : Activity() {
 
     private fun wantLive3d(): Boolean = prefs().getBoolean("l2Live3d", true)
 
+    /** The swipe bar at the very top, just left of the road (full screen, Layouts 1 and 2): where to start the swipe down. */
+    private fun placeAdasBar(root: FrameLayout) {
+        val show = (l1cApplied || l2Applied) && isFullWindow() && carView.width > 0 && dashMid.width > 0
+        var b = adasBar
+        if (b == null) {
+            if (!show) return
+            b = View(this).apply { background = GradientDrawable().apply { setColor(Color.argb(190, 255, 255, 255)); cornerRadius = dp(3).toFloat() }; isClickable = false }
+            root.addView(b, FrameLayout.LayoutParams(dp(56), dp(6), Gravity.TOP or Gravity.START).apply { topMargin = dp(5) })
+            adasBar = b
+        }
+        b.visibility = if (show) View.VISIBLE else View.GONE
+        if (!show) return
+        val r = IntArray(2); val ma = IntArray(2)
+        root.getLocationInWindow(r); dashMid.getLocationInWindow(ma)
+        val cx = ma[0] - r[0] + dashMid.width / 2f
+        val roadLeft = cx - 86f * carView.height / 162f
+        b.translationX = (roadLeft - dp(14) - dp(56)).coerceAtLeast(dp(8).toFloat())
+    }
+
     /** Once per start: fades a hint about the swipe-down ADAS view in at the top of the dashboard for 4 seconds, then out. */
     private fun maybeShowAdasHint() {
         if (adasHintDone || !::dashRoot.isInitialized || !dashShown || !(l2Applied || l1cApplied) || !isFullWindow() || dashRoot.width <= 0) return
@@ -2220,6 +2240,7 @@ class MainActivity : Activity() {
     /** Layout 1 with the 3D car: the speed sign sits on the speed gauge (left of its reading, wherever the gauges are), the traffic light above the car. */
     private fun placeL1Overlays(root: FrameLayout) {
         if (!(l1cApplied || l2Applied) || !::dashSlot.isInitialized || !::carView.isInitialized || !::dashSpeedGauge.isInitialized) return
+        placeAdasBar(root)
         carView.translationY = (if (l1cApplied || l2Applied) dp(14).toFloat() else 0f) + adasDy        // Layouts 1 and 2: the car sits 14 dp lower (and lower still in the ADAS view)
         val g = dashSpeedGauge
         if (g.width <= 0 || carView.width <= 0 || dashSlot.width <= 0) return
@@ -2297,7 +2318,7 @@ class MainActivity : Activity() {
             /** Swipe down from the top edge opens the ADAS view; swipe up anywhere closes it. Taps and small drags pass through untouched. */
             override fun onInterceptTouchEvent(ev: android.view.MotionEvent): Boolean {
                 when (ev.actionMasked) {
-                    android.view.MotionEvent.ACTION_DOWN -> { swX = ev.x; swY = ev.y; swArmed = adasMode || ev.y < dp(56) }
+                    android.view.MotionEvent.ACTION_DOWN -> { swX = ev.x; swY = ev.y; swArmed = adasMode || ev.y < dp(110) }
                     android.view.MotionEvent.ACTION_MOVE -> if (swArmed) {
                         val dy = ev.y - swY; val dx = ev.x - swX
                         if (!adasMode && dy > dp(70) && Math.abs(dx) < dy * 0.6f) { swArmed = false; setAdas(true); return true }
@@ -3503,7 +3524,9 @@ class MainActivity : Activity() {
             gravity = if (l2) Gravity.TOP else Gravity.NO_GRAVITY
             topMargin = if (l2) dp(if (third) 15 else 45) else 0
         }
-        dashGaugeRow.getChildAt(1).let { (it.layoutParams as LinearLayout.LayoutParams).topMargin = if (l2) dp(2) else (if (brakeUnder) -dp(3) else 0) }
+        // Layout 1 with the 3D car, full screen with the media card: the middle column (road and car) reaches down to the top of the media card
+        val midExtraDp = if (l1c && tall && showMedia) (mediaTopY - topM - wantH.toInt()).coerceAtLeast(0) else 0
+        dashGaugeRow.getChildAt(1).let { (it.layoutParams as LinearLayout.LayoutParams).apply { topMargin = if (l2) dp(2) else (if (brakeUnder) -dp(3) else 0); bottomMargin = -dp(midExtraDp) } }
         dashPowerGauge.iconLevel = if (l2) (if (half) 2 else 1) else 0; dashPowerGauge.invalidate()
         // Layout 2 (full screen and 50/50, not the third-height window): the two gauges grow 10% about their own centres and sit 28 dp higher; nothing else moves
         for (gv in listOf<View>(dashPowerGauge, dashSpeedGauge)) {
