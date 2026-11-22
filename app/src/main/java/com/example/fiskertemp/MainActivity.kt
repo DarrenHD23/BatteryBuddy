@@ -1841,7 +1841,7 @@ class MainActivity : Activity() {
     private lateinit var l2FlyBtn: TextView
     private lateinit var roadView: RoadView
     private var leadHoldUntil = 0L
-    // ADAS view: swipe down from the top (full screen only) hides the trip info / battery bar (Layout 1) or the battery bar and shortcuts (Layout 2) and enlarges the car and road
+    // ADAS view: the ADAS View button at the top (full screen only) hides the trip info / battery bar (Layout 1) or the battery bar and shortcuts (Layout 2) and enlarges the car and road
     private var adasMode = false
     private var adasDy = 0f
     private var adasAnim: android.animation.ValueAnimator? = null
@@ -2145,23 +2145,32 @@ class MainActivity : Activity() {
 
     private fun wantLive3d(): Boolean = prefs().getBoolean("l2Live3d", true)
 
-    /** The swipe bar at the very top, just left of the road (full screen, Layouts 1 and 2): where to start the swipe down. */
+    /** The transparent ADAS View On/Off button at the very top, just left of the road (right of it in right-hand drive); full screen, Layouts 1 and 2. */
     private fun placeAdasBar(root: FrameLayout) {
         val show = (l1cApplied || l2Applied) && isFullWindow() && carView.width > 0 && dashMid.width > 0
         var b = adasBar
         if (b == null) {
             if (!show) return
-            b = View(this).apply { background = GradientDrawable().apply { setColor(Color.argb(190, 255, 255, 255)); cornerRadius = dp(3).toFloat() }; isClickable = false }
-            root.addView(b, FrameLayout.LayoutParams(dp(56), dp(6), Gravity.TOP or Gravity.START).apply { topMargin = dp(5) })
+            b = TextView(this).apply {
+                textSize = 13f; setTextColor(Color.argb(230, 255, 255, 255)); gravity = Gravity.CENTER
+                setPadding(dp(10), 0, dp(10), 0)
+                background = GradientDrawable().apply { setColor(Color.TRANSPARENT); setStroke(dp(1), Color.argb(110, 255, 255, 255)); cornerRadius = dp(15).toFloat() }
+                setOnClickListener { setAdas(!adasMode) }
+            }
+            root.addView(b, FrameLayout.LayoutParams(dp(120), dp(30), Gravity.TOP or Gravity.START).apply { topMargin = dp(5) })
             adasBar = b
         }
         b.visibility = if (show) View.VISIBLE else View.GONE
         if (!show) return
+        b.text = if (adasMode) "ADAS View On" else "ADAS View Off"
         val r = IntArray(2); val ma = IntArray(2)
         root.getLocationInWindow(r); dashMid.getLocationInWindow(ma)
         val cx = ma[0] - r[0] + dashMid.width / 2f
-        val roadLeft = cx - 86f * carView.height / 162f
-        b.translationX = (roadLeft - dp(14) - dp(56)).coerceAtLeast(dp(8).toFloat())
+        val half = 86f * carView.height / 162f
+        // just left of the road; right-hand drive: just right of it
+        val x = if (prefs().getBoolean("rhd", false)) cx + half + dp(14) else cx - half - dp(14) - dp(120)
+        b.translationX = x.coerceIn(dp(8).toFloat(), (root.width - dp(128)).toFloat().coerceAtLeast(dp(8).toFloat()))
+        b.bringToFront()
     }
 
     /** Once per start: fades a hint about the swipe-down ADAS view in at the top of the dashboard for 4 seconds, then out. */
@@ -2169,7 +2178,7 @@ class MainActivity : Activity() {
         if (adasHintDone || !::dashRoot.isInitialized || !dashShown || !(l2Applied || l1cApplied) || !isFullWindow() || dashRoot.width <= 0) return
         adasHintDone = true
         val t = TextView(this).apply {
-            text = "Swipe down for ADAS view"
+            text = "Tap ADAS View to enlarge the car view"
             setTextColor(Color.argb(235, 255, 255, 255)); textSize = 14f
             setPadding(dp(16), dp(7), dp(16), dp(7))
             background = GradientDrawable().apply { setColor(Color.argb(150, 14, 21, 29)); cornerRadius = dp(18).toFloat() }
@@ -2313,22 +2322,7 @@ class MainActivity : Activity() {
 
     private fun buildDashboard(): FrameLayout {
         Skins.current = prefs().getInt("skin", 7)
-        val f = object : FrameLayout(this@MainActivity) {
-            private var swX = 0f; private var swY = 0f; private var swArmed = false
-            /** Swipe down from the top edge opens the ADAS view; swipe up anywhere closes it. Taps and small drags pass through untouched. */
-            override fun onInterceptTouchEvent(ev: android.view.MotionEvent): Boolean {
-                when (ev.actionMasked) {
-                    android.view.MotionEvent.ACTION_DOWN -> { swX = ev.x; swY = ev.y; swArmed = adasMode || ev.y < dp(110) }
-                    android.view.MotionEvent.ACTION_MOVE -> if (swArmed) {
-                        val dy = ev.y - swY; val dx = ev.x - swX
-                        if (!adasMode && dy > dp(70) && Math.abs(dx) < dy * 0.6f) { swArmed = false; setAdas(true); return true }
-                        if (adasMode && dy < -dp(70) && Math.abs(dx) < -dy * 0.6f) { swArmed = false; setAdas(false); return true }
-                    }
-                    android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> swArmed = false
-                }
-                return false
-            }
-        }
+        val f = FrameLayout(this)
         f.visibility = View.GONE
         f.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Skins.look.bgTop, Skins.look.bgBottom))
         roadView = RoadView(this).apply { visibility = View.GONE; onCurve = { b -> car3d?.setSteer(b) } }        // Layout 2: the road, behind everything
