@@ -2213,7 +2213,7 @@ class MainActivity : Activity() {
         }
         for (v in adasHidden) v.isEnabled = !on
         fun finish() {
-            if (!on) { adasHidden.clear(); carView.scaleX = 1f; carView.scaleY = 1f; adasDy = 0f; placeL1Overlays(dashRoot); syncCar3d(dashRoot) }
+            if (!on) { for (v in adasHidden) { v.alpha = 1f; v.isEnabled = true }; adasHidden.clear(); carView.scaleX = 1f; carView.scaleY = 1f; adasDy = 0f; placeL1Overlays(dashRoot); syncCar3d(dashRoot) }
         }
         if (!animate) { apply(1f); finish(); return }
         adasAnim = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
