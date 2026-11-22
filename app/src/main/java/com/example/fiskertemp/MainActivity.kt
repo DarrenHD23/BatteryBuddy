@@ -2231,6 +2231,9 @@ class MainActivity : Activity() {
             target -= dp(4)
             val kH = (target - carTop) / carView.height
             kTo = minOf(if (noCards) maxOf(kW, 1.4f * carView.width / (114f * u0)) else kW, kH, if (noCards) 3.2f else 1.8f).coerceAtLeast(1f)
+            // the live 3D car's view is 2.4 car-squares wide (room for the headlight beams); if the screen cannot hold that the car is squeezed sideways and looks stretched, so stop growing before then
+            val c3 = car3d
+            if (c3 != null && c3.live) kTo = minOf(kTo, dashRoot.width / 2.4f / (150f * u0)).coerceAtLeast(1f)
             dyTo = (target - carTop - kTo * carView.height).coerceAtLeast(0f)
         return floatArrayOf(kTo, dyTo)
     }
