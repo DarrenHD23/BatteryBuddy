@@ -335,11 +335,11 @@ class PulseCan(
     private class AdasObj { var id = 0; var gx = 0.0; var gy = 0.0; var w = 0.0; var cls = 6; var brake = false; var conf = false; var at = 0L; var rawX = 0.0; var rawY = 0.0 }
     private val adasObjs = Array(8) { AdasObj() }
     private val adasSlot = mapOf(0x33B to 0, 0x34B to 1, 0x32D to 2, 0x33D to 3, 0x34D to 4, 0x32F to 5, 0x33F to 6, 0x34F to 7)
-    private var lanePubAt = 0L; private var laneLogRaw = -1; private var laneLogAt = 0L; private var line1Raw = -1; private var line1At = 0L
+    private var lanePubAt = 0L
     private val lkT = LongArray(40); private val lkV = FloatArray(40); private val lkTmp = FloatArray(40); private var lkI = 0
     private var adasLeadId = 0; private var adasLeadAt = 0L      // 0x353 ADAS_LdngVhclID
     private var adasAccId = 0; private var adasAccAt = 0L        // 0x31C ADAS_ACCPrimTgtID
-    private var adasPubAt = 0L; private var adasLogAt = 0L; private var adasLogKey = ""
+    private var adasPubAt = 0L
 
     private fun pickLead(now: Long): LeadCar? {
         fun mk(o: AdasObj, src: Int) = LeadCar(o.id, o.gx, o.gy, o.w, o.cls, o.brake, src, o.rawX, o.rawY)
@@ -351,15 +351,6 @@ class PulseCan(
         return near?.let { mk(it, 0) }
     }
 
-    private fun logLead(l: LeadCar?, now: Long) {
-        val key = if (l == null) "none" else "${l.id}/${l.src}"
-        if (key == adasLogKey && (l == null || now - adasLogAt < 2000)) return
-        adasLogKey = key; adasLogAt = now
-        val n = adasObjs.count { it.id != 0 && now - it.at < 600 }
-        onStatus(if (l == null) "lead: none ($n objects, lead id $adasLeadId, acc id $adasAccId)"
-        else String.format(java.util.Locale.US, "lead: id %d class %d src %d  raw %.1f m, %.1f right -> %.1f m, %.1f right  width %.1f  brake %d  (%d objects)",
-            l.id, l.cls, l.src, l.rawX, l.rawY, l.gapM, l.latM, l.widthM, if (l.brake) 1 else 0, n))
-    }
     private var lastTailSw = -1
 
     /**
@@ -822,18 +813,9 @@ class PulseCan(
         if (bus == 2 && id == 0x353) { adasLeadId = b[3]; adasLeadAt = System.currentTimeMillis(); return null }
         if (bus == 2 && id == 0x31C) { adasAccId = b[4]; adasAccAt = System.currentTimeMillis(); return null }
         // 0x340 (IBUS2): byte 5 = ADAS_LaneCrvt, the radius of our lane in 50 m steps, raw 63 = straight (0), 127 = not shown (3200)
-        if (bus == 2 && id == 0x340) {
-            val nowL = System.currentTimeMillis()
-            val rawL = b[5] and 0xFF
-            // raw 62..64 is 'straight': one count of jitter around 63 is not a 50 m curve
-            val rad = if (rawL in 62..64) 0.0 else rawL * 50.0 - 3150.0
-            val shown = rawL != 127 && rad > -3200.0 && rad < 3200.0
-            if (rawL != laneLogRaw && nowL - laneLogAt > 1000) { laneLogRaw = rawL; laneLogAt = nowL; onStatus("lane: raw $rawL -> " + (if (shown) "${rad.toInt()} m" else "not shown") + " at " + (s.speedKmh?.toInt() ?: -1) + " km/h") }
-            return null      // 0x340 never moved off 'straight' on the car: the lane curve comes from 0x339 below
-        }
+        if (bus == 2 && id == 0x340) return null      // 0x340 never moved off 'straight' on the car: the lane curve comes from 0x339 below
         if (bus == 2 && id == 0x339) {
             val nowL = System.currentTimeMillis(); val r1 = b[0] and 0xFF
-            if (r1 != line1Raw && nowL - line1At > 1000) { line1Raw = r1; line1At = nowL; onStatus("lane line1: raw $r1 at " + (s.speedKmh?.toInt() ?: -1) + " km/h") }
             // 0x339 byte 0 = the left lane line's radius (50 m steps, + = left): 63 = straight, 127 = no line. It flips between 'straight' and a radius many times a
             // second, so keep the last second of curvatures (1 / R, straight = 0, no line = skipped) and publish their median
             if (r1 != 127) { lkT[lkI] = nowL; lkV[lkI] = if (r1 in 62..64) 0f else (1.0 / (r1 * 50.0 - 3150.0)).toFloat(); lkI = (lkI + 1) % lkT.size }
@@ -862,7 +844,6 @@ class PulseCan(
             if (now - adasPubAt < 100) return null
             adasPubAt = now
             val lead = pickLead(now)
-            logLead(lead, now)
             val others = adasObjs.filter {
                 it.id != 0 && now - it.at < 600 && it.id != (lead?.id ?: -1) && it.conf && it.cls != 6 && it.gx in -6.0..45.0 && Math.abs(it.gy) <= 10.0 &&
                     (Math.abs(it.gy) >= 1.6 || it.gx < 0.0)       // beside, behind, or ahead in another lane; the car in our own lane is the lead
