@@ -90,6 +90,9 @@ class CarView(ctx: Context) : View(ctx) {
     /** Open doors from the car (0x343): bit0 driver, 1 passenger, 2 rear left, 3 rear right; -1 = nothing received. */
     var doorBits = -1
         set(v) { if (field != v) { field = v; invalidate() } }
+    /** The hatch from the car (0x471): how far open, 0-100 %; -1 = nothing received. */
+    var hatchPct = -1
+        set(v) { if (field != v) { field = v; invalidate() } }
     var dowR = 0
         set(v) { if (field != v) { field = v; invalidate() } }
     /** The 16 parking-sensor zones: rear 0-3, front 4-7, left 8-11, right 12-15 (0 off, 1-8 zone, 9 clear, 15 fault). */
@@ -254,6 +257,7 @@ class CarView(ctx: Context) : View(ctx) {
         }
         drawAlerts(c, cx)
         drawDoors(c, cx)
+        drawHatch(c, cx)
         c.restore()
         if (bsdL > 0 || bsdR > 0 || dowL > 0 || dowR > 0) postInvalidateDelayed(40)
         animating = shown > 0f || target > 0f || tilt != g
@@ -349,6 +353,16 @@ class CarView(ctx: Context) : View(ctx) {
         if (on(1)) bar(carR + 2f, 52f, carR + 9f, 88f)
         if (on(2)) bar(carL - 9f, 91f, carL - 2f, 125f)
         if (on(3)) bar(carR + 2f, 91f, carR + 9f, 125f)
+    }
+
+    /** The hatch shows as a lid behind the car that grows with how far it is open, so it is seen opening and closing. */
+    private fun drawHatch(c: Canvas, cx: Float) {
+        val p = hatchPct; if (p <= 0) return
+        val top = if (spriteCar) 131f else 139f
+        alertPaint.shader = null
+        alertRect.set(cx - 27f, top, cx + 27f, top + 3f + 16f * p / 100f)
+        alertPaint.color = Color.argb(235, 255, 150, 40); alertPaint.style = Paint.Style.FILL; c.drawRoundRect(alertRect, 3f, 3f, alertPaint)
+        alertPaint.color = Color.WHITE; alertPaint.style = Paint.Style.STROKE; alertPaint.strokeWidth = 1.2f; c.drawRoundRect(alertRect, 3f, 3f, alertPaint)
     }
 
     /** Blind-spot and door-open glows beside the car, and the parking-sensor rings around it (in the 302 x 162 unit space). */

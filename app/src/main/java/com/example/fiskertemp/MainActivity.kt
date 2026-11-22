@@ -1757,8 +1757,6 @@ class MainActivity : Activity() {
     private var lightSeenAt = 0L
     private var lightShown = false
     private lateinit var testBtn: TextView
-    private lateinit var hatchLbl: TextView
-    private lateinit var hatchBox: View
     private val SHOW_TEST_BUTTON = false
     private var signTest = false                          // the Test sign button: shows a speed limit sign and a cycling traffic light so they can be checked parked
     private lateinit var exitBtn: Button
@@ -2544,26 +2542,9 @@ class MainActivity : Activity() {
             setOnClickListener { pendingUpdate?.let { showUpdateDialog(it) } }
         }
         f.addView(updateBtn, FrameLayout.LayoutParams(-2, dp(30), Gravity.TOP or Gravity.START).apply { setMargins(dp(160), dp(10), 0, 0) })
-        // TEST: open / close the power hatch, and what the car reports about it (0x471)
-        hatchLbl = TextView(this).apply { text = "Hatch: no data"; textSize = 11f; setTextColor(Color.WHITE); gravity = Gravity.CENTER; setPadding(dp(8), 0, dp(8), 0) }
-        val hatchRow = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; gravity = Gravity.START
-            for ((name, how) in listOf("Open hatch" to 0, "Close hatch" to 1, "Lid open" to 2, "Lid close" to 3)) addView(TextView(this@MainActivity).apply {
-                text = name; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER; background = chipBg(12)
-                setOnClickListener {
-                    val msg = (when (how) { 0 -> pulse?.sendHatch(true); 1 -> pulse?.sendHatch(false); 2 -> pulse?.sendLid(true); else -> pulse?.sendLid(false) }) ?: "CAN reader is not running"
-                    EventLog.add("Hatch test: $msg"); toast(msg)
-                }
-            }, LinearLayout.LayoutParams(dp(120), dp(34)).apply { bottomMargin = dp(6) })
-            addView(hatchLbl, LinearLayout.LayoutParams(-2, dp(26)))
-        }
-        hatchBox = hatchRow
-        f.addView(hatchRow, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { leftMargin = dp(8); topMargin = dp(94) })
         // Layout 2: the live 3D car, a transparent layer over the car square; off (images used instead) when the setting is off or the page fails
         f.viewTreeObserver.addOnGlobalLayoutListener {
             placeL1Overlays(f); syncCar3d(f)
-            // the hatch test buttons stay above the 3D car, which would otherwise take their touches (one move only: no layout loop)
-            if (::hatchBox.isInitialized && f.indexOfChild(hatchBox) >= 0 && f.indexOfChild(hatchBox) < f.childCount - 1) hatchBox.bringToFront()
         }
         return f
     }
@@ -4246,7 +4227,7 @@ class MainActivity : Activity() {
                 carView.bsdL = if (bFresh && s.bsdLeft in 1..3) s.bsdLeft else 0; carView.bsdR = if (bFresh && s.bsdRight in 1..3) s.bsdRight else 0
                 carView.dowL = if (bFresh && s.dowLeft in 1..4) s.dowLeft else 0; carView.dowR = if (bFresh && s.dowRight in 1..4) s.dowRight else 0
                 carView.uss = if (alerts && s.uss != null && nowMs - s.ussAt < 3000) s.uss.toIntArray() else null
-                if (::hatchLbl.isInitialized) hatchLbl.text = if (s.hatchOpen == null || nowMs - s.hatchAt > 5000) "Hatch: no data" else "Hatch: " + (if (s.hatchOpen == true) "OPEN" else "closed") + "  " + (s.hatchPos ?: 0) + "%  latch " + (s.hatchLatch ?: 0)
+                carView.hatchPct = if (alerts && s.hatchOpen != null && nowMs - s.hatchAt < 3000) (if ((s.hatchPos ?: 0) > 0) s.hatchPos!!.coerceAtMost(100) else if (s.hatchOpen == true) 4 else 0) else -1
                 carView.doorBits = if (alerts && s.doorBits != null && nowMs - s.doorAt < 3000) s.doorBits else -1
             }; carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true); carView.beamsOn = (s.beamsOn == true); carView.highBeam = (s.highBeamOn == true); carView.leftInd = s.leftInd; carView.rightInd = s.rightInd; carView.redInd = prefs().getString("signStyle", "us") != "eu"
             car3d?.red = carView.redInd       // USA / Canada: the turn signals glow red, as the rear lamps do on those cars
