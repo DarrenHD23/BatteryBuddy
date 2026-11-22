@@ -1903,6 +1903,13 @@ class MainActivity : Activity() {
         android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
             override fun onFling(e1: android.view.MotionEvent?, e2: android.view.MotionEvent, vx: Float, vy: Float): Boolean {
                 if (e1 == null) return false
+                // a swipe that began on one of the Layout 2 swipe cards (shortcuts, media ...) only changes that card's page
+                if (l2Applied && ::leftPager.isInitialized && ::rightPager.isInitialized) for (pg in listOf<View>(leftPager, rightPager)) {
+                    if (pg.visibility != View.VISIBLE || pg.width == 0) continue
+                    val pl = IntArray(2); pg.getLocationOnScreen(pl)
+                    if (e1.rawX >= pl[0] && e1.rawX <= pl[0] + pg.width && e1.rawY >= pl[1] && e1.rawY <= pl[1] + pg.height) return false
+                }
+                if (ShortcutGuard.locked()) return false
                 val rowLoc = IntArray(2)
                 dashRow.getLocationOnScreen(rowLoc)
                 if (e1.rawY >= rowLoc[1]) return false      // started on the readouts at the bottom
