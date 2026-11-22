@@ -1288,7 +1288,7 @@ class MainActivity : Activity() {
             setOnClickListener { showSpeedAdjust() }
         }, 8)
         box.add(CheckBox(this).apply {
-            text = "Road curve from the car's lane camera (off: from the compass / GPS heading; the compass is also used when the camera sees no lane)"; isChecked = prefs().getBoolean("curveLane", true)
+            text = "Road curve from the car's lane camera (experimental, off by default: the car has only ever reported 'straight'; off = from the compass / GPS heading, which is also used whenever the camera reports straight or sees no lane)"; isChecked = prefs().getBoolean("curveLane", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("curveLane", on).apply() }
         }, 12)
         box.add(TextView(this).apply { text = "LAYOUT 1 OPTIONS"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
@@ -4431,8 +4431,8 @@ class MainActivity : Activity() {
             // the bend of the road: the car's lane camera when it sees our lane (radius R: 45 m ahead turns the road by 45 / R rad), else the compass / GPS heading
             roadView.laneDeg = run {
                 val rl = s.laneRadiusM
-                if (!prefs().getBoolean("curveLane", true) || rl == null || System.currentTimeMillis() - s.laneAt > 1000) null
-                else if (rl == 0.0) 0f else (-(45.0 / rl) * 180.0 / Math.PI).toFloat()      // R > 0 = curving left = a negative (anticlockwise) bend
+                if (!prefs().getBoolean("curveLane", false) || rl == null || rl == 0.0 || System.currentTimeMillis() - s.laneAt > 1000) null
+                else (-(45.0 / rl) * 180.0 / Math.PI).toFloat()      // R > 0 = curving left = a negative (anticlockwise) bend
             }
             roadView.noteHeading(hd)
             run {
