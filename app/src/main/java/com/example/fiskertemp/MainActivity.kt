@@ -2176,23 +2176,32 @@ class MainActivity : Activity() {
         if (android.os.Build.VERSION.SDK_INT >= 30) windowManager.currentWindowMetrics.bounds.height() >= windowManager.maximumWindowMetrics.bounds.height() * 0.8 else true
     } catch (e: Exception) { true }
 
-    /**
-     * The ADAS view (Layouts 1 and 2, full screen only): the car and road grow and the things around them fade away.
-     * Layout 1 hides the trip panel and battery bar and the car grows down into their space; Layout 2 hides the battery bar and the shortcuts
-     * and the car grows up into theirs. The road view, the 3D car and the objects layer all follow the car view's scale.
-     */
-    private fun setAdas(on: Boolean, animate: Boolean = true) {
-        if (on == adasMode) return
-        if (!::carView.isInitialized || !::dashRoot.isInitialized) return
-        if (on && !((l2Applied || l1cApplied) && dashShown && isFullWindow() && carView.width > 0 && carView.height > 0)) return
-        adasMode = on
+    /** While the ADAS view is on, follows changes in what is below it: Climate / Media cards coming or going move the car back up or down. */
+    private fun refitAdas() {
+        if (!adasMode || adasAnim?.isRunning == true || !::carView.isInitialized || carView.width <= 0) return
+        val fit = adasFit()
+        val k0 = carView.scaleX; val dy0 = adasDy
+        if (Math.abs(fit[0] - k0) < 0.02f && Math.abs(fit[1] - dy0) < dp(2)) return
+        adasAnim = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 320
+            interpolator = android.view.animation.DecelerateInterpolator()
+            addUpdateListener {
+                val t = it.animatedValue as Float
+                val k = k0 + (fit[0] - k0) * t
+                carView.scaleX = k; carView.scaleY = k
+                adasDy = dy0 + (fit[1] - dy0) * t
+                placeL1Overlays(dashRoot); syncCar3d(dashRoot)
+                if (::roadView.isInitialized) roadView.invalidate()
+                if (::objView.isInitialized) objView.invalidate()
+            }
+            start()
+        }
+    }
+
+    /** Where the ADAS view should end up: the scale of the car view and how far it moves down, from what is on screen now (cards, strip). */
+    private fun adasFit(): FloatArray {
         val l2 = l2Applied
-        // hidden in the ADAS view: Layout 2 the battery bar, the shortcut row and the two swipe cards (trip / compass / shortcuts); Layout 1 the trip panel and the battery bar; both the compass reading
-        val views = ArrayList<View>()
-        if (l2) { views.addAll(listOf<View>(chargeBar, lowerBox, flyBtn)); if (l2Mid.childCount > 1) views.add(l2Mid.getChildAt(1)) } else views.addAll(listOf<View>(tripPanel, tripSpacer, chargeBar))
-        if (::dashHeading.isInitialized) views.add(dashHeading)
         var kTo = 1f; var dyTo = 0f
-        if (on) {
             val u0 = carView.height / 162f
             val kW = 0.8f * carView.width / (114f * u0)           // keep the car well inside its column
             // the road and car grow, then the whole view moves down, until the bottom of the road meets the top of the media card
@@ -2223,6 +2232,27 @@ class MainActivity : Activity() {
             val kH = (target - carTop) / carView.height
             kTo = minOf(if (noCards) maxOf(kW, 1.4f * carView.width / (114f * u0)) else kW, kH, if (noCards) 3.2f else 1.8f).coerceAtLeast(1f)
             dyTo = (target - carTop - kTo * carView.height).coerceAtLeast(0f)
+        return floatArrayOf(kTo, dyTo)
+    }
+
+    /**
+     * The ADAS view (Layouts 1 and 2, full screen only): the car and road grow and the things around them fade away.
+     * Layout 1 hides the trip panel and battery bar and the car grows down into their space; Layout 2 hides the battery bar and the shortcuts
+     * and the car grows up into theirs. The road view, the 3D car and the objects layer all follow the car view's scale.
+     */
+    private fun setAdas(on: Boolean, animate: Boolean = true) {
+        if (on == adasMode) return
+        if (!::carView.isInitialized || !::dashRoot.isInitialized) return
+        if (on && !((l2Applied || l1cApplied) && dashShown && isFullWindow() && carView.width > 0 && carView.height > 0)) return
+        adasMode = on
+        val l2 = l2Applied
+        // hidden in the ADAS view: Layout 2 the battery bar, the shortcut row and the two swipe cards (trip / compass / shortcuts); Layout 1 the trip panel and the battery bar; both the compass reading
+        val views = ArrayList<View>()
+        if (l2) { views.addAll(listOf<View>(chargeBar, lowerBox, flyBtn)); if (l2Mid.childCount > 1) views.add(l2Mid.getChildAt(1)) } else views.addAll(listOf<View>(tripPanel, tripSpacer, chargeBar))
+        if (::dashHeading.isInitialized) views.add(dashHeading)
+        var kTo = 1f; var dyTo = 0f
+        if (on) {
+            val fit = adasFit(); kTo = fit[0]; dyTo = fit[1]
             carView.pivotX = carView.width / 2f; carView.pivotY = 0f
             if (adasHidden.isEmpty()) adasHidden.addAll(views)
         }
@@ -2685,6 +2715,7 @@ class MainActivity : Activity() {
     private val dashTick = object : Runnable {
         override fun run() {
             renderDash()
+            if (adasMode) refitAdas()
             if (dashShown) ui.postDelayed(this, 200)
         }
     }
