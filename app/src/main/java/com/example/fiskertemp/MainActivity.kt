@@ -1841,6 +1841,7 @@ class MainActivity : Activity() {
     private lateinit var l2FlyBtn: TextView
     private lateinit var roadView: RoadView
     private var leadHoldUntil = 0L
+    private lateinit var objView: ObjectsView
     private var car3d: Car3dView? = null
     private lateinit var l2ClimBtn: TextView
     private lateinit var l2MediaBtn: TextView
@@ -2188,6 +2189,7 @@ class MainActivity : Activity() {
             v.visibility = View.INVISIBLE
             car3d = v
             root.addView(v, FrameLayout.LayoutParams(1, 1, Gravity.TOP or Gravity.START))
+            if (::objView.isInitialized) objView.bringToFront()
         }
         if (failed3d) return
         val u = carView.height / 162f
@@ -2547,6 +2549,8 @@ class MainActivity : Activity() {
         f.viewTreeObserver.addOnGlobalLayoutListener {
             placeL1Overlays(f); syncCar3d(f)
         }
+        objView = ObjectsView(this, roadView)         // the other objects around the car: on top of everything
+        f.addView(objView, FrameLayout.LayoutParams(-1, -1))
         return f
     }
 
@@ -4232,6 +4236,7 @@ class MainActivity : Activity() {
                 carView.doorBits = if (alerts && s.doorBits != null && nowMs - s.doorAt < 3000) s.doorBits else -1
                 val ld = s.lead
                 if (alerts && ld != null && nowMs - s.leadAt < 1500) { roadView.setLead(ld.gapM.toFloat(), ld.latM.toFloat(), ld.widthM.toFloat(), ld.cls, ld.brake, ld.src); leadHoldUntil = nowMs + 4000L } else roadView.clearLead()
+                if (alerts && nowMs - s.leadAt < 1500) roadView.setObjects(s.others) else roadView.setObjects(emptyList())
                 carView.holdTilt = nowMs < leadHoldUntil      // stopped behind a car: keep the road and the rear view (4 s after it is lost, so a flicker does not tip us over)
             }; carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true); carView.beamsOn = (s.beamsOn == true); carView.highBeam = (s.highBeamOn == true); carView.leftInd = s.leftInd; carView.rightInd = s.rightInd; carView.redInd = prefs().getString("signStyle", "us") != "eu"
             car3d?.red = carView.redInd       // USA / Canada: the turn signals glow red, as the rear lamps do on those cars

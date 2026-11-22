@@ -496,6 +496,68 @@ class RoadView(ctx: Context) : View(ctx) {
         }
     }
 
+    // the other objects around the car, drawn by [ObjectsView] on top of everything: a state per object ID that fades in and out
+    private class ObjSt(var gap: Float, var lat: Float, var w: Float, var cls: Int, var brake: Boolean) {
+        var gapS = gap; var latS = lat; var alpha = 0f; var on = true
+    }
+    private val objs = HashMap<Int, ObjSt>()
+    private var objLastMs = 0L
+    var overlay: View? = null
+    private var mapU = 0f; private var mapLeft = 0f; private var mapTop = 0f
+    private var parNow = 0f; private var tiltNow = 1f
+    private var bendFn: (Float) -> Float = { 0f }
+
+    /** The other cars, bikes and people the car's object list shows (not the lead car), each with a stable id. */
+    fun setObjects(list: List<LeadCar>) {
+        for (o in objs.values) o.on = false
+        for (l in list) {
+            val st = objs.getOrPut(l.id) { ObjSt(l.gapM.toFloat(), l.latM.toFloat(), l.widthM.toFloat(), l.cls, l.brake) }
+            st.gap = l.gapM.toFloat(); st.lat = l.latM.toFloat(); st.w = l.widthM.toFloat(); st.cls = l.cls; st.brake = l.brake; st.on = true
+        }
+        if (objs.isNotEmpty()) overlay?.postInvalidateOnAnimation()
+    }
+
+    /** Called by the overlay: draws the other objects with the same map as the road (including its bend and its parallel/angled lines). */
+    fun drawObjects(c: Canvas) {
+        if (objs.isEmpty() || mapU <= 0f || visibility != View.VISIBLE) return
+        val now = SystemClock.uptimeMillis()
+        val dt = if (objLastMs == 0L) 0f else ((now - objLastMs) / 1000f).coerceIn(0f, 0.1f)
+        objLastMs = now
+        var anim = false
+        c.save(); c.translate(mapLeft, mapTop); c.scale(mapU, mapU)
+        val it = objs.values.iterator()
+        while (it.hasNext()) {
+            val o = it.next()
+            o.gapS += (o.gap - o.gapS) * min(1f, dt * 6f); o.latS += (o.lat - o.latS) * min(1f, dt * 6f)
+            o.alpha += ((if (o.on) 1f else 0f) - o.alpha) * min(1f, dt * 4f)
+            if (o.on && o.alpha > 0.98f) o.alpha = 1f
+            if (!o.on && o.alpha < 0.02f) { it.remove(); continue }
+            if (!o.on || o.alpha < 1f || Math.abs(o.gap - o.gapS) > 0.05f || Math.abs(o.lat - o.latS) > 0.01f) anim = true
+            drawOther(c, o)
+        }
+        c.restore()
+        if (anim) overlay?.postInvalidateDelayed(30)
+    }
+
+    private fun drawOther(c: Canvas, o: ObjSt) {
+        val par = parNow
+        val gap = o.gapS.coerceIn(-6f, 45f)
+        val s = 1f / (1.86f + gap / 7.7f)
+        val sE = s + (1f - s) * par
+        val yP = 162f * (s - 0.45f) / 0.55f
+        val y = yP + ((20f - gap * 6f) - yP) * par
+        val known = o.w in 1.4f..3.2f
+        val wM = when (o.cls) { 1, 8 -> if (known) o.w else 2.5f; 2 -> 0.8f; 3, 4, 5 -> 0.6f; else -> if (known) o.w else 1.85f }
+        val rel = wM / 1.85f
+        val wPersp = 172f * s * 0.72f * rel          // inside its own lane, like the lead car does far away
+        val wU = wPersp + (80f * rel - wPersp) * par
+        val x = 151f + o.latS * 49f * sE + bendFn(y)
+        // fade at the ends of the range (behind us and far ahead), and with the road view's tilt (the road is not drawn parked)
+        val ends = Math.min(((45f - gap) / 10f).coerceIn(0f, 1f), ((gap + 6f) / 1.5f).coerceIn(0f, 1f))
+        val a0 = (o.alpha * ends * tiltNow * 0.85f * 255f).toInt().coerceIn(0, 255)
+        if (a0 > 2) drawObj(c, x, y, wU, o.cls, o.brake, a0, 1f, null)
+    }
+
     /** gap = metres ahead of the front bumper, lat = metres to the right of our centre line, w = width in metres (0 = unknown), cls = the car's object class. */
     fun setLead(gap: Float, lat: Float, w: Float, cls: Int, brake: Boolean, src: Int) {
         if (!lOn || lAlpha < 0.02f) { lGapS = gap; lLatS = lat }
@@ -525,11 +587,16 @@ class RoadView(ctx: Context) : View(ctx) {
         val k = 1.49f + (0.72f - 1.49f) * (t * t * (3f - 2f * t))
         val wPersp = Math.min(172f * s * k * rel, 114f * rel)
         val wU = wPersp + (104f * rel - wPersp) * par
-        val truck = lCls == 1 || lCls == 8
-        val small = lCls in 2..5
-        val hU = wU * (if (truck) 0.95f else if (small) 1.3f else 0.6f)
         val x = 151f + lLatS * 49f * sE + bend(y)         // 49 units a metre = a 3.5 m lane across the 172-unit road at full size
         val a0 = (lAlpha * (if (lSrc == 0) 0.6f else 1f) * 255f).toInt().coerceIn(0, 255)
+        drawObj(c, x, y, wU, lCls, lBrake, a0, tilt, Math.round(lGap).toString() + " m")
+    }
+
+    /** One vehicle (or bike, or person) from behind, standing with its rear edge on (x, y); fades from top-down to the rear view with [tilt]. */
+    private fun drawObj(c: Canvas, x: Float, y: Float, wU: Float, cls: Int, brake: Boolean, a0: Int, tilt: Float, label: String?) {
+        val truck = cls == 1 || cls == 8
+        val small = cls in 2..5
+        val hU = wU * (if (truck) 0.95f else if (small) 1.3f else 0.6f)
         val a = (a0 * tilt).toInt()          // the rear view fades in as we tip back to driving, the top-down one fades out
         lp.shader = null; lp.style = Paint.Style.FILL
         if (tilt < 0.99f) drawLeadTop(c, x, y, wU, truck, small, (a0 * (1f - tilt)).toInt())
@@ -575,7 +642,7 @@ class RoadView(ctx: Context) : View(ctx) {
             if (!small) {
                 val ly = y - (if (truck) hU * 0.30f else hU * 0.285f)
                 val half = wU * (if (truck) 0.40f else 0.37f)
-                if (lBrake) {
+                if (brake) {
                     for (d in intArrayOf(-1, 1)) {
                         val lx = x + d * half * 0.8f
                         lp.shader = RadialGradient(lx, ly, wU * 0.28f, Color.argb(a * 6 / 10, 255, 40, 30), Color.argb(0, 255, 40, 30), Shader.TileMode.CLAMP)
@@ -583,8 +650,8 @@ class RoadView(ctx: Context) : View(ctx) {
                     }
                 }
                 lp.style = Paint.Style.STROKE; lp.strokeCap = Paint.Cap.ROUND
-                lp.strokeWidth = Math.max(1.4f, wU * (if (lBrake) 0.065f else 0.045f))
-                lp.color = if (lBrake) Color.argb(a, 255, 74, 58) else Color.argb(a, 150, 34, 34)
+                lp.strokeWidth = Math.max(1.4f, wU * (if (brake) 0.065f else 0.045f))
+                lp.color = if (brake) Color.argb(a, 255, 74, 58) else Color.argb(a, 150, 34, 34)
                 c.drawLine(x - half, ly, x + half, ly, lp)
                 lp.style = Paint.Style.FILL
             }
@@ -592,7 +659,7 @@ class RoadView(ctx: Context) : View(ctx) {
         // distance under it
         lp.color = Color.argb((a0 * 0.85f).toInt(), 255, 255, 255)
         lp.textAlign = Paint.Align.CENTER; lp.typeface = Typeface.DEFAULT_BOLD; lp.textSize = 9f
-        c.drawText(Math.round(lGap).toString() + " m", x, y + 11f, lp)
+        if (label != null) c.drawText(label, x, y + 11f, lp)
     }
     fun noteHeading(h: Double?) {
         val now = SystemClock.uptimeMillis()
@@ -632,6 +699,7 @@ class RoadView(ctx: Context) : View(ctx) {
         val carTop = (lb[1] - la[1]).toFloat()
         val carLeft = (lb[0] - la[0]).toFloat()
         c.save()
+        mapU = u; mapLeft = carLeft + (cv.width - 302f * u) / 2f; mapTop = carTop; parNow = par; tiltNow = (car as? CarView)?.tilt ?: 1f; bendFn = { 0f }
         c.translate(carLeft + (cv.width - 302f * u) / 2f, carTop)
         c.scale(u, u)
         // seen from straight above (parked) the road is two straight parallel lines either side of the car; as the car gets going the view tips back
@@ -684,8 +752,10 @@ class RoadView(ctx: Context) : View(ctx) {
             }
         }
         if (lay >= 0) c.restoreToCount(lay)
+        bendFn = { yy -> sh(yy) }
         drawLead(c, tilt, par) { yy -> sh(yy) }
         c.restore()
+        overlay?.postInvalidateOnAnimation()
         animating = shown > 0f || target > 0f || curveShown != curveTarget || (tilt > 0f && tilt < 1f) || leadAnim || parAnim
         if (animating) postInvalidateDelayed(30)
     }
@@ -1238,4 +1308,11 @@ class Car3dView(ctx: Context, private val onState: (Boolean) -> Unit) : android.
     }
 
     companion object { const val HOST = "appassets.androidplatform.net" }
+}
+
+
+/** A transparent full-size layer above everything that draws the other objects around the car, using the road view's map. Takes no touches. */
+class ObjectsView(ctx: Context, private val road: RoadView) : View(ctx) {
+    init { isClickable = false; isFocusable = false; road.overlay = this }
+    override fun onDraw(c: Canvas) { road.drawObjects(c) }
 }

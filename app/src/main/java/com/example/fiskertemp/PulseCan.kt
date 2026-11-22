@@ -52,6 +52,7 @@ data class CanSnapshot(
     val hatchLatch: Int? = null,       // PLGM_TrLtchStsIndcn, byte 4 bits 7-5: 0 latched, 1 half latched, 2 open, 3 initialising
     val hatchAt: Long = 0L,
     val lead: LeadCar? = null,         // the car ahead, from the ADAS object list on IBUS2 (0x33B etc.), with the Oceanfront view's calibration applied
+    val others: List<LeadCar> = emptyList(),   // the other objects around the car (not the lead): src = 3
     val leadAt: Long = 0L,
     val dowRight: Int = 0,             // the same on the right (byte 2 bits 5-3)
     val bsdAt: Long = 0L,              // when 0x315 was last seen (ms), so old values can be ignored
@@ -833,7 +834,11 @@ class PulseCan(
             adasPubAt = now
             val lead = pickLead(now)
             logLead(lead, now)
-            return s.copy(lead = lead, leadAt = now)
+            val others = adasObjs.filter {
+                it.id != 0 && now - it.at < 600 && it.id != (lead?.id ?: -1) && it.conf && it.cls != 6 && it.gx in -6.0..45.0 && Math.abs(it.gy) <= 10.0 &&
+                    (Math.abs(it.gy) >= 1.6 || it.gx < 0.0)       // beside, behind, or ahead in another lane; the car in our own lane is the lead
+            }.map { LeadCar(it.id, it.gx, it.gy, it.w, it.cls, it.brake, 3, it.rawX, it.rawY) }
+            return s.copy(lead = lead, others = others, leadAt = now)
         }
         // 0x210 ADAS_0x210 (IBUS2, 50 ms): ego-lane traffic light colour (byte 1 low nibble) and light shape (byte 1 bits 6-4);
         // 1 red, 2 amber, 3 green; 4-7 are red/orange variants; 0 = none, 7/8 = unknown
