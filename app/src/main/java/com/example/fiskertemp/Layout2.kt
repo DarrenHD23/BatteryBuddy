@@ -246,7 +246,7 @@ class CarView(ctx: Context) : View(ctx) {
             val a = sprite(ids[if (i1 != i0 && fr > 0.5f) i1 else i0]) ?: return
             val q = rearLamp(a) ?: return
             val gx = dst.left + q[0] * dst.width(); val gy = dst.top + q[1] * dst.height(); val gr = dst.width() * 0.085f
-            glowP.shader = RadialGradient(gx, gy, gr, if (redInd) Color.argb(110, 255, 42, 26) else Color.argb(110, 255, 184, 0), Color.argb(0, 255, 60, 0), Shader.TileMode.CLAMP)
+            glowP.shader = RadialGradient(gx, gy, gr, if (redInd) Color.argb(110, 255, 42, 26) else Color.argb(110, 255, 115, 0), Color.argb(0, 255, 60, 0), Shader.TileMode.CLAMP)
             c.drawCircle(gx, gy, gr, glowP); glowP.shader = null
         }
         if (leftInd) lampGlow(F_LEFT)
