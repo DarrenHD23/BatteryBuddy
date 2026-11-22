@@ -2206,14 +2206,22 @@ class MainActivity : Activity() {
                 val top = (va[1] - ra[1]).toFloat()
                 if (top > carTop + carView.height * 0.6f && top < target) target = top
             }
+            var noCards = false
             if (target == Float.MAX_VALUE) {
+                noCards = true
                 val da = IntArray(2); dashMid.getLocationInWindow(da)
                 target = (da[1] - ra[1] + dashMid.height).toFloat()
                 if (l2 && l2Mid.childCount > 1) { val c1 = l2Mid.getChildAt(1); val ca2 = IntArray(2); c1.getLocationInWindow(ca2); target = (ca2[1] - ra[1] + c1.height).toFloat() }
+                // Climate and Media are off: the view runs all the way down to the top of the stat strip at the bottom (Range, Regen, ...), or the row under it
+                for (sv in listOf<View>(dashStrip, dashRow)) if (sv.visibility == View.VISIBLE && sv.height > 0 && sv.isShown) {
+                    val sa = IntArray(2); sv.getLocationInWindow(sa)
+                    val st = (sa[1] - ra[1]).toFloat()
+                    if (st > carTop + carView.height) { target = st; break }
+                }
             }
             target -= dp(4)
             val kH = (target - carTop) / carView.height
-            kTo = minOf(kW, kH, 1.8f).coerceAtLeast(1f)
+            kTo = minOf(if (noCards) maxOf(kW, 1.4f * carView.width / (114f * u0)) else kW, kH, if (noCards) 3.2f else 1.8f).coerceAtLeast(1f)
             dyTo = (target - carTop - kTo * carView.height).coerceAtLeast(0f)
             carView.pivotX = carView.width / 2f; carView.pivotY = 0f
             if (adasHidden.isEmpty()) adasHidden.addAll(views)
