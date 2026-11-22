@@ -763,8 +763,7 @@ class MainActivity : Activity() {
             }
             onRearDefrost = { on ->
                 val msg = pulse?.sendRearDefrost(on) ?: "CAN reader is not running"
-                EventLog.add("Rear defrost: $msg")
-                toast(msg)
+                if (!msg.contains(" on IBUS")) toast(msg)
             }
             onWheel = {
                 val msg = pulse?.sendWheelHeat() ?: "CAN reader is not running"
@@ -782,11 +781,8 @@ class MainActivity : Activity() {
             paintIdx = prefs().getInt("carPaint", 3)
             onPaint = { i -> setCarPaint(i) }
             onFan = { level ->
-                val was = climateView.snap.climFan
                 val msg = pulse?.sendFan(level) ?: "CAN reader is not running"
-                EventLog.add("Climate fan test: requested $level (car was at $was): $msg")
-                ui.postDelayed({ EventLog.add("Climate fan test: asked $level, was $was, car reports ${climateView.snap.climFan} 1.5 s later") }, 1500)
-                toast(msg)
+                if (!msg.contains(" on IBUS")) toast(msg)       // only a failure is worth a message
             }
         }
         edgeBox.addView(climateView, FrameLayout.LayoutParams(-1, -1))

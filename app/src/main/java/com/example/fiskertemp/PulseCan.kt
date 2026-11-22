@@ -346,10 +346,7 @@ class PulseCan(
         if (level !in 1..7) return "Fan level out of range"
         val ifs = txIfaces ?: return "CAN reader not running"
         val out = txOut ?: return "CAN reader not running"
-        var bus = 0
-        for (b in 1..2) if (last530[b] != null && (bus == 0 || last530At[b] > last530At[bus])) bus = b
-        if (bus == 0) return "No 0x530 seen from the car's screen yet: change the fan once on the car's own climate page, then try again"
-        val d = last530[bus]!!.copyOf()
+        val (bus, d) = tpl530()        // the car screen's own last 0x530 if the app has seen one, else a built one with nothing requested
         if (d.size != 8) return "0x530 frame had an unexpected length"
         d[2] = d[2] and 0xC7       // AUTO, SYNC, A/C requests off (bits 3-5)
         d[3] = (d[3] and 0x8F) or level                            // recirculation, air clean, defrost requests off; fan = level
