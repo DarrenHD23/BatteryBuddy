@@ -54,6 +54,8 @@ data class CanSnapshot(
     val lead: LeadCar? = null,         // the car ahead, from the ADAS object list on IBUS2 (0x33B etc.), with the Oceanfront view's calibration applied
     val others: List<LeadCar> = emptyList(),   // the other objects around the car (not the lead): src = 3
     val leadAt: Long = 0L,
+    val laneRadiusM: Double? = null,   // the radius of the lane we are in, from the car's lane camera (0x340 ADAS_LaneCrvt, IBUS2): + = curving left, 0 = straight, null = no lane seen
+    val laneAt: Long = 0L,
     val dowRight: Int = 0,             // the same on the right (byte 2 bits 5-3)
     val bsdAt: Long = 0L,              // when 0x315 was last seen (ms), so old values can be ignored
     val uss: List<Int>? = null,        // 16 parking-sensor zones (0x352): rear 0-3, front 4-7, left 8-11, right 12-15; 0 off, 1-8 zone, 9 clear, 15 fault
@@ -206,7 +208,7 @@ class PulseCan(
     /** The IDs this app reads, per chip (0 = IBUS1, 1 = IBUS2). Must match the helper's ID lists in loop(). */
     private val wanted = mapOf(
         0 to listOf(0x382, 0x2F5, 0x318, 0x179, 0x234, 0x335, 0x343, 0x471, 0x2AC, 0x373, 0x507, 0x6DD),
-        1 to listOf(0x0E9, 0x1A9, 0x210, 0x351, 0x504, 0x580, 0x582, 0x332, 0x311, 0x491, 0x5EA, 0x505, 0x33B, 0x34B, 0x32D, 0x33D, 0x34D, 0x32F, 0x33F, 0x34F, 0x353, 0x31C),
+        1 to listOf(0x0E9, 0x1A9, 0x210, 0x351, 0x504, 0x580, 0x582, 0x332, 0x311, 0x491, 0x5EA, 0x505, 0x33B, 0x34B, 0x32D, 0x33D, 0x34D, 0x32F, 0x33F, 0x34F, 0x353, 0x31C, 0x340, 0x339),
     )
 
     private fun hex(l: List<Int>) = l.joinToString(",") { "0x" + Integer.toHexString(it).uppercase() }
@@ -333,6 +335,7 @@ class PulseCan(
     private class AdasObj { var id = 0; var gx = 0.0; var gy = 0.0; var w = 0.0; var cls = 6; var brake = false; var conf = false; var at = 0L; var rawX = 0.0; var rawY = 0.0 }
     private val adasObjs = Array(8) { AdasObj() }
     private val adasSlot = mapOf(0x33B to 0, 0x34B to 1, 0x32D to 2, 0x33D to 3, 0x34D to 4, 0x32F to 5, 0x33F to 6, 0x34F to 7)
+    private var lanePubAt = 0L; private var laneLogRaw = -1; private var laneLogAt = 0L
     private var adasLeadId = 0; private var adasLeadAt = 0L      // 0x353 ADAS_LdngVhclID
     private var adasAccId = 0; private var adasAccAt = 0L        // 0x31C ADAS_ACCPrimTgtID
     private var adasPubAt = 0L; private var adasLogAt = 0L; private var adasLogKey = ""
@@ -624,7 +627,7 @@ class PulseCan(
                     onStatus(if (why == null) "CAN filters: $filterReadback" else "CAN filters not changed: $why")
                 }
                 txActive = context.getSharedPreferences("prefs", Context.MODE_PRIVATE).getBoolean("climateTx", true)
-                val base = listOf(bin, "$b1=382,2F5,2F4,554,318,179,234,335,343,471,2AC,373,507,6DD,1A9,5EA,505,530,534,386,528,512,518", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534,528,313,315,352,33B,34B,32D,33D,34D,32F,33F,34F,353,31C")
+                val base = listOf(bin, "$b1=382,2F5,2F4,554,318,179,234,335,343,471,2AC,373,507,6DD,1A9,5EA,505,530,534,386,528,512,518", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534,528,313,315,352,33B,34B,32D,33D,34D,32F,33F,34F,353,31C,340,339")
                 // transmit is allowed only for 0x530, 0x528 and 0x534 and only when the test is ticked in Settings; otherwise the helper is receive-only
                 val args = if (txActive) base + listOf("tx:$b1=530,528,534,4E", "tx:$b2=530,528,534") else base
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
@@ -817,6 +820,17 @@ class PulseCan(
         // (7|8 id, 15|8 long dist 0.2 m, 23|8 lat dist 0.2 m, 29|6 width 0.1 m, 31 conf, 54 long sign, 55 lat sign, 59|4 class, 60 brake light)
         if (bus == 2 && id == 0x353) { adasLeadId = b[3]; adasLeadAt = System.currentTimeMillis(); return null }
         if (bus == 2 && id == 0x31C) { adasAccId = b[4]; adasAccAt = System.currentTimeMillis(); return null }
+        // 0x340 (IBUS2): byte 5 = ADAS_LaneCrvt, the radius of our lane in 50 m steps, raw 63 = straight (0), 127 = not shown (3200)
+        if (bus == 2 && id == 0x340) {
+            val nowL = System.currentTimeMillis()
+            val rawL = b[5] and 0xFF
+            val rad = rawL * 50.0 - 3150.0
+            val shown = rad > -3200.0 && rad < 3200.0
+            if (nowL - lanePubAt < 100) return null
+            lanePubAt = nowL
+            if (rawL != laneLogRaw && nowL - laneLogAt > 2000) { laneLogRaw = rawL; laneLogAt = nowL; onStatus("lane: raw $rawL -> " + (if (shown) "${rad.toInt()} m" else "not shown")) }
+            return s.copy(laneRadiusM = if (shown) rad else null, laneAt = nowL)
+        }
         val oslot = if (bus == 2) adasSlot[id] else null
         if (oslot != null) {
             val now = System.currentTimeMillis()

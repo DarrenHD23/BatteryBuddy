@@ -455,6 +455,8 @@ class RoadView(ctx: Context) : View(ctx) {
     // A shorter window lets the bend fall away sooner when the road straightens.
     private val histT = ArrayList<Long>(); private val histH = ArrayList<Double>()
     private var curveTarget = 0f
+    /** The bend of the road ahead in the same units as the compass bend (degrees over about 3 s, + = right), from the car's lane camera; null = use the compass. */
+    var laneDeg: Float? = null
     private var curveShown = 0f
     var onCurve: ((Float) -> Unit)? = null        // the 3D car steers its front wheels with the same bend
 
@@ -671,7 +673,8 @@ class RoadView(ctx: Context) : View(ctx) {
         while (histT.size > 1 && now - histT[0] > 1600) { histT.removeAt(0); histH.removeAt(0) }
         var d = (h - histH[0]) * (3000.0 / 1600.0)
         if (d > 180) d -= 360; if (d < -180) d += 360
-        curveTarget = if (speedKmh >= 5f) d.coerceIn(-30.0, 30.0).toFloat() else 0f
+        val ld = laneDeg
+        curveTarget = if (speedKmh >= 5f) (ld ?: d.toFloat()).coerceIn(-30f, 30f) else 0f
         if (!animating) postInvalidateOnAnimation()
     }
 

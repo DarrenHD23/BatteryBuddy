@@ -1287,6 +1287,10 @@ class MainActivity : Activity() {
             text = "Speedometer Adjustment"; isAllCaps = false
             setOnClickListener { showSpeedAdjust() }
         }, 8)
+        box.add(CheckBox(this).apply {
+            text = "Road curve from the car's lane camera (off: from the compass / GPS heading; the compass is also used when the camera sees no lane)"; isChecked = prefs().getBoolean("curveLane", true)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("curveLane", on).apply() }
+        }, 12)
         box.add(TextView(this).apply { text = "LAYOUT 1 OPTIONS"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
         box.add(CheckBox(this).apply {
             text = "Show the 3D car in the middle instead of the Trip Information (small trip readouts go under the car; the Climate screen uses the 3D car too)"; isChecked = prefs().getBoolean("l1Car3d", false)
@@ -4392,7 +4396,14 @@ class MainActivity : Activity() {
         }
         val hd = s.headingDeg ?: gpsHeadingNow()      // the car's heading, or the Pulse's GPS heading when the car sends none
         if (l2Applied || l1cApplied) {
-            carView.speedKmh = (s.speedKmh ?: 0.0).toFloat(); roadView.speedKmh = carView.speedKmh; roadView.noteHeading(hd)
+            carView.speedKmh = (s.speedKmh ?: 0.0).toFloat(); roadView.speedKmh = carView.speedKmh
+            // the bend of the road: the car's lane camera when it sees our lane (radius R: 45 m ahead turns the road by 45 / R rad), else the compass / GPS heading
+            roadView.laneDeg = run {
+                val rl = s.laneRadiusM
+                if (!prefs().getBoolean("curveLane", true) || rl == null || System.currentTimeMillis() - s.laneAt > 1000) null
+                else if (rl == 0.0) 0f else (-(45.0 / rl) * 180.0 / Math.PI).toFloat()      // R > 0 = curving left = a negative (anticlockwise) bend
+            }
+            roadView.noteHeading(hd)
             run {
                 val alerts = prefs().getBoolean("l2Alerts", true); val nowMs = System.currentTimeMillis()
                 val bFresh = alerts && nowMs - s.bsdAt < 2500
