@@ -2187,7 +2187,7 @@ class MainActivity : Activity() {
         if (on && !((l2Applied || l1cApplied) && dashShown && isFullWindow() && carView.width > 0 && carView.height > 0)) return
         adasMode = on
         val l2 = l2Applied
-        val views = if (l2) listOf<View>(chargeBar, lowerBox, flyBtn, l2FlyBtn) else listOf<View>(tripPanel, tripSpacer, chargeBar)
+        val views = if (l2) listOf<View>(chargeBar, lowerBox, flyBtn, climateBtn, mediaBtn) else listOf<View>(tripPanel, tripSpacer, chargeBar)
         var kTo = 1f; var dyTo = 0f
         if (on) {
             val u0 = carView.height / 162f
