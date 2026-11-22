@@ -1288,7 +1288,7 @@ class MainActivity : Activity() {
             setOnClickListener { showSpeedAdjust() }
         }, 8)
         box.add(CheckBox(this).apply {
-            text = "Road curve from the car's lane camera (experimental, off by default: the car has only ever reported 'straight'; off = from the compass / GPS heading, which is also used whenever the camera reports straight or sees no lane)"; isChecked = prefs().getBoolean("curveLane", false)
+            text = "Road curve from the car's lane camera (on by default; the compass / GPS heading is always the fallback when the camera sees no lane or reports straight; off = compass / GPS only)"; isChecked = prefs().getBoolean("curveLane", true)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("curveLane", on).apply() }
         }, 12)
         box.add(TextView(this).apply { text = "LAYOUT 1 OPTIONS"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
@@ -2185,7 +2185,7 @@ class MainActivity : Activity() {
         if (b == null) {
             if (!show) return
             b = TextView(this).apply {
-                textSize = 13f; setTextColor(Color.argb(230, 255, 255, 255)); gravity = Gravity.CENTER
+                textSize = 13f; setTextColor(Color.argb(150, 255, 255, 255)); gravity = Gravity.CENTER
                 setPadding(dp(10), 0, dp(10), 0)
                 background = GradientDrawable().apply { setColor(Color.argb(90, 128, 128, 128)); cornerRadius = dp(15).toFloat() }
                 setOnClickListener { setAdas(!adasMode) }
@@ -4431,7 +4431,7 @@ class MainActivity : Activity() {
             // the bend of the road: the car's lane camera when it sees our lane (radius R: 45 m ahead turns the road by 45 / R rad), else the compass / GPS heading
             roadView.laneDeg = run {
                 val rl = s.laneRadiusM
-                if (!prefs().getBoolean("curveLane", false) || rl == null || rl == 0.0 || System.currentTimeMillis() - s.laneAt > 1000) null
+                if (!prefs().getBoolean("curveLane", true) || rl == null || rl == 0.0 || System.currentTimeMillis() - s.laneAt > 1000) null
                 else (-(45.0 / rl) * 180.0 / Math.PI).toFloat()      // R > 0 = curving left = a negative (anticlockwise) bend
             }
             roadView.noteHeading(hd)
