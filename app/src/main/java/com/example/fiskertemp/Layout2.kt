@@ -87,6 +87,9 @@ class CarView(ctx: Context) : View(ctx) {
         set(v) { if (field != v) { field = v; invalidate() } }
     var dowL = 0
         set(v) { if (field != v) { field = v; invalidate() } }
+    /** TEST: the doors from 0x343 (bit0 driver, 1 passenger, 2 rear left, 3 rear right, 4 tailgate switch, 5 hood, 6 driver door unlocked); -1 = nothing received. */
+    var doorBits = -1
+        set(v) { if (field != v) { field = v; invalidate() } }
     var dowR = 0
         set(v) { if (field != v) { field = v; invalidate() } }
     /** The 16 parking-sensor zones: rear 0-3, front 4-7, left 8-11, right 12-15 (0 off, 1-8 zone, 9 clear, 15 fault). */
@@ -250,6 +253,7 @@ class CarView(ctx: Context) : View(ctx) {
         if (rightInd) lampGlow(F_RIGHT)
         }
         drawAlerts(c, cx)
+        drawDoorTest(c, cx)
         c.restore()
         if (bsdL > 0 || bsdR > 0 || dowL > 0 || dowR > 0) postInvalidateDelayed(40)
         animating = shown > 0f || target > 0f || tilt != g
@@ -328,6 +332,31 @@ class CarView(ctx: Context) : View(ctx) {
             alertPath.reset(); alertPath.moveTo(xx, yy - 5f); alertPath.lineTo(xx + sg * 5f, yy); alertPath.lineTo(xx, yy + 5f)
             c.drawPath(alertPath, alertPaint)
         }
+    }
+
+    /** TEST: an open door shows as an amber bar on that side of the car; a line of text above lists every door as the car reports it. */
+    private fun drawDoorTest(c: Canvas, cx: Float) {
+        val b = doorBits; if (b < 0) return
+        fun on(i: Int) = ((b shr i) and 1) == 1
+        val carL = cx - 57f; val carR = cx + 57f
+        alertPaint.shader = null; alertPaint.style = Paint.Style.FILL
+        fun bar(l: Float, t: Float, r: Float, bt: Float) {
+            alertRect.set(l, t, r, bt)
+            alertPaint.color = Color.argb(235, 255, 150, 40); alertPaint.style = Paint.Style.FILL; c.drawRoundRect(alertRect, 3f, 3f, alertPaint)
+            alertPaint.color = Color.WHITE; alertPaint.style = Paint.Style.STROKE; alertPaint.strokeWidth = 1.2f; c.drawRoundRect(alertRect, 3f, 3f, alertPaint)
+        }
+        if (on(0)) bar(carL - 9f, 52f, carL - 2f, 88f)
+        if (on(1)) bar(carR + 2f, 52f, carR + 9f, 88f)
+        if (on(2)) bar(carL - 9f, 91f, carL - 2f, 125f)
+        if (on(3)) bar(carR + 2f, 91f, carR + 9f, 125f)
+        if (on(4)) bar(cx - 30f, 137f, cx + 30f, 144f)
+        fun st(i: Int) = if (on(i)) "OPEN" else "closed"
+        val txt = "DOORS  D:" + st(0) + "  P:" + st(1) + "  RL:" + st(2) + "  RR:" + st(3) + "  HATCH SW:" + (if (on(4)) "ON" else "off") + "  " + (if (on(6)) "unlocked" else "locked")
+        alertPaint.style = Paint.Style.FILL; alertPaint.textAlign = Paint.Align.CENTER; alertPaint.textSize = 8.5f
+        alertPaint.setShadowLayer(2f, 0f, 0f, Color.BLACK)
+        alertPaint.color = if (on(0) || on(1) || on(2) || on(3) || on(4)) Color.rgb(255, 176, 32) else Color.WHITE
+        c.drawText(txt, cx, 12f, alertPaint)
+        alertPaint.clearShadowLayer(); alertPaint.textAlign = Paint.Align.LEFT
     }
 
     /** Blind-spot and door-open glows beside the car, and the parking-sensor rings around it (in the 302 x 162 unit space). */

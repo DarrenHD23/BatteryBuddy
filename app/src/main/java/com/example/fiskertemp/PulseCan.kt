@@ -38,6 +38,7 @@ data class CanSnapshot(
     val bsdLeft: Int = 0,              // blind spot, left: 0 none, 1 threat, 2 threat + indicator on, 3 critical (0x315 ADAS_BSD_CID_LeDispReq, byte 5 bits 2-0)
     val bsdRight: Int = 0,             // the same on the right (byte 5 bits 5-3)
     val dowLeft: Int = 0,              // door-open warning, left: 1-4 = a threat is approaching (0x315 ADAS_DOW_CID_LeDispReq, byte 2 bits 2-0)
+    val doorBits: Int? = null,         // 0x343 BCM (IBUS1): bit0 driver door open, 1 passenger, 2 rear left, 3 rear right, 4 tailgate micro switch, 5 hood open, 6 driver door unlocked (TEST)
     val dowRight: Int = 0,             // the same on the right (byte 2 bits 5-3)
     val bsdAt: Long = 0L,              // when 0x315 was last seen (ms), so old values can be ignored
     val uss: List<Int>? = null,        // 16 parking-sensor zones (0x352): rear 0-3, front 4-7, left 8-11, right 12-15; 0 off, 1-8 zone, 9 clear, 15 fault
@@ -189,7 +190,7 @@ class PulseCan(
 
     /** The IDs this app reads, per chip (0 = IBUS1, 1 = IBUS2). Must match the helper's ID lists in loop(). */
     private val wanted = mapOf(
-        0 to listOf(0x382, 0x2F5, 0x318, 0x179, 0x234, 0x335, 0x2AC, 0x373, 0x507, 0x6DD),
+        0 to listOf(0x382, 0x2F5, 0x318, 0x179, 0x234, 0x335, 0x343, 0x2AC, 0x373, 0x507, 0x6DD),
         1 to listOf(0x0E9, 0x1A9, 0x210, 0x351, 0x504, 0x580, 0x582, 0x332, 0x311, 0x491, 0x5EA, 0x505),
     )
 
@@ -550,7 +551,7 @@ class PulseCan(
                     onStatus(if (why == null) "CAN filters: $filterReadback" else "CAN filters not changed: $why")
                 }
                 txActive = context.getSharedPreferences("prefs", Context.MODE_PRIVATE).getBoolean("climateTx", false)
-                val base = listOf(bin, "$b1=382,2F5,2F4,554,318,179,234,335,2AC,373,507,6DD,1A9,5EA,505,530,534,386,528,512,518", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534,528,313,315,352")
+                val base = listOf(bin, "$b1=382,2F5,2F4,554,318,179,234,335,343,2AC,373,507,6DD,1A9,5EA,505,530,534,386,528,512,518", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534,528,313,315,352")
                 // transmit is allowed only for 0x530, 0x528 and 0x534 and only when the test is ticked in Settings; otherwise the helper is receive-only
                 val args = if (txActive) base + listOf("tx:$b1=530,528,534", "tx:$b2=530,528,534") else base
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
@@ -654,6 +655,13 @@ class PulseCan(
         if (bus == 1 && id == 0x234) {
             val m = (b[7] shr 3) and 7
             return s.copy(driveMode = if (m <= 2) m else null, brakeVcu = ((b[1] shr 6) and 1) == 1, ready = ((b[1] shr 4) and 1) == 1)
+        }
+        // 0x343 BCM_0x343 (IBUS1, 50 ms), from the Oceanfront view's DBC: door states 0 closed, 1 open (TEST: logged and shown on the car)
+        if (bus == 1 && id == 0x343) {
+            fun bit(i: Int, n: Int) = (b[i] shr n) and 1
+            val bits = bit(2, 5) or (bit(2, 6) shl 1) or (bit(3, 6) shl 2) or (bit(3, 5) shl 3) or (bit(2, 3) shl 4) or (bit(2, 0) shl 5) or (bit(2, 2) shl 6)
+            if (bits != s.doorBits) onStatus("door test: " + (if (s.doorBits == null) "first " else "") + "driver " + bit(2, 5) + " pass " + bit(2, 6) + " rear-left " + bit(3, 6) + " rear-right " + bit(3, 5) + " tailgate-switch " + bit(2, 3) + " hood " + bit(2, 0) + " unlocked " + bit(2, 2) + "  (" + b.joinToString(" ") { String.format("%02X", it and 0xFF) } + ")")
+            return s.copy(doorBits = bits)
         }
         // 0x335 BCM_0x335 (IBUS1): BCM_BrkLampOutpCmd, the brake lamp output command (1 = on)
         if (bus == 1 && id == 0x335) {
