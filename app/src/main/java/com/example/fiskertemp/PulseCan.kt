@@ -235,7 +235,8 @@ class PulseCan(
                 if (slot == null) { unfit.add(id); continue }
                 // a slot lets through a whole block of IDs (everything that matches under the mask): never open a wide one, it floods the chip
                 val block = 1 shl (11 - Integer.bitCount(m and 0x7FF))
-                if (block > 16) { unfit.add(id); continue }
+                // the one exception: the hatch (0x471) sits in the 0x400 block, so it needs a wide slot (a few more frames, read-only)
+                if (block > 16 && id != 0x471) { unfit.add(id); continue }
                 nf[slot] = id and m
                 added.add(id)
             }
@@ -677,7 +678,7 @@ class PulseCan(
     private fun handle(line: String, b1: String, b2: String) {
         if (line.startsWith("#")) {
             if (line.contains("ready")) onStatus("CAN reader ready")
-            else if (line.startsWith("# tx")) onStatus("Helper " + line.removePrefix("# "))
+            else if (line.startsWith("# tx") && !(line.endsWith(" ok") && (line.contains(" can1 52 ") || line.contains(" can1 4E ")))) onStatus("Helper " + line.removePrefix("# "))
             return
         }
         val parts = line.trim().split(' ')
@@ -957,7 +958,7 @@ object EventLog {
         val f = java.io.File(ctx.filesDir, "events.log")
         file = f
         try {
-            if (f.length() > 200_000) f.writeText(f.readLines().takeLast(800).joinToString("\n") + "\n")
+            if (f.length() > 1_500_000) f.writeText(f.readLines().takeLast(8000).joinToString("\n") + "\n")
         } catch (e: Exception) { /* ignore */ }
     }
 
@@ -976,7 +977,7 @@ object EventLog {
         try { java.io.FileOutputStream(f, true).use { o -> o.write(line.toByteArray()) } } catch (e: Exception) { /* ignore */ }
     }
 
-    @Synchronized fun text(maxLines: Int = 250): String = try {
+    @Synchronized fun text(maxLines: Int = 4000): String = try {
         file?.readLines()?.takeLast(maxLines)?.joinToString("\n") ?: ""
     } catch (e: Exception) { "" }
 
