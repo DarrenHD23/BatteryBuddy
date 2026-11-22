@@ -578,8 +578,9 @@ class RoadView(ctx: Context) : View(ctx) {
         val x = 151f + o.latS * 49f * sE * (1f - 0.42f * par) + bendFn(y)
         // fade at the ends of the range (behind us and far ahead), and with the road view's tilt (the road is not drawn parked)
         val ends = Math.min(((45f - gap) / 10f).coerceIn(0f, 1f), ((gap + 6f) / 1.5f).coerceIn(0f, 1f))
-        val a0 = (o.alpha * ends * tiltNow * 0.85f * 255f).toInt().coerceIn(0, 255)
-        if (a0 > 2) drawObj(c, x, y, wU, o.cls, o.brake, a0, 1f, null)
+        // like the lead car: from behind while driving, from above when parked or stopped behind a car
+        val a0 = (o.alpha * ends * 0.85f * 255f).toInt().coerceIn(0, 255)
+        if (a0 > 2) drawObj(c, x, y, wU, o.cls, o.brake, a0, tiltNow * (1f - par), null)
     }
 
     /** gap = metres ahead of the front bumper, lat = metres to the right of our centre line, w = width in metres (0 = unknown), cls = the car's object class. */
@@ -764,10 +765,10 @@ class RoadView(ctx: Context) : View(ctx) {
         val yTop = yTop0 + (-ext - yTop0) * dpar
         // ADAS view: the road edges are straight lines from full width at the car to 40% of it at the top of the screen
         fun adasW(y: Float): Float = (1f - 0.6f * (hh - y) / (hh + ext)).coerceIn(0.4f, 1f)
-        // the bend starts partway down the car and grows smoothly to the top; the tangent angle at the top is the compass change (x 1.75)
+        // the bend starts partway down the car and grows smoothly to the top; the tangent angle at the top is the compass change (x 2.01)
         val bendFrom = 76f
         val ltot = bendFrom - yTop
-        val bendA = if (ltot > 1f) Math.tan(Math.toRadians((curveShown * 1.75f).toDouble())).toFloat() * ltot / 2f else 0f
+        val bendA = if (ltot > 1f) Math.tan(Math.toRadians((curveShown * 2.01f).toDouble())).toFloat() * ltot / 2f else 0f
         fun sh(y: Float): Float { if (y >= bendFrom || ltot <= 1f) return 0f; val t = (bendFrom - y) / ltot; return bendA * t * t }
         path.reset()
         val steps = 24
