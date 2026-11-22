@@ -329,13 +329,39 @@ class PulseCan(
         Thread {
             synchronized(txLock) {
                 try {
-                    for (i in 0 until 3) { out.write(ask.toByteArray()); out.flush(); Thread.sleep(100) }
+                    // the car screen's own idle 0x52 goes out every 100 ms too, so ours is sent often enough to outnumber it: 30 frames over 0.6 s
+                    for (i in 0 until 30) { out.write(ask.toByteArray()); out.flush(); Thread.sleep(20) }
                     out.write(idle.toByteArray()); out.flush()
                 } catch (e: Exception) { onStatus("Hatch TX failed: ${e.message}") }
             }
         }.start()
         return "Hatch ${if (open) "open" else "close"} requested on IBUS1"
     }
+
+    /**
+     * TEST: the other way to open or close the hatch: 0x4E ICC_TrunkLockCtrl (byte 3, bits 7-6) = 1 open or 2 close, sent the way rear
+     * defrost is (three times 20 ms apart, then the idle frame 200 ms later). The hatch moves!
+     */
+    fun sendLid(open: Boolean): String {
+        if (!txActive) return "Control is off: tick it in Settings and restart the app"
+        val ifs = txIfaces ?: return "CAN reader not running"
+        val out = txOut ?: return "CAN reader not running"
+        val ask = "tx ${ifs.first} 4E 000000${if (open) "40" else "80"}7F000000\n"
+        val idle = "tx ${ifs.first} 4E 000000007F000000\n"
+        Thread {
+            synchronized(txLock) {
+                try {
+                    for (i in 0 until 3) { out.write(ask.toByteArray()); out.flush(); if (i < 2) Thread.sleep(20) }
+                    Thread.sleep(180)
+                    out.write(idle.toByteArray()); out.flush()
+                } catch (e: Exception) { onStatus("Lid TX failed: ${e.message}") }
+            }
+        }.start()
+        return "Hatch lid ${if (open) "open" else "close"} (0x4E) requested on IBUS1"
+    }
+
+    private var lastHatchLog = ""
+    private var lastTailSw = -1
 
     /**
      * Rear window defrost on or off. 0x4E (the screen's body message, IBUS1) with every signal idle and ICC_ReDefrstOpenReq (byte 5, bits 5-4)
@@ -707,10 +733,17 @@ class PulseCan(
             return s.copy(driveMode = if (m <= 2) m else null, brakeVcu = ((b[1] shr 6) and 1) == 1, ready = ((b[1] shr 4) and 1) == 1)
         }
         // 0x471 PLGM_0x471 (IBUS1, 100 ms), from the Oceanfront view's DBC: the power liftgate (TEST)
+        if (bus == 1 && id == 0x471) {
+            val st = "open=" + ((b[6] shr 1) and 1) + " pos=" + b[1] + "% latch=" + ((b[4] shr 5) and 7) + " (" + b.joinToString(" ") { String.format("%02X", it and 0xFF) } + ")"
+            val key = ((b[6] shr 1) and 1).toString() + "/" + ((b[4] shr 5) and 7)
+            if (key != lastHatchLog) { lastHatchLog = key; onStatus("hatch 0x471: $st") }
+        }
         if (bus == 1 && id == 0x471) return s.copy(hatchOpen = ((b[6] shr 1) and 1) == 1, hatchPos = b[1], hatchLatch = (b[4] shr 5) and 7, hatchAt = System.currentTimeMillis())
         // 0x343 BCM_0x343 (IBUS1, 50 ms), signals from the Oceanfront view's DBC: BCM_DrFrntDoorSts byte 2 bit 5, BCM_PasFrntDoorSts byte 2 bit 6,
         // BCM_LeReDoorSts byte 3 bit 6, BCM_RiReDoorSts byte 3 bit 5 (0 closed, 1 open). The hatch is in 0x471, which the chip filters do not pass.
         if (bus == 1 && id == 0x343) {
+            val tsw = (b[2] shr 3) and 1
+            if (tsw != lastTailSw) { if (lastTailSw >= 0) onStatus("hatch switch (0x343 byte 2 bit 3): $tsw"); lastTailSw = tsw }
             val bits = ((b[2] shr 5) and 1) or (((b[2] shr 6) and 1) shl 1) or (((b[3] shr 6) and 1) shl 2) or (((b[3] shr 5) and 1) shl 3)
             return s.copy(doorBits = bits, doorAt = System.currentTimeMillis())
         }

@@ -2546,15 +2546,18 @@ class MainActivity : Activity() {
         // TEST: open / close the power hatch, and what the car reports about it (0x471)
         hatchLbl = TextView(this).apply { text = "Hatch: no data"; textSize = 11f; setTextColor(Color.WHITE); gravity = Gravity.CENTER; setPadding(dp(8), 0, dp(8), 0) }
         val hatchRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            for ((name, open) in listOf("Open hatch" to true, "Close hatch" to false)) addView(TextView(this@MainActivity).apply {
-                text = name; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER; setPadding(dp(12), 0, dp(12), 0); background = chipBg(12)
-                setOnClickListener {
-                    val msg = pulse?.sendHatch(open) ?: "CAN reader is not running"
-                    EventLog.add("Hatch test: $msg"); toast(msg)
-                }
-            }, LinearLayout.LayoutParams(-2, dp(34)).apply { rightMargin = dp(8) })
-            addView(hatchLbl, LinearLayout.LayoutParams(-2, dp(34)))
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                for ((name, how) in listOf("Open hatch" to 0, "Close hatch" to 1, "Lid open" to 2, "Lid close" to 3)) addView(TextView(this@MainActivity).apply {
+                    text = name; textSize = 11f; setTextColor(Color.WHITE); gravity = Gravity.CENTER; setPadding(dp(9), 0, dp(9), 0); background = chipBg(12)
+                    setOnClickListener {
+                        val msg = (when (how) { 0 -> pulse?.sendHatch(true); 1 -> pulse?.sendHatch(false); 2 -> pulse?.sendLid(true); else -> pulse?.sendLid(false) }) ?: "CAN reader is not running"
+                        EventLog.add("Hatch test: $msg"); toast(msg)
+                    }
+                }, LinearLayout.LayoutParams(-2, dp(34)).apply { rightMargin = dp(6) })
+            })
+            addView(hatchLbl, LinearLayout.LayoutParams(-2, dp(26)))
         }
         f.addView(hatchRow, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(58) })
         // Layout 2: the live 3D car, a transparent layer over the car square; off (images used instead) when the setting is off or the page fails
