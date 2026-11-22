@@ -2148,7 +2148,7 @@ class MainActivity : Activity() {
     /** The transparent ADAS View On/Off button at the very top, just left of the road (right of it in right-hand drive); full screen, Layouts 1 and 2. */
     private fun placeAdasBar(root: FrameLayout) {
         val show = (l1cApplied || l2Applied) && isFullWindow() && carView.width > 0 && dashMid.width > 0
-        var b = adasBar
+        var b = adasBar as? TextView
         if (b == null) {
             if (!show) return
             b = TextView(this).apply {
@@ -2349,9 +2349,21 @@ class MainActivity : Activity() {
             .apply { topLabel = "CLIMATE"; title = "POWER"; unit = "kW"; bottomLabel = "HV BATTERY" }
         dashSpeedGauge = ArcGaugeView(this, true, 0f) { t -> Skins.grad(t) }
             .apply { topLabel = "BATTERY TEMP"; title = "SPEED"; unit = "km/h"; bottomLabel = "BATTERY HEATING/COOLING" }
-        // tap either gauge for the Pulse hardware health window
-        dashPowerGauge.setOnClickListener { showHealth() }
-        dashSpeedGauge.setOnClickListener { showHealth() }
+        // tap the power or speed reading for the Pulse hardware health window
+        // only the big reading and its unit (kW / km/h) answer to a tap, so a brush on the rest of the gauge does nothing
+        for (gv in listOf(dashPowerGauge, dashSpeedGauge)) {
+            var downIn = false
+            gv.setOnTouchListener { v, ev ->
+                val r = minOf(v.width, v.height) / 2f * 0.92f
+                val inside = Math.abs(ev.x - v.width / 2f) <= r * 0.5f && ev.y >= v.height / 2f - r * 0.18f && ev.y <= v.height / 2f + r * 0.42f
+                when (ev.actionMasked) {
+                    android.view.MotionEvent.ACTION_DOWN -> { downIn = inside; downIn }
+                    android.view.MotionEvent.ACTION_UP -> { val hit = downIn && inside; downIn = false; if (hit) showHealth(); hit }
+                    android.view.MotionEvent.ACTION_CANCEL -> { val was = downIn; downIn = false; was }
+                    else -> downIn
+                }
+            }
+        }
         val light = Typeface.create("sans-serif-light", Typeface.NORMAL)
         dashSign = SpeedSignView(this).apply { alpha = 0f }
         dashLight = TrafficLightView(this).apply { alpha = 0f }
