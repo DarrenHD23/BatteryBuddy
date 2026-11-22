@@ -2152,7 +2152,7 @@ class MainActivity : Activity() {
             b = TextView(this).apply {
                 textSize = 13f; setTextColor(Color.argb(230, 255, 255, 255)); gravity = Gravity.CENTER
                 setPadding(dp(10), 0, dp(10), 0)
-                background = GradientDrawable().apply { setColor(Color.TRANSPARENT); setStroke(dp(1), Color.argb(110, 255, 255, 255)); cornerRadius = dp(15).toFloat() }
+                background = GradientDrawable().apply { setColor(Color.argb(90, 128, 128, 128)); cornerRadius = dp(15).toFloat() }
                 setOnClickListener { setAdas(!adasMode) }
             }
             root.addView(b, FrameLayout.LayoutParams(dp(120), dp(30), Gravity.TOP or Gravity.START).apply { topMargin = dp(5) })
@@ -2230,6 +2230,7 @@ class MainActivity : Activity() {
             if (::objView.isInitialized) objView.invalidate()
         }
         for (v in adasHidden) v.isEnabled = !on
+        if (::roadView.isInitialized) { roadView.adasOn = on; roadView.invalidate() }
         fun finish() {
             if (!on) { for (v in adasHidden) { v.alpha = 1f; v.isEnabled = true }; adasHidden.clear(); carView.scaleX = 1f; carView.scaleY = 1f; adasDy = 0f; placeL1Overlays(dashRoot); syncCar3d(dashRoot) }
         }

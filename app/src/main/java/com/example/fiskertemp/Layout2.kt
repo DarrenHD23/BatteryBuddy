@@ -462,6 +462,9 @@ class RoadView(ctx: Context) : View(ctx) {
     private var lOn = false
     private var lGap = 0f; private var lLat = 0f; private var lW = 1.85f; private var lCls = 0; private var lBrake = false; private var lSrc = 2
     private var lGapS = 0f; private var lLatS = 0f; private var lAlpha = 0f
+    /** True while the ADAS view is on: the road stays wider in the distance. Eases in and out. */
+    var adasOn = false
+    private var adasE = 0f
     private var par = 0f        // 0 = road lines angled in perspective (driving), 1 = parallel lines (stopped behind a car); eases both ways
     private val lp = Paint(Paint.ANTI_ALIAS_FLAG)
     private val lr = RectF()
@@ -693,6 +696,11 @@ class RoadView(ctx: Context) : View(ctx) {
         par += (parTarget - par) * min(1f, dt * 1.6f)
         if (Math.abs(par - parTarget) < 0.004f) par = parTarget
         val parAnim = par != parTarget
+        val adasT = if (adasOn) 1f else 0f
+        adasE += (adasT - adasE) * min(1f, dt * 4f)
+        if (Math.abs(adasE - adasT) < 0.01f) adasE = adasT
+        val adasAnimNow = adasE != adasT
+        val adasFloor = 0.26f * adasE          // the narrowest the road gets in the distance (share of its full width)
         val leadAnim = lAlpha > 0f && (!lOn || lAlpha < 1f || Math.abs(lGap - lGapS) > 0.05f || Math.abs(lLat - lLatS) > 0.01f)
         getLocationInWindow(la); cv.getLocationInWindow(lb)
         val u = cv.height * cv.scaleY / 162f           // (the ADAS view scales the car view up)
@@ -707,7 +715,7 @@ class RoadView(ctx: Context) : View(ctx) {
         val tilt = ((car as? CarView)?.tilt ?: 1f).coerceIn(0f, 1f)
         // (overhead view: no road at all; the perspective road below fades in with the tilt and out again when the car parks)
         val lay = if (tilt < 0.999f) c.saveLayerAlpha(-2000f, -2000f, 4000f, 2000f, (tilt * 255).toInt()) else -1
-        if (tilt <= 0.001f) { c.restoreToCount(lay); drawLead(c, 0f, 0f) { 0f }; c.restore(); animating = shown > 0f || target > 0f || curveShown != curveTarget || leadAnim || parAnim; if (animating) postInvalidateDelayed(30); return }
+        if (tilt <= 0.001f) { c.restoreToCount(lay); drawLead(c, 0f, 0f) { 0f }; c.restore(); animating = shown > 0f || target > 0f || curveShown != curveTarget || leadAnim || parAnim || adasAnimNow; if (animating) postInvalidateDelayed(30); return }
         val hh = 162f; val smin = 0.45f; val per = 0.3f; val len = 0.15f; val cx = 151f; val half = 86f * (1f - 0.42f * par)      // stopped behind a car the road is only a little wider than our car
         val ext = carTop.coerceAtLeast(0f) / u                    // how far up the road has to go to reach the top of the screen
         val sTop = Math.max(smin - ext * (1f - smin) / hh, 0.03f)
@@ -720,8 +728,8 @@ class RoadView(ctx: Context) : View(ctx) {
         fun sh(y: Float): Float { if (y >= bendFrom || ltot <= 1f) return 0f; val t = (bendFrom - y) / ltot; return bendA * t * t }
         path.reset()
         val steps = 24
-        for (i in 0..steps) { val y = yTop + (hh - yTop) * i / steps; val sv = Math.max(smin + y * (1f - smin) / hh, sTop).let { it + (1f - it) * par }; val x = cx - half * sv + sh(y); if (i == 0) path.moveTo(x, y) else path.lineTo(x, y) }
-        for (i in steps downTo 0) { val y = yTop + (hh - yTop) * i / steps; val sv = Math.max(smin + y * (1f - smin) / hh, sTop).let { it + (1f - it) * par }; path.lineTo(cx + half * sv + sh(y), y) }
+        for (i in 0..steps) { val y = yTop + (hh - yTop) * i / steps; val sv = Math.max(smin + y * (1f - smin) / hh, sTop).let { val w0 = Math.max(it, adasFloor); w0 + (1f - w0) * par }; val x = cx - half * sv + sh(y); if (i == 0) path.moveTo(x, y) else path.lineTo(x, y) }
+        for (i in steps downTo 0) { val y = yTop + (hh - yTop) * i / steps; val sv = Math.max(smin + y * (1f - smin) / hh, sTop).let { val w0 = Math.max(it, adasFloor); w0 + (1f - w0) * par }; path.lineTo(cx + half * sv + sh(y), y) }
         path.close()
         p.shader = LinearGradient(0f, yTop, 0f, 0f, Color.argb(20, 200, 206, 216), Color.argb(48, 200, 206, 216), Shader.TileMode.CLAMP)
         p.color = Color.WHITE
@@ -741,7 +749,7 @@ class RoadView(ctx: Context) : View(ctx) {
                 y1 += ((hh - (z1 - 1f) * 150f) - y1) * par; y2 += ((hh - (z2 - 1f) * 150f) - y2) * par
                 y1 = Math.max(y1, yTop); y2 = Math.max(y2, yTop)
                 if (y1 - y2 < 0.3f) continue
-                val e1 = s1 + (1f - s1) * par; val e2 = s2 + (1f - s2) * par
+                val f1 = Math.max(s1, adasFloor); val f2 = Math.max(s2, adasFloor); val e1 = f1 + (1f - f1) * par; val e2 = f2 + (1f - f2) * par
                 val w1 = 3.4f * e1; val w2 = 3.4f * e2
                 val x1 = cx + side * half * e1 + sh(y1); val x2 = cx + side * half * e2 + sh(y2)
                 val fade = if (yTop < 0f) 0.3f + 0.7f * (((y1 + y2) / 2f - yTop) / (-yTop)).coerceIn(0f, 1f) else 1f
@@ -756,7 +764,7 @@ class RoadView(ctx: Context) : View(ctx) {
         drawLead(c, tilt, par) { yy -> sh(yy) }
         c.restore()
         overlay?.postInvalidateOnAnimation()
-        animating = shown > 0f || target > 0f || curveShown != curveTarget || (tilt > 0f && tilt < 1f) || leadAnim || parAnim
+        animating = shown > 0f || target > 0f || curveShown != curveTarget || (tilt > 0f && tilt < 1f) || leadAnim || parAnim || adasAnimNow
         if (animating) postInvalidateDelayed(30)
     }
 }
