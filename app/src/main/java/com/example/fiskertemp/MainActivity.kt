@@ -2187,17 +2187,35 @@ class MainActivity : Activity() {
         if (on && !((l2Applied || l1cApplied) && dashShown && isFullWindow() && carView.width > 0 && carView.height > 0)) return
         adasMode = on
         val l2 = l2Applied
-        val views = if (l2) listOf<View>(chargeBar, lowerBox, flyBtn, climateBtn, mediaBtn) else listOf<View>(tripPanel, tripSpacer, chargeBar)
+        // hidden in the ADAS view: Layout 2 the battery bar, the shortcut row and the two swipe cards (trip / compass / shortcuts); Layout 1 the trip panel and the battery bar; both the compass reading
+        val views = ArrayList<View>()
+        if (l2) { views.addAll(listOf<View>(chargeBar, lowerBox, flyBtn)); if (l2Mid.childCount > 1) views.add(l2Mid.getChildAt(1)) } else views.addAll(listOf<View>(tripPanel, tripSpacer, chargeBar))
+        if (::dashHeading.isInitialized) views.add(dashHeading)
         var kTo = 1f; var dyTo = 0f
         if (on) {
             val u0 = carView.height / 162f
             val kW = 0.8f * carView.width / (114f * u0)           // keep the car well inside its column
-            val kH = if (l2) 1.35f else (dashMid.height - dp(8) - dp(14) - carView.top).toFloat() / carView.height     // Layout 1: down to the bottom of the column
+            // the road and car grow, then the whole view moves down, until the bottom of the road meets the top of the media card
+            // (or the Climate panel, or the bottom of the middle column when neither is up)
+            val ra = IntArray(2); val pa = IntArray(2)
+            dashRoot.getLocationInWindow(ra); (carView.parent as View).getLocationInWindow(pa)
+            val carTop = (pa[1] - ra[1] + carView.top + dp(14)).toFloat()
+            var target = Float.MAX_VALUE
+            for (v in listOfNotNull<View>(if (::mediaCard.isInitialized) mediaCard else null, if (::climateView.isInitialized) climateView else null, if (::mediaPopup.isInitialized) mediaPopup else null)) if (v.visibility == View.VISIBLE && v.height > 0 && v.isShown) {
+                val va = IntArray(2); v.getLocationInWindow(va)
+                val top = (va[1] - ra[1]).toFloat()
+                if (top > carTop + carView.height * 0.6f && top < target) target = top
+            }
+            if (target == Float.MAX_VALUE) {
+                val da = IntArray(2); dashMid.getLocationInWindow(da)
+                target = (da[1] - ra[1] + dashMid.height).toFloat()
+                if (l2 && l2Mid.childCount > 1) { val c1 = l2Mid.getChildAt(1); val ca2 = IntArray(2); c1.getLocationInWindow(ca2); target = (ca2[1] - ra[1] + c1.height).toFloat() }
+            }
+            target -= dp(4)
+            val kH = (target - carTop) / carView.height
             kTo = minOf(kW, kH, 1.8f).coerceAtLeast(1f)
-            // Layout 2: the whole view moves down until the car's rear edge meets the top of the media / climate cards
-            val cards = if (l2 && l2Mid.childCount > 1) l2Mid.getChildAt(1) else null
-            if (cards != null && cards.height > 0) dyTo = (cards.top - carView.bottom - dp(14) + 9f * u0 * kTo).coerceAtLeast(0f)
-            carView.pivotX = carView.width / 2f; carView.pivotY = if (l2) carView.height.toFloat() else 0f
+            dyTo = (target - carTop - kTo * carView.height).coerceAtLeast(0f)
+            carView.pivotX = carView.width / 2f; carView.pivotY = 0f
             if (adasHidden.isEmpty()) adasHidden.addAll(views)
         }
         val k0 = carView.scaleX; val dy0 = adasDy
