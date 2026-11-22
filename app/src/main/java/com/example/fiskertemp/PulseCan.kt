@@ -19,6 +19,13 @@ import android.util.Log
 import java.io.File
 import kotlin.concurrent.thread
 
+/** The car in front, from the car's ADAS object list. gapM = metres ahead of the front bumper, latM = metres to the right of the car's centre line (negative = left). */
+data class LeadCar(
+    val id: Int, val gapM: Double, val latM: Double, val widthM: Double, val cls: Int, val brake: Boolean,
+    val src: Int,                     // how it was picked: 2 = the car's own leading-vehicle ID (0x353), 1 = the cruise-control target (0x31C), 0 = nearest car in our lane
+    val rawX: Double, val rawY: Double,   // as decoded, before the calibration (for the log)
+)
+
 /** Latest decoded values. null = not received yet, or the car marks it invalid. */
 data class CanSnapshot(
     val avgTempC: Double? = null,      // pack average temperature (frame 0x382, byte 5)
@@ -44,6 +51,8 @@ data class CanSnapshot(
     val hatchPos: Int? = null,         // PLGM_LeTrPosn, byte 1: 0-100 %
     val hatchLatch: Int? = null,       // PLGM_TrLtchStsIndcn, byte 4 bits 7-5: 0 latched, 1 half latched, 2 open, 3 initialising
     val hatchAt: Long = 0L,
+    val lead: LeadCar? = null,         // the car ahead, from the ADAS object list on IBUS2 (0x33B etc.), with the Oceanfront view's calibration applied
+    val leadAt: Long = 0L,
     val dowRight: Int = 0,             // the same on the right (byte 2 bits 5-3)
     val bsdAt: Long = 0L,              // when 0x315 was last seen (ms), so old values can be ignored
     val uss: List<Int>? = null,        // 16 parking-sensor zones (0x352): rear 0-3, front 4-7, left 8-11, right 12-15; 0 off, 1-8 zone, 9 clear, 15 fault
@@ -196,7 +205,7 @@ class PulseCan(
     /** The IDs this app reads, per chip (0 = IBUS1, 1 = IBUS2). Must match the helper's ID lists in loop(). */
     private val wanted = mapOf(
         0 to listOf(0x382, 0x2F5, 0x318, 0x179, 0x234, 0x335, 0x343, 0x471, 0x2AC, 0x373, 0x507, 0x6DD),
-        1 to listOf(0x0E9, 0x1A9, 0x210, 0x351, 0x504, 0x580, 0x582, 0x332, 0x311, 0x491, 0x5EA, 0x505),
+        1 to listOf(0x0E9, 0x1A9, 0x210, 0x351, 0x504, 0x580, 0x582, 0x332, 0x311, 0x491, 0x5EA, 0x505, 0x33B, 0x34B, 0x32D, 0x33D, 0x34D, 0x32F, 0x33F, 0x34F, 0x353, 0x31C),
     )
 
     private fun hex(l: List<Int>) = l.joinToString(",") { "0x" + Integer.toHexString(it).uppercase() }
@@ -318,6 +327,34 @@ class PulseCan(
     private val txLock = Any()
 
     private var lastHatchLog = ""
+
+    // the ADAS object list: 8 slots, one per message (Oceanfront view's OBJECT_MSGS). Only the reader thread touches these.
+    private class AdasObj { var id = 0; var gx = 0.0; var gy = 0.0; var w = 0.0; var cls = 6; var brake = false; var conf = false; var at = 0L; var rawX = 0.0; var rawY = 0.0 }
+    private val adasObjs = Array(8) { AdasObj() }
+    private val adasSlot = mapOf(0x33B to 0, 0x34B to 1, 0x32D to 2, 0x33D to 3, 0x34D to 4, 0x32F to 5, 0x33F to 6, 0x34F to 7)
+    private var adasLeadId = 0; private var adasLeadAt = 0L      // 0x353 ADAS_LdngVhclID
+    private var adasAccId = 0; private var adasAccAt = 0L        // 0x31C ADAS_ACCPrimTgtID
+    private var adasPubAt = 0L; private var adasLogAt = 0L; private var adasLogKey = ""
+
+    private fun pickLead(now: Long): LeadCar? {
+        fun mk(o: AdasObj, src: Int) = LeadCar(o.id, o.gx, o.gy, o.w, o.cls, o.brake, src, o.rawX, o.rawY)
+        val live = adasObjs.filter { it.id != 0 && now - it.at < 600 }
+        if (adasLeadId != 0 && now - adasLeadAt < 800) live.firstOrNull { it.id == adasLeadId }?.let { return mk(it, 2) }
+        if (adasAccId != 0 && now - adasAccAt < 800) live.firstOrNull { it.id == adasAccId }?.let { return mk(it, 1) }
+        // otherwise the nearest vehicle-like object in our own lane
+        val near = live.filter { it.conf && (it.cls == 0 || it.cls == 1 || it.cls == 2 || it.cls == 7 || it.cls == 8) && it.gx in 1.0..60.0 && Math.abs(it.gy) < 1.7 }.minByOrNull { it.gx }
+        return near?.let { mk(it, 0) }
+    }
+
+    private fun logLead(l: LeadCar?, now: Long) {
+        val key = if (l == null) "none" else "${l.id}/${l.src}"
+        if (key == adasLogKey && (l == null || now - adasLogAt < 2000)) return
+        adasLogKey = key; adasLogAt = now
+        val n = adasObjs.count { it.id != 0 && now - it.at < 600 }
+        onStatus(if (l == null) "lead: none ($n objects, lead id $adasLeadId, acc id $adasAccId)"
+        else String.format(java.util.Locale.US, "lead: id %d class %d src %d  raw %.1f m, %.1f right -> %.1f m, %.1f right  width %.1f  brake %d  (%d objects)",
+            l.id, l.cls, l.src, l.rawX, l.rawY, l.gapM, l.latM, l.widthM, if (l.brake) 1 else 0, n))
+    }
     private var lastTailSw = -1
 
     /**
@@ -586,7 +623,7 @@ class PulseCan(
                     onStatus(if (why == null) "CAN filters: $filterReadback" else "CAN filters not changed: $why")
                 }
                 txActive = context.getSharedPreferences("prefs", Context.MODE_PRIVATE).getBoolean("climateTx", true)
-                val base = listOf(bin, "$b1=382,2F5,2F4,554,318,179,234,335,343,471,2AC,373,507,6DD,1A9,5EA,505,530,534,386,528,512,518", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534,528,313,315,352")
+                val base = listOf(bin, "$b1=382,2F5,2F4,554,318,179,234,335,343,471,2AC,373,507,6DD,1A9,5EA,505,530,534,386,528,512,518", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534,528,313,315,352,33B,34B,32D,33D,34D,32F,33F,34F,353,31C")
                 // transmit is allowed only for 0x530, 0x528 and 0x534 and only when the test is ticked in Settings; otherwise the helper is receive-only
                 val args = if (txActive) base + listOf("tx:$b1=530,528,534,4E", "tx:$b2=530,528,534") else base
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
@@ -774,6 +811,29 @@ class PulseCan(
             // net energy of the trip: everything while moving, and the draw while stopped but READY (not charging)
             if (dt in 0.0..0.5 && (moving || (s.ready == true && watts > 0))) tripWh += watts * dt / 3600.0
             return s.copy(packKw = volts * cur * 0.05 / 1000.0, packAmps = cur * 0.05, packVolts = volts, regenKwh = regenWh / 1000.0, tripKwh = tripWh / 1000.0)
+        }
+        // ADAS object list (IBUS2): 0x353 names the leading vehicle, 0x31C the cruise-control target, and eight messages hold one object each
+        // (7|8 id, 15|8 long dist 0.2 m, 23|8 lat dist 0.2 m, 29|6 width 0.1 m, 31 conf, 54 long sign, 55 lat sign, 59|4 class, 60 brake light)
+        if (bus == 2 && id == 0x353) { adasLeadId = b[3]; adasLeadAt = System.currentTimeMillis(); return null }
+        if (bus == 2 && id == 0x31C) { adasAccId = b[4]; adasAccAt = System.currentTimeMillis(); return null }
+        val oslot = if (bus == 2) adasSlot[id] else null
+        if (oslot != null) {
+            val now = System.currentTimeMillis()
+            val o = adasObjs[oslot]
+            o.id = b[0]
+            if (o.id == 0) o.at = 0L else {
+                val ln = b[1] * 0.2; val lt = b[2] * 0.2
+                o.rawX = if (((b[6] shr 6) and 1) == 1) -ln else ln          // long sign 1 = behind us
+                o.rawY = if (((b[6] shr 7) and 1) == 1) -lt else lt          // lat sign 1 = left (so + = right); to be checked on the car
+                o.gx = o.rawX / 0.80 - 3.7; o.gy = o.rawY / 1.35             // the Oceanfront view's measured calibration
+                o.w = (b[3] and 0x3F) * 0.1; o.conf = ((b[3] shr 7) and 1) == 1
+                o.cls = b[7] and 15; o.brake = ((b[7] shr 4) and 1) == 1; o.at = now
+            }
+            if (now - adasPubAt < 100) return null
+            adasPubAt = now
+            val lead = pickLead(now)
+            logLead(lead, now)
+            return s.copy(lead = lead, leadAt = now)
         }
         // 0x210 ADAS_0x210 (IBUS2, 50 ms): ego-lane traffic light colour (byte 1 low nibble) and light shape (byte 1 bits 6-4);
         // 1 red, 2 amber, 3 green; 4-7 are red/orange variants; 0 = none, 7/8 = unknown

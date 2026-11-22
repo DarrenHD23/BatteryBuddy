@@ -4229,6 +4229,8 @@ class MainActivity : Activity() {
                 carView.uss = if (alerts && s.uss != null && nowMs - s.ussAt < 3000) s.uss.toIntArray() else null
                 carView.hatchPct = if (alerts && s.hatchOpen != null && nowMs - s.hatchAt < 3000) (if ((s.hatchPos ?: 0) > 0) s.hatchPos!!.coerceAtMost(100) else if (s.hatchOpen == true) 4 else 0) else -1
                 carView.doorBits = if (alerts && s.doorBits != null && nowMs - s.doorAt < 3000) s.doorBits else -1
+                val ld = s.lead
+                if (alerts && ld != null && nowMs - s.leadAt < 1500) roadView.setLead(ld.gapM.toFloat(), ld.latM.toFloat(), ld.widthM.toFloat(), ld.cls, ld.brake, ld.src) else roadView.clearLead()
             }; carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true); carView.beamsOn = (s.beamsOn == true); carView.highBeam = (s.highBeamOn == true); carView.leftInd = s.leftInd; carView.rightInd = s.rightInd; carView.redInd = prefs().getString("signStyle", "us") != "eu"
             car3d?.red = carView.redInd       // USA / Canada: the turn signals glow red, as the rear lamps do on those cars
             car3d?.follow = prefs().getBoolean(if (l2Applied) "l2CarFollow" else "l1CarFollow", true)

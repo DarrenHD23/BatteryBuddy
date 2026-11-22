@@ -454,6 +454,81 @@ class RoadView(ctx: Context) : View(ctx) {
     private var curveTarget = 0f
     private var curveShown = 0f
     var onCurve: ((Float) -> Unit)? = null        // the 3D car steers its front wheels with the same bend
+
+    // the car ahead (from the car's ADAS object list): drawn on the road at the spot the road's own perspective gives for its distance
+    private var lOn = false
+    private var lGap = 0f; private var lLat = 0f; private var lW = 1.85f; private var lCls = 0; private var lBrake = false; private var lSrc = 2
+    private var lGapS = 0f; private var lLatS = 0f; private var lAlpha = 0f
+    private val lp = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val lr = RectF()
+    private val lPath = Path()
+    /** gap = metres ahead of the front bumper, lat = metres to the right of our centre line, w = width in metres (0 = unknown), cls = the car's object class. */
+    fun setLead(gap: Float, lat: Float, w: Float, cls: Int, brake: Boolean, src: Int) {
+        if (!lOn || lAlpha < 0.02f) { lGapS = gap; lLatS = lat }
+        lOn = true; lGap = gap; lLat = lat; lW = w; lCls = cls; lBrake = brake; lSrc = src
+        postInvalidateOnAnimation()
+    }
+    fun clearLead() { if (lOn) { lOn = false; postInvalidateOnAnimation() } }
+
+    /**
+     * Draws the lead car from behind, standing on the road. The ground mapping is the one the lane dashes use (screen position is linear in 1 / depth),
+     * with our car's front bumper at depth 1.86 (y = 26) and about 7.7 m to one depth unit; width scales with the same 1 / depth,
+     * 57 units a metre at our own front. [bend] is the road's bend at a given y, so the car follows a curve.
+     */
+    private fun drawLead(c: Canvas, bend: (Float) -> Float) {
+        if (lAlpha <= 0.02f) return
+        val gap = lGapS.coerceIn(0.5f, 60f)
+        val s = 1f / (1.86f + gap / 7.7f)
+        val y = 162f * (s - 0.45f) / 0.55f
+        val sc = s / 0.538f
+        val known = lW in 1.4f..3.2f
+        val wM = when (lCls) { 1, 8 -> if (known) lW else 2.5f; 2 -> 0.8f; 3, 4, 5 -> 0.6f; else -> if (known) lW else 1.85f }
+        val wU = 57f * wM * sc
+        val truck = lCls == 1 || lCls == 8
+        val small = lCls in 2..5
+        val hU = wU * (if (truck) 0.95f else if (small) 1.3f else 0.64f)
+        val x = 151f + lLatS * 57f * sc + bend(y)
+        val a = (lAlpha * (if (lSrc == 0) 0.6f else 1f) * 255f).toInt().coerceIn(0, 255)
+        lp.shader = null; lp.style = Paint.Style.FILL
+        // shadow on the road
+        lp.color = Color.argb(a * 3 / 10, 0, 0, 0)
+        lr.set(x - wU * 0.56f, y - hU * 0.07f, x + wU * 0.56f, y + hU * 0.07f); c.drawOval(lr, lp)
+        if (small) {
+            lp.color = Color.argb(a, 150, 162, 176)
+            lr.set(x - wU / 2f, y - hU, x + wU / 2f, y); c.drawRoundRect(lr, wU / 2f, wU / 2f, lp)
+        } else {
+            val bodyH = if (truck) hU else hU * 0.62f
+            lp.color = Color.argb(a, 146, 158, 172)
+            lr.set(x - wU / 2f, y - bodyH, x + wU / 2f, y); c.drawRoundRect(lr, wU * 0.08f, wU * 0.08f, lp)
+            if (!truck) {
+                // the cabin: a narrower, darker block on top with the rear window in it
+                lPath.reset()
+                lPath.moveTo(x - wU * 0.44f, y - bodyH); lPath.lineTo(x - wU * 0.34f, y - hU); lPath.lineTo(x + wU * 0.34f, y - hU); lPath.lineTo(x + wU * 0.44f, y - bodyH); lPath.close()
+                lp.color = Color.argb(a, 108, 120, 135); c.drawPath(lPath, lp)
+                lPath.reset()
+                lPath.moveTo(x - wU * 0.38f, y - bodyH - hU * 0.03f); lPath.lineTo(x - wU * 0.30f, y - hU * 0.95f); lPath.lineTo(x + wU * 0.30f, y - hU * 0.95f); lPath.lineTo(x + wU * 0.38f, y - bodyH - hU * 0.03f); lPath.close()
+                lp.color = Color.argb(a, 32, 42, 54); c.drawPath(lPath, lp)
+            }
+        }
+        // tail lamps: dim red normally, bright with a glow when its brake lights are on
+        if (!small) {
+            val ly = y - (if (truck) hU * 0.30f else hU * 0.34f)
+            val lw = wU * 0.2f; val lh = wU * 0.07f
+            for (d in intArrayOf(-1, 1)) {
+                val lx = x + d * wU * 0.36f
+                if (lBrake) {
+                    lp.shader = RadialGradient(lx, ly, wU * 0.3f, Color.argb(a * 6 / 10, 255, 40, 30), Color.argb(0, 255, 40, 30), Shader.TileMode.CLAMP)
+                    c.drawCircle(lx, ly, wU * 0.3f, lp); lp.shader = null
+                    lp.color = Color.argb(a, 255, 70, 55)
+                } else lp.color = Color.argb(a, 140, 30, 30)
+                lr.set(lx - lw / 2f, ly - lh / 2f, lx + lw / 2f, ly + lh / 2f); c.drawRoundRect(lr, lh / 2f, lh / 2f, lp)
+            }
+        }
+        // distance under it
+        lp.color = Color.argb((a * 0.85f).toInt(), 255, 255, 255)
+        lp.textAlign = Paint.Align.CENTER; lp.typeface = Typeface.DEFAULT_BOLD; lp.textSize = 9f
+        c.drawText(Math.round(lGap).toString() + " m", x, y + 11f, lp)
+    }
     fun noteHeading(h: Double?) {
         val now = SystemClock.uptimeMillis()
         if (h == null) { histT.clear(); histH.clear(); curveTarget = 0f; invalidate(); return }
@@ -478,6 +553,11 @@ class RoadView(ctx: Context) : View(ctx) {
         curveShown += (curveTarget - curveShown) * min(1f, dt * (if (Math.abs(curveTarget) < Math.abs(curveShown)) 8f else 4f))     // it eases back to straight about twice as fast as it eases into a bend
         if (Math.abs(curveShown - curveTarget) < 0.05f) curveShown = curveTarget
         onCurve?.invoke(curveShown)
+        lGapS += (lGap - lGapS) * min(1f, dt * 6f); lLatS += (lLat - lLatS) * min(1f, dt * 6f)
+        lAlpha += ((if (lOn) 1f else 0f) - lAlpha) * min(1f, dt * 5f)
+        if (lOn && lAlpha > 0.98f) lAlpha = 1f
+        if (!lOn && lAlpha < 0.02f) lAlpha = 0f
+        val leadAnim = lAlpha > 0f && (!lOn || lAlpha < 1f || Math.abs(lGap - lGapS) > 0.05f || Math.abs(lLat - lLatS) > 0.01f)
         getLocationInWindow(la); cv.getLocationInWindow(lb)
         val u = cv.height / 162f
         val carTop = (lb[1] - la[1]).toFloat()
@@ -490,7 +570,7 @@ class RoadView(ctx: Context) : View(ctx) {
         val tilt = ((car as? CarView)?.tilt ?: 1f).coerceIn(0f, 1f)
         // (overhead view: no road at all; the perspective road below fades in with the tilt and out again when the car parks)
         val lay = if (tilt < 0.999f) c.saveLayerAlpha(-2000f, -2000f, 4000f, 2000f, (tilt * 255).toInt()) else -1
-        if (tilt <= 0.001f) { c.restoreToCount(lay); c.restore(); animating = shown > 0f || target > 0f || curveShown != curveTarget; if (animating) postInvalidateDelayed(30); return }
+        if (tilt <= 0.001f) { c.restoreToCount(lay); drawLead(c) { 0f }; c.restore(); animating = shown > 0f || target > 0f || curveShown != curveTarget || leadAnim; if (animating) postInvalidateDelayed(30); return }
         val hh = 162f; val smin = 0.45f; val per = 0.3f; val len = 0.15f; val cx = 151f; val half = 86f
         val ext = carTop.coerceAtLeast(0f) / u                    // how far up the road has to go to reach the top of the screen
         val sTop = Math.max(smin - ext * (1f - smin) / hh, 0.03f)
@@ -528,8 +608,9 @@ class RoadView(ctx: Context) : View(ctx) {
             }
         }
         if (lay >= 0) c.restoreToCount(lay)
+        drawLead(c) { yy -> sh(yy) }
         c.restore()
-        animating = shown > 0f || target > 0f || curveShown != curveTarget || (tilt > 0f && tilt < 1f)
+        animating = shown > 0f || target > 0f || curveShown != curveTarget || (tilt > 0f && tilt < 1f) || leadAnim
         if (animating) postInvalidateDelayed(30)
     }
 }
