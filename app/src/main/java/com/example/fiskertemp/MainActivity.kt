@@ -7422,14 +7422,15 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         fanRect.set(x0 - dp(24f), bt - dp(6f), x0 + 7 * bw + 6 * bg + dp(24f), ly + dp(16f))
         // - and + for the fan speed, either side of the bars
         run {
-            val br = dp(if (small) 13f else 15f); val fy = bt + barsH * 0.5f
-            val mx = x0 - dp(16f) - br; val px = x0 + 7 * bw + 6 * bg + dp(16f) + br
+            val br = dp(if (small) 17f else 20f); val fy = bt + barsH * 0.5f + dp(5f)
+            val mx = x0 - dp(14f) - br; val px = x0 + 7 * bw + 6 * bg + dp(14f) + br
             for ((fx, sym) in listOf(mx to "\u2212", px to "+")) {
-                p.style = Paint.Style.FILL; p.color = Color.argb(40, 255, 255, 255); canvas.drawCircle(fx, fy, br, p)
-                p.style = Paint.Style.STROKE; p.strokeWidth = dp(1.3f); p.color = Color.argb(110, 255, 255, 255); canvas.drawCircle(fx, fy, br, p)
-                text(sym, fx, fy, if (small) 18f else 22f, Color.WHITE, true)
+                val sq = RectF(fx - br, fy - br, fx + br, fy + br); val cr = br * 0.38f
+                p.style = Paint.Style.FILL; p.color = Color.argb(40, 255, 255, 255); canvas.drawRoundRect(sq, cr, cr, p)
+                p.style = Paint.Style.STROKE; p.strokeWidth = dp(1.3f); p.color = Color.argb(110, 255, 255, 255); canvas.drawRoundRect(sq, cr, cr, p)
+                text(sym, fx, fy, if (small) 22f else 26f, Color.WHITE, true)
             }
-            val hr = br + dp(8f)
+            val hr = br + dp(6f)
             fanMinus.set(mx - hr, fy - hr, mx + hr, fy + hr); fanPlus.set(px - hr, fy - hr, px + hr, fy + hr)
         }
         fan(cx - tw0 / 2 - dp(14f), ly, dp(if (small) 7f else 9f), Color.argb(190, 255, 255, 255))
