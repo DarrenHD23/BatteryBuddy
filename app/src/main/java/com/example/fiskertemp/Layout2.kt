@@ -550,8 +550,8 @@ class RoadView(ctx: Context) : View(ctx) {
         val wM = when (o.cls) { 1, 8 -> if (known) o.w else 2.5f; 2 -> 0.8f; 3, 4, 5 -> 0.6f; else -> if (known) o.w else 1.85f }
         val rel = wM / 1.85f
         val wPersp = 172f * s * 0.72f * rel          // inside its own lane, like the lead car does far away
-        val wU = wPersp + (80f * rel - wPersp) * par
-        val x = 151f + o.latS * 49f * sE + bendFn(y)
+        val wU = wPersp + (66f * rel - wPersp) * par
+        val x = 151f + o.latS * 49f * sE * (1f - 0.28f * par) + bendFn(y)
         // fade at the ends of the range (behind us and far ahead), and with the road view's tilt (the road is not drawn parked)
         val ends = Math.min(((45f - gap) / 10f).coerceIn(0f, 1f), ((gap + 6f) / 1.5f).coerceIn(0f, 1f))
         val a0 = (o.alpha * ends * tiltNow * 0.85f * 255f).toInt().coerceIn(0, 255)
@@ -586,10 +586,10 @@ class RoadView(ctx: Context) : View(ctx) {
         val t = ((gap - 3f) / 19f).coerceIn(0f, 1f)
         val k = 1.49f + (0.72f - 1.49f) * (t * t * (3f - 2f * t))
         val wPersp = Math.min(172f * s * k * rel, 114f * rel)
-        val wU = wPersp + (104f * rel - wPersp) * par
-        val x = 151f + lLatS * 49f * sE + bend(y)         // 49 units a metre = a 3.5 m lane across the 172-unit road at full size
+        val wU = wPersp + (90f * rel - wPersp) * par
+        val x = 151f + lLatS * 49f * sE * (1f - 0.28f * par) + bend(y)         // 49 units a metre = a 3.5 m lane across the 172-unit road at full size
         val a0 = (lAlpha * (if (lSrc == 0) 0.6f else 1f) * 255f).toInt().coerceIn(0, 255)
-        drawObj(c, x, y, wU, lCls, lBrake, a0, tilt, Math.round(lGap).toString() + " m")
+        drawObj(c, x, y, wU, lCls, lBrake, a0, tilt * (1f - par), Math.round(lGap).toString() + " m")      // stopped behind it (road lines parallel) it is seen from above, like our own car
     }
 
     /** One vehicle (or bike, or person) from behind, standing with its rear edge on (x, y); fades from top-down to the rear view with [tilt]. */
@@ -708,7 +708,7 @@ class RoadView(ctx: Context) : View(ctx) {
         // (overhead view: no road at all; the perspective road below fades in with the tilt and out again when the car parks)
         val lay = if (tilt < 0.999f) c.saveLayerAlpha(-2000f, -2000f, 4000f, 2000f, (tilt * 255).toInt()) else -1
         if (tilt <= 0.001f) { c.restoreToCount(lay); drawLead(c, 0f, 0f) { 0f }; c.restore(); animating = shown > 0f || target > 0f || curveShown != curveTarget || leadAnim || parAnim; if (animating) postInvalidateDelayed(30); return }
-        val hh = 162f; val smin = 0.45f; val per = 0.3f; val len = 0.15f; val cx = 151f; val half = 86f
+        val hh = 162f; val smin = 0.45f; val per = 0.3f; val len = 0.15f; val cx = 151f; val half = 86f * (1f - 0.28f * par)      // stopped behind a car the road is only a little wider than our car
         val ext = carTop.coerceAtLeast(0f) / u                    // how far up the road has to go to reach the top of the screen
         val sTop = Math.max(smin - ext * (1f - smin) / hh, 0.03f)
         val yTop0 = hh * (sTop - smin) / (1f - smin)

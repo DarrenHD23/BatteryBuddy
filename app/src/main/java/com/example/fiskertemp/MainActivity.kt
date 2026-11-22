@@ -1845,7 +1845,8 @@ class MainActivity : Activity() {
     private var adasMode = false
     private var adasDy = 0f
     private var adasAnim: android.animation.ValueAnimator? = null
-    private var adasHandle: View? = null
+    private var adasHint: TextView? = null
+    private var adasHintDone = false
     private val adasHidden = ArrayList<View>()
     private lateinit var objView: ObjectsView
     private var car3d: Car3dView? = null
@@ -2143,6 +2144,24 @@ class MainActivity : Activity() {
 
     private fun wantLive3d(): Boolean = prefs().getBoolean("l2Live3d", true)
 
+    /** Once per start: fades a hint about the swipe-down ADAS view in at the top of the dashboard for 4 seconds, then out. */
+    private fun maybeShowAdasHint() {
+        if (adasHintDone || !::dashRoot.isInitialized || !dashShown || !(l2Applied || l1cApplied) || !isFullWindow() || dashRoot.width <= 0) return
+        adasHintDone = true
+        val t = TextView(this).apply {
+            text = "Swipe down for ADAS view"
+            setTextColor(Color.argb(235, 255, 255, 255)); textSize = 14f
+            setPadding(dp(16), dp(7), dp(16), dp(7))
+            background = GradientDrawable().apply { setColor(Color.argb(150, 14, 21, 29)); cornerRadius = dp(18).toFloat() }
+            alpha = 0f; isClickable = false
+        }
+        adasHint = t
+        dashRoot.addView(t, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(8) })
+        t.animate().alpha(1f).setDuration(500).withEndAction {
+            t.animate().alpha(0f).setDuration(600).setStartDelay(2900).withEndAction { (t.parent as? ViewGroup)?.removeView(t); adasHint = null }.start()
+        }.start()
+    }
+
     /** True when our window is the full screen (not a half or third split). The ADAS view is only offered then. */
     private fun isFullWindow(): Boolean = try {
         if (android.os.Build.VERSION.SDK_INT >= 30) windowManager.currentWindowMetrics.bounds.height() >= windowManager.maximumWindowMetrics.bounds.height() * 0.8 else true
@@ -2166,6 +2185,9 @@ class MainActivity : Activity() {
             val kW = 0.8f * carView.width / (114f * u0)           // keep the car well inside its column
             val kH = if (l2) 1.35f else (dashMid.height - dp(8) - dp(14) - carView.top).toFloat() / carView.height     // Layout 1: down to the bottom of the column
             kTo = minOf(kW, kH, 1.8f).coerceAtLeast(1f)
+            // Layout 2: the whole view moves down until the car's rear edge meets the top of the media / climate cards
+            val cards = if (l2 && l2Mid.childCount > 1) l2Mid.getChildAt(1) else null
+            if (cards != null && cards.height > 0) dyTo = (cards.top - carView.bottom - dp(14) + 9f * u0 * kTo).coerceAtLeast(0f)
             carView.pivotX = carView.width / 2f; carView.pivotY = if (l2) carView.height.toFloat() else 0f
             if (adasHidden.isEmpty()) adasHidden.addAll(views)
         }
@@ -2176,17 +2198,9 @@ class MainActivity : Activity() {
             carView.scaleX = k; carView.scaleY = k
             adasDy = dy0 + (dyTo - dy0) * t
             for (v in adasHidden) { v.alpha = if (on) 1f - t else t }
-            adasHandle?.alpha = if (on) t else 1f - t
             placeL1Overlays(dashRoot); syncCar3d(dashRoot)
             if (::roadView.isInitialized) roadView.invalidate()
             if (::objView.isInitialized) objView.invalidate()
-        }
-        if (on && adasHandle == null) {
-            adasHandle = View(this).apply {
-                background = GradientDrawable().apply { setColor(Color.argb(150, 255, 255, 255)); cornerRadius = dp(3).toFloat() }
-                alpha = 0f
-            }
-            dashRoot.addView(adasHandle, FrameLayout.LayoutParams(dp(44), dp(5), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(5) })
         }
         for (v in adasHidden) v.isEnabled = !on
         fun finish() {
@@ -3153,6 +3167,7 @@ class MainActivity : Activity() {
 
     private fun adaptDashLayout(wDp: Int, hDp: Int) {
         if (wDp <= 0 || hDp <= 0) return
+        dashRoot.post { maybeShowAdasHint() }
         if (adasMode && !(isFullWindow() && (l2Applied || l1cApplied))) setAdas(false, false)
         val narrow = wDp < 800
         val l2 = prefs().getInt("layout", 1) == 2 && wDp >= 640 && hDp >= 300
