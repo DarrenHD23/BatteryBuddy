@@ -1758,6 +1758,7 @@ class MainActivity : Activity() {
     private var lightShown = false
     private lateinit var testBtn: TextView
     private lateinit var hatchLbl: TextView
+    private lateinit var hatchBox: View
     private val SHOW_TEST_BUTTON = false
     private var signTest = false                          // the Test sign button: shows a speed limit sign and a cycling traffic light so they can be checked parked
     private lateinit var exitBtn: Button
@@ -2559,9 +2560,14 @@ class MainActivity : Activity() {
             })
             addView(hatchLbl, LinearLayout.LayoutParams(-2, dp(26)))
         }
-        f.addView(hatchRow, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(58) })
+        hatchBox = hatchRow
+        f.addView(hatchRow, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { leftMargin = dp(8); topMargin = dp(94) })
         // Layout 2: the live 3D car, a transparent layer over the car square; off (images used instead) when the setting is off or the page fails
-        f.viewTreeObserver.addOnGlobalLayoutListener { placeL1Overlays(f); syncCar3d(f) }
+        f.viewTreeObserver.addOnGlobalLayoutListener {
+            placeL1Overlays(f); syncCar3d(f)
+            // the hatch test buttons stay above the 3D car, which would otherwise take their touches (one move only: no layout loop)
+            if (::hatchBox.isInitialized && f.indexOfChild(hatchBox) >= 0 && f.indexOfChild(hatchBox) < f.childCount - 1) hatchBox.bringToFront()
+        }
         return f
     }
 
