@@ -700,7 +700,6 @@ class RoadView(ctx: Context) : View(ctx) {
         adasE += (adasT - adasE) * min(1f, dt * 4f)
         if (Math.abs(adasE - adasT) < 0.01f) adasE = adasT
         val adasAnimNow = adasE != adasT
-        val adasFloor = 0.26f * adasE          // the narrowest the road gets in the distance (share of its full width)
         val leadAnim = lAlpha > 0f && (!lOn || lAlpha < 1f || Math.abs(lGap - lGapS) > 0.05f || Math.abs(lLat - lLatS) > 0.01f)
         getLocationInWindow(la); cv.getLocationInWindow(lb)
         val u = cv.height * cv.scaleY / 162f           // (the ADAS view scales the car view up)
@@ -720,7 +719,10 @@ class RoadView(ctx: Context) : View(ctx) {
         val ext = carTop.coerceAtLeast(0f) / u                    // how far up the road has to go to reach the top of the screen
         val sTop = Math.max(smin - ext * (1f - smin) / hh, 0.03f)
         val yTop0 = hh * (sTop - smin) / (1f - smin)
-        val yTop = yTop0 + (-ext - yTop0) * par          // parallel lines run right up to the top of the screen
+        val dpar = Math.max(par, adasE)                // parallel (stopped) or the ADAS view: the road runs right up to the top of the screen
+        val yTop = yTop0 + (-ext - yTop0) * dpar
+        // ADAS view: the road edges are straight lines from full width at the car to 40% of it at the top of the screen
+        fun adasW(y: Float): Float = (1f - 0.6f * (hh - y) / (hh + ext)).coerceIn(0.4f, 1f)
         // the bend starts partway down the car and grows smoothly to the top; the tangent angle at the top is the compass change (x 1.75)
         val bendFrom = 76f
         val ltot = bendFrom - yTop
@@ -728,8 +730,8 @@ class RoadView(ctx: Context) : View(ctx) {
         fun sh(y: Float): Float { if (y >= bendFrom || ltot <= 1f) return 0f; val t = (bendFrom - y) / ltot; return bendA * t * t }
         path.reset()
         val steps = 24
-        for (i in 0..steps) { val y = yTop + (hh - yTop) * i / steps; val sv = Math.max(smin + y * (1f - smin) / hh, sTop).let { val w0 = Math.max(it, adasFloor); w0 + (1f - w0) * par }; val x = cx - half * sv + sh(y); if (i == 0) path.moveTo(x, y) else path.lineTo(x, y) }
-        for (i in steps downTo 0) { val y = yTop + (hh - yTop) * i / steps; val sv = Math.max(smin + y * (1f - smin) / hh, sTop).let { val w0 = Math.max(it, adasFloor); w0 + (1f - w0) * par }; path.lineTo(cx + half * sv + sh(y), y) }
+        for (i in 0..steps) { val y = yTop + (hh - yTop) * i / steps; val sv = Math.max(smin + y * (1f - smin) / hh, sTop).let { val w0 = it + (adasW(y) - it) * adasE; w0 + (1f - w0) * par }; val x = cx - half * sv + sh(y); if (i == 0) path.moveTo(x, y) else path.lineTo(x, y) }
+        for (i in steps downTo 0) { val y = yTop + (hh - yTop) * i / steps; val sv = Math.max(smin + y * (1f - smin) / hh, sTop).let { val w0 = it + (adasW(y) - it) * adasE; w0 + (1f - w0) * par }; path.lineTo(cx + half * sv + sh(y), y) }
         path.close()
         p.shader = LinearGradient(0f, yTop, 0f, 0f, Color.argb(20, 200, 206, 216), Color.argb(48, 200, 206, 216), Shader.TileMode.CLAMP)
         p.color = Color.WHITE
@@ -741,15 +743,15 @@ class RoadView(ctx: Context) : View(ctx) {
                 var z2 = z1 + len
                 z1 = Math.max(z1, 1f)
                 // the road's far end: the horizon in perspective, the top of the screen once the lines are parallel
-                val zMax = 1f / sTop + ((1f + (hh + ext) / 150f) - 1f / sTop) * par
+                val zMax = 1f / sTop + ((1f + (hh + ext) / 150f) - 1f / sTop) * dpar
                 if (z2 <= 1f || z1 >= zMax) continue
                 z2 = Math.min(z2, zMax)
                 val s1 = 1f / z1; val s2 = 1f / z2
                 var y1 = hh * (s1 - smin) / (1f - smin); var y2 = hh * (s2 - smin) / (1f - smin)
-                y1 += ((hh - (z1 - 1f) * 150f) - y1) * par; y2 += ((hh - (z2 - 1f) * 150f) - y2) * par
+                y1 += ((hh - (z1 - 1f) * 150f) - y1) * dpar; y2 += ((hh - (z2 - 1f) * 150f) - y2) * dpar
                 y1 = Math.max(y1, yTop); y2 = Math.max(y2, yTop)
                 if (y1 - y2 < 0.3f) continue
-                val f1 = Math.max(s1, adasFloor); val f2 = Math.max(s2, adasFloor); val e1 = f1 + (1f - f1) * par; val e2 = f2 + (1f - f2) * par
+                val f1 = s1 + (adasW(y1) - s1) * adasE; val f2 = s2 + (adasW(y2) - s2) * adasE; val e1 = f1 + (1f - f1) * par; val e2 = f2 + (1f - f2) * par
                 val w1 = 3.4f * e1; val w2 = 3.4f * e2
                 val x1 = cx + side * half * e1 + sh(y1); val x2 = cx + side * half * e2 + sh(y2)
                 val fade = if (yTop < 0f) 0.3f + 0.7f * (((y1 + y2) / 2f - yTop) / (-yTop)).coerceIn(0f, 1f) else 1f
