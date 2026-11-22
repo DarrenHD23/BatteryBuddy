@@ -544,6 +544,14 @@ class PulseCan(
         return Pair(screenBus(), intArrayOf(0, 0, 0, 0, 0xFF, 0x0F, 0, 0xFF))
     }
 
+    /** The same for 0x528 (seat heat, heated wheel): the screen's own last one, else every signal at its idle value (all zero: nothing requested, KL15 flag 'init'). */
+    private fun tpl528(): Pair<Int, IntArray> {
+        var bus = 0
+        for (b in 1..2) if (last528[b] != null && (bus == 0 || last528At[b] > last528At[bus])) bus = b
+        if (bus != 0) return Pair(bus, last528[bus]!!.copyOf())
+        return Pair(screenBus(), IntArray(8))
+    }
+
     /** The same for 0x534 (airflow and power): no requests; minimum-charge setting 'invalid'; the battery-heating switch state 'off'. */
     private fun tpl534(): Pair<Int, IntArray> {
         var bus = 0
@@ -556,10 +564,7 @@ class PulseCan(
         if (!txActive) return "Control is off: tick it in Settings and restart the app"
         val ifs = txIfaces ?: return "CAN reader not running"
         val out = txOut ?: return "CAN reader not running"
-        var bus = 0
-        for (b in 1..2) if (last528[b] != null && (bus == 0 || last528At[b] > last528At[bus])) bus = b
-        if (bus == 0) return "No 0x528 seen from the car's screen yet: press the heated wheel (or a seat heat) once on the car's own screen, then try again"
-        val d = last528[bus]!!.copyOf()
+        val (bus, d) = tpl528()        // the car screen's own last 0x528 if seen, else a built one with nothing requested
         d[1] = d[1] and 0xE3                  // driver seat heat request: not change
         d[3] = d[3] and 0xF0                  // seat-belt and anti-theft requests: not change
         d[4] = (d[4] and 0xE0) or 1           // passenger seat heat: not change; heated wheel request = on
@@ -585,10 +590,7 @@ class PulseCan(
         if (!txActive) return "Control is off: tick it in Settings and restart the app"
         val ifs = txIfaces ?: return "CAN reader not running"
         val out = txOut ?: return "CAN reader not running"
-        var bus = 0
-        for (b in 1..2) if (last528[b] != null && (bus == 0 || last528At[b] > last528At[bus])) bus = b
-        if (bus == 0) return "No 0x528 seen from the car's screen yet: press a seat heat once on the car's own screen, then try again"
-        val d = last528[bus]!!.copyOf()
+        val (bus, d) = tpl528()
         val req = intArrayOf(4, 3, 2, 1)[level.coerceIn(0, 3)]
         d[1] = d[1] and 0xE3                  // driver seat request: not change
         d[2] = d[2] and 0xF8                  // rear left display sync: not change
