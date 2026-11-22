@@ -838,7 +838,7 @@ class MainActivity : Activity() {
     private fun bgResId(n: Int) = resources.getIdentifier(String.format("bg_%02d", n), "drawable", packageName)
 
     /** The chosen picture (1..bgCount) or 0 for none, as a drawable that fills any window size without stretching. */
-    private fun bgDrawable(scrim: Int): android.graphics.drawable.Drawable? {
+    private fun bgDrawable(scrim: Int, owner: View? = null): android.graphics.drawable.Drawable? {
         val n = prefs().getInt("bgPic", 0)
         if (n != CUSTOM_BG && n !in 1..bgCount) return null
         if (bgBitmapIdx != n || bgBitmap == null) {
@@ -853,12 +853,12 @@ class MainActivity : Activity() {
             bgBitmapIdx = n
         }
         val bmp = bgBitmap ?: return null
-        return CoverDrawable(bmp, scrim)
+        return CoverDrawable(bmp, scrim, owner)
     }
 
     private fun applyBgPic() {
         if (!::rootScroll.isInitialized) return
-        bgDrawable(Color.argb(95, 0, 0, 0))?.let { rootScroll.background = it }
+        bgDrawable(Color.argb(95, 0, 0, 0), rootScroll)?.let { rootScroll.background = it }
         if (::dashRoot.isInitialized) applyDashTheme(dashDay)
     }
 
@@ -2576,8 +2576,8 @@ class MainActivity : Activity() {
     private fun applyDashTheme(day: Boolean) {
         paintEdges()
         dashRoot.background = if (day)
-            bgDrawable(Color.argb(125, 255, 255, 255)) ?: GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#FFFFFF"), Color.parseColor("#E6ECF4")))
-        else bgDrawable(Color.argb(120, 0, 0, 0)) ?: GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Skins.look.bgTop, Skins.look.bgBottom))
+            bgDrawable(Color.argb(125, 255, 255, 255), dashRoot) ?: GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#FFFFFF"), Color.parseColor("#E6ECF4")))
+        else bgDrawable(Color.argb(120, 0, 0, 0), dashRoot) ?: GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Skins.look.bgTop, Skins.look.bgBottom))
         dashSpeedGauge.day = day; dashPowerGauge.day = day; dashStrip.day = day; dashStrip.invalidate()
         if (::tripPanel.isInitialized) { tripPanel.day = day; tripPanel.invalidate() }
         if (::chargeBar.isInitialized) { chargeBar.day = day; chargeBar.invalidate() }
@@ -6562,7 +6562,7 @@ class CropView(ctx: Context, private val bmp: Bitmap) : View(ctx) {
     }
 }
 
-class CoverDrawable(private val bmp: android.graphics.Bitmap, private val scrim: Int) : android.graphics.drawable.Drawable() {
+class CoverDrawable(private val bmp: android.graphics.Bitmap, private val scrim: Int, private val owner: View? = null) : android.graphics.drawable.Drawable() {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val src = android.graphics.Rect()
 
@@ -6571,13 +6571,30 @@ class CoverDrawable(private val bmp: android.graphics.Bitmap, private val scrim:
         if (b.width() <= 0 || b.height() <= 0) return
         val bw = bmp.width.toFloat()
         val bh = bmp.height.toFloat()
-        val boundsRatio = b.width().toFloat() / b.height()
+        // In split screen the window is only a part of the screen: show that part of the picture as it looks full screen (not the picture re-fitted to the small window)
+        var fw = 0; var fh = 0; var ox = 0; var oy = 0
+        val act = owner?.context as? android.app.Activity
+        if (owner != null && act != null && act.isInMultiWindowMode && android.os.Build.VERSION.SDK_INT >= 30) try {
+            val fb = act.windowManager.maximumWindowMetrics.bounds
+            val loc = IntArray(2); owner.getLocationOnScreen(loc)
+            if (fb.width() > 0 && fb.height() > 0) { fw = fb.width(); fh = fb.height(); ox = loc[0] - fb.left; oy = loc[1] - fb.top }
+        } catch (e: Exception) { fw = 0 }
+        val refW = if (fw > 0) fw else b.width()
+        val refH = if (fw > 0) fh else b.height()
+        val boundsRatio = refW.toFloat() / refH
         val cropW: Float
         val cropH: Float
         if (boundsRatio > bw / bh) { cropW = bw; cropH = bw / boundsRatio } else { cropH = bh; cropW = bh * boundsRatio }
-        val l = ((bw - cropW) / 2f).toInt()
-        val t = ((bh - cropH) / 2f).toInt()
-        src.set(l, t, l + cropW.toInt(), t + cropH.toInt())
+        val l0 = (bw - cropW) / 2f
+        val t0 = (bh - cropH) / 2f
+        if (fw > 0) {
+            val k = cropW / fw                                  // bitmap pixels per screen pixel
+            val l = (l0 + ox * k).coerceIn(0f, bw - 1f); val t = (t0 + oy * k).coerceIn(0f, bh - 1f)
+            val r = (l + b.width() * k).coerceIn(l + 1f, bw); val bt = (t + b.height() * k).coerceIn(t + 1f, bh)
+            src.set(l.toInt(), t.toInt(), r.toInt(), bt.toInt())
+        } else {
+            src.set(l0.toInt(), t0.toInt(), (l0 + cropW).toInt(), (t0 + cropH).toInt())
+        }
         c.drawBitmap(bmp, src, b, paint)
         c.drawColor(scrim)
     }
