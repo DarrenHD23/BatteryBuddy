@@ -1193,13 +1193,6 @@ class MainActivity : Activity() {
             val u = if (checkedId == mph.id) "mi" else "km"
             ef1.text = "Wh/$u  (Wh used per $u)"; ef2.text = "$u/kWh  ($u per kWh)"; ef3.text = "kWh/$u  (kWh used per $u)"
         }
-        box.add(TextView(this).apply { text = "Speed limit sign style"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
-        val curSign = prefs().getString("signStyle", "us")
-        val sus = RadioButton(this).apply { text = "USA / Canada (rectangle)"; id = View.generateViewId(); isChecked = curSign != "eu" }
-        val seu = RadioButton(this).apply { text = "Europe / UK (round, red ring)"; id = View.generateViewId(); isChecked = curSign == "eu" }
-        val sgp = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL; addView(sus); addView(seu) }
-        sgp.setOnCheckedChangeListener { _, checkedId -> prefs().edit().putString("signStyle", if (checkedId == seu.id) "eu" else "us").apply() }
-        box.add(sgp, 6)
         box.add(TextView(this).apply { text = "DASHBOARD"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
         box.add(CheckBox(this).apply {
             text = "Show the dashboard when the app starts"; isChecked = prefs().getBoolean("dashDefault", false)
@@ -1234,14 +1227,6 @@ class MainActivity : Activity() {
         box.add(CheckBox(this).apply {
             text = "Speed gauge on the left (power on the right)"; isChecked = prefs().getBoolean("speedLeft", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("speedLeft", on).apply(); applyGaugeSides() }
-        }, 4)
-        box.add(CheckBox(this).apply {
-            text = "Hide the traffic light"; isChecked = prefs().getBoolean("hideLight", false)
-            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideLight", on).apply() }
-        }, 4)
-        box.add(CheckBox(this).apply {
-            text = "Hide the speed limit sign"; isChecked = prefs().getBoolean("hideSign", false)
-            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideSign", on).apply() }
         }, 4)
         box.add(CheckBox(this).apply {
             text = "Hide the battery bar under the trip information (small windows give the space to the trip information)"; isChecked = prefs().getBoolean("hideBatteryBar", false)
@@ -1287,10 +1272,30 @@ class MainActivity : Activity() {
             text = "Speedometer Adjustment"; isAllCaps = false
             setOnClickListener { showSpeedAdjust() }
         }, 8)
+        box.add(TextView(this).apply { text = "ADAS OPTIONS"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
         box.add(CheckBox(this).apply {
-            text = "Road curve from the car's lane camera (on by default; the compass / GPS heading is always the fallback when the camera sees no lane or reports straight; off = compass / GPS only)"; isChecked = prefs().getBoolean("curveLane", true)
-            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("curveLane", on).apply() }
+            text = "Road bends with the curves of the road (off: the road always stays straight, from neither the camera nor the GPS / compass)"; isChecked = prefs().getBoolean("roadCurve", true)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("roadCurve", on).apply() }
         }, 12)
+        box.add(CheckBox(this).apply {
+            text = "Use the car's lane camera for the curve when it sees lane lines (the GPS / compass heading is used on roads without lines, and when the camera reports straight)"; isChecked = prefs().getBoolean("curveLane", true)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("curveLane", on).apply() }
+        }, 4)
+        box.add(CheckBox(this).apply {
+            text = "Hide the traffic light"; isChecked = prefs().getBoolean("hideLight", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideLight", on).apply() }
+        }, 4)
+        box.add(CheckBox(this).apply {
+            text = "Hide the speed limit sign"; isChecked = prefs().getBoolean("hideSign", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideSign", on).apply() }
+        }, 4)
+        box.add(TextView(this).apply { text = "Speed limit sign style"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
+        val curSign = prefs().getString("signStyle", "us")
+        val sus = RadioButton(this).apply { text = "USA / Canada (rectangle)"; id = View.generateViewId(); isChecked = curSign != "eu" }
+        val seu = RadioButton(this).apply { text = "Europe / UK (round, red ring)"; id = View.generateViewId(); isChecked = curSign == "eu" }
+        val sgp = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL; addView(sus); addView(seu) }
+        sgp.setOnCheckedChangeListener { _, checkedId -> prefs().edit().putString("signStyle", if (checkedId == seu.id) "eu" else "us").apply() }
+        box.add(sgp, 6)
         box.add(TextView(this).apply { text = "LAYOUT 1 OPTIONS"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
         box.add(CheckBox(this).apply {
             text = "Show the 3D car in the middle instead of the Trip Information (small trip readouts go under the car; the Climate screen uses the 3D car too)"; isChecked = prefs().getBoolean("l1Car3d", false)
@@ -4429,6 +4434,7 @@ class MainActivity : Activity() {
         if (l2Applied || l1cApplied) {
             carView.speedKmh = (s.speedKmh ?: 0.0).toFloat(); roadView.speedKmh = carView.speedKmh
             // the bend of the road: the car's lane camera when it sees our lane (radius R: 45 m ahead turns the road by 45 / R rad), else the compass / GPS heading
+            roadView.curveOn = prefs().getBoolean("roadCurve", true)
             roadView.laneDeg = run {
                 val rl = s.laneRadiusM
                 if (!prefs().getBoolean("curveLane", true) || rl == null || rl == 0.0 || System.currentTimeMillis() - s.laneAt > 1000) null

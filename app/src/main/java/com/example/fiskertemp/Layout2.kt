@@ -457,6 +457,7 @@ class RoadView(ctx: Context) : View(ctx) {
     private var curveTarget = 0f
     /** The bend of the road ahead in the same units as the compass bend (degrees over about 3 s, + = right), from the car's lane camera; null = use the compass. */
     var laneDeg: Float? = null
+    var curveOn = true          // Settings, ADAS options: off keeps the road straight whatever the GPS / compass or the camera say
     private var curveShown = 0f
     var onCurve: ((Float) -> Unit)? = null        // the 3D car steers its front wheels with the same bend
 
@@ -684,7 +685,7 @@ class RoadView(ctx: Context) : View(ctx) {
         var d = (h - histH[0]) * (3000.0 / 1600.0)
         if (d > 180) d -= 360; if (d < -180) d += 360
         val ld = laneDeg
-        curveTarget = if (speedKmh >= 5f) (ld ?: d.toFloat()).coerceIn(-30f, 30f) else 0f
+        curveTarget = if (curveOn && speedKmh >= 5f) (ld ?: d.toFloat()).coerceIn(-30f, 30f) else 0f
         if (!animating) postInvalidateOnAnimation()
     }
 
