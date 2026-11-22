@@ -510,6 +510,14 @@ class RoadView(ctx: Context) : View(ctx) {
     var overlay: View? = null
     private var mapU = 0f; private var mapLeft = 0f; private var mapTop = 0f
     private var parNow = 0f; private var tiltNow = 1f
+    private var extNow = 0f; private var adasNow = 0f
+    /** The road-width factor a car at depth factor [s] / screen y sees: the perspective one, or in the ADAS view the wider straight taper the road is drawn with (so far cars are not tiny between the lines); fades in from 6 m to 20 m so near cars keep their size. */
+    private fun adasSize(s: Float, y: Float, gap: Float): Float {
+        if (adasNow <= 0f) return s
+        val w = (1f - 0.6f * (162f - y) / (162f + extNow)).coerceIn(0.4f, 1f)
+        val b = ((gap - 6f) / 14f).coerceIn(0f, 1f)
+        return s + (Math.max(w, s) - s) * adasNow * b
+    }
     private var bendFn: (Float) -> Float = { 0f }
 
     /** The other cars, bikes and people the car's object list shows (not the lead car), each with a stable id. */
@@ -548,13 +556,14 @@ class RoadView(ctx: Context) : View(ctx) {
         val par = parNow
         val gap = o.gapS.coerceIn(-6f, 45f)
         val s = 1f / (1.86f + gap / 7.7f)
-        val sE = s + (1f - s) * par
         val yP = 162f * (s - 0.45f) / 0.55f
+        val sA = adasSize(s, yP, gap)
         val y = yP + ((20f - gap * 6f) - yP) * par
         val known = o.w in 1.4f..3.2f
         val wM = when (o.cls) { 1, 8 -> if (known) o.w else 2.5f; 2 -> 0.8f; 3, 4, 5 -> 0.6f; else -> if (known) o.w else 1.85f }
         val rel = wM / 1.85f
-        val wPersp = 172f * s * 0.72f * rel          // inside its own lane, like the lead car does far away
+        val sE = sA + (1f - sA) * par
+        val wPersp = 172f * sA * 0.72f * rel          // inside its own lane, like the lead car does far away
         val wU = wPersp + (52f * rel - wPersp) * par
         val x = 151f + o.latS * 49f * sE * (1f - 0.42f * par) + bendFn(y)
         // fade at the ends of the range (behind us and far ahead), and with the road view's tilt (the road is not drawn parked)
@@ -580,8 +589,9 @@ class RoadView(ctx: Context) : View(ctx) {
         if (lAlpha <= 0.02f) return
         val gap = lGapS.coerceIn(0.5f, 60f)
         val s = 1f / (1.86f + gap / 7.7f)
-        val sE = s + (1f - s) * par                       // 1 when the road lines are parallel (no perspective)
         val yP = 162f * (s - 0.45f) / 0.55f
+        val sA = adasSize(s, yP, gap)
+        val sE = sA + (1f - sA) * par                     // 1 when the road lines are parallel (no perspective)
         val y = yP + ((20f - gap * 6f) - yP) * par        // parallel: a plain 6 units a metre up the road
         val known = lW in 1.4f..3.2f
         val wM = when (lCls) { 1, 8 -> if (known) lW else 2.5f; 2 -> 0.8f; 3, 4, 5 -> 0.6f; else -> if (known) lW else 1.85f }
@@ -590,7 +600,7 @@ class RoadView(ctx: Context) : View(ctx) {
         // (72% of the lane) from 22 m on
         val t = ((gap - 3f) / 19f).coerceIn(0f, 1f)
         val k = 1.49f + (0.72f - 1.49f) * (t * t * (3f - 2f * t))
-        val wPersp = Math.min(172f * s * k * rel, 114f * rel)
+        val wPersp = Math.min(172f * sA * k * rel, 114f * rel)
         val wU = wPersp + (52f * rel - wPersp) * par
         val x = 151f + lLatS * 49f * sE * (1f - 0.42f * par) + bend(y)         // 49 units a metre = a 3.5 m lane across the 172-unit road at full size
         val a0 = (lAlpha * (if (lSrc == 0) 0.6f else 1f) * 255f).toInt().coerceIn(0, 255)
@@ -720,6 +730,7 @@ class RoadView(ctx: Context) : View(ctx) {
         if (tilt <= 0.001f) { c.restoreToCount(lay); drawLead(c, 0f, 0f) { 0f }; c.restore(); animating = shown > 0f || target > 0f || curveShown != curveTarget || leadAnim || parAnim || adasAnimNow; if (animating) postInvalidateDelayed(30); return }
         val hh = 162f; val smin = 0.45f; val per = 0.3f; val len = 0.15f; val cx = 151f; val half = 86f * (1f - 0.42f * par)      // stopped behind a car the road is only a little wider than our car
         val ext = carTop.coerceAtLeast(0f) / u                    // how far up the road has to go to reach the top of the screen
+        extNow = ext; adasNow = adasE
         val sTop = Math.max(smin - ext * (1f - smin) / hh, 0.03f)
         val yTop0 = hh * (sTop - smin) / (1f - smin)
         val dpar = Math.max(par, adasE)                // parallel (stopped) or the ADAS view: the road runs right up to the top of the screen
