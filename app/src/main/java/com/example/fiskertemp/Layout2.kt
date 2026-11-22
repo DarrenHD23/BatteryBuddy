@@ -457,7 +457,7 @@ class RoadView(ctx: Context) : View(ctx) {
     private var curveTarget = 0f
     /** The bend of the road ahead in the same units as the compass bend (degrees over about 3 s, + = right), from the car's lane camera; null = use the compass. */
     var laneDeg: Float? = null
-    var fadeLines = false       // Settings, ADAS options: the dashed road lines fade away above 5 mph (8 km/h)
+    var linesMode = 0           // Settings, ADAS options: 0 road lines always shown, 1 they fade away above 5 mph (8 km/h), 2 always hidden
     private var lineA = 1f
     var curveOn = true          // Settings, ADAS options: off keeps the road straight whatever the GPS / compass or the camera say
     private var curveShown = 0f
@@ -704,7 +704,7 @@ class RoadView(ctx: Context) : View(ctx) {
         curveShown += (curveTarget - curveShown) * min(1f, dt * (if (Math.abs(curveTarget) < Math.abs(curveShown)) 8f else 4f))     // it eases back to straight about twice as fast as it eases into a bend
         if (Math.abs(curveShown - curveTarget) < 0.05f) curveShown = curveTarget
         onCurve?.invoke(curveShown)
-        val lineT = if (fadeLines && speedKmh > 8.05f) 0f else 1f
+        val lineT = if (linesMode == 2 || (linesMode == 1 && speedKmh > 8.05f)) 0f else 1f
         lineA += (lineT - lineA) * min(1f, dt * 2.5f)
         if (Math.abs(lineA - lineT) < 0.01f) lineA = lineT
         lGapS += (lGap - lGapS) * min(1f, dt * 6f); lLatS += (lLat - lLatS) * min(1f, dt * 6f)
