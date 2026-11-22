@@ -335,7 +335,7 @@ class PulseCan(
     private class AdasObj { var id = 0; var gx = 0.0; var gy = 0.0; var w = 0.0; var cls = 6; var brake = false; var conf = false; var at = 0L; var rawX = 0.0; var rawY = 0.0 }
     private val adasObjs = Array(8) { AdasObj() }
     private val adasSlot = mapOf(0x33B to 0, 0x34B to 1, 0x32D to 2, 0x33D to 3, 0x34D to 4, 0x32F to 5, 0x33F to 6, 0x34F to 7)
-    private var lanePubAt = 0L; private var laneLogRaw = -1; private var laneLogAt = 0L
+    private var lanePubAt = 0L; private var laneLogRaw = -1; private var laneLogAt = 0L; private var line1Raw = -1; private var line1At = 0L
     private var adasLeadId = 0; private var adasLeadAt = 0L      // 0x353 ADAS_LdngVhclID
     private var adasAccId = 0; private var adasAccAt = 0L        // 0x31C ADAS_ACCPrimTgtID
     private var adasPubAt = 0L; private var adasLogAt = 0L; private var adasLogKey = ""
@@ -824,12 +824,18 @@ class PulseCan(
         if (bus == 2 && id == 0x340) {
             val nowL = System.currentTimeMillis()
             val rawL = b[5] and 0xFF
-            val rad = rawL * 50.0 - 3150.0
-            val shown = rad > -3200.0 && rad < 3200.0
+            // raw 62..64 is 'straight': one count of jitter around 63 is not a 50 m curve
+            val rad = if (rawL in 62..64) 0.0 else rawL * 50.0 - 3150.0
+            val shown = rawL != 127 && rad > -3200.0 && rad < 3200.0
             if (nowL - lanePubAt < 100) return null
             lanePubAt = nowL
-            if (rawL != laneLogRaw && nowL - laneLogAt > 2000) { laneLogRaw = rawL; laneLogAt = nowL; onStatus("lane: raw $rawL -> " + (if (shown) "${rad.toInt()} m" else "not shown")) }
+            if (rawL != laneLogRaw && nowL - laneLogAt > 1000) { laneLogRaw = rawL; laneLogAt = nowL; onStatus("lane: raw $rawL -> " + (if (shown) "${rad.toInt()} m" else "not shown") + " at " + (s.speedKmh?.toInt() ?: -1) + " km/h") }
             return s.copy(laneRadiusM = if (shown) rad else null, laneAt = nowL)
+        }
+        if (bus == 2 && id == 0x339) {
+            val nowL = System.currentTimeMillis(); val r1 = b[0] and 0xFF
+            if (r1 != line1Raw && nowL - line1At > 1000) { line1Raw = r1; line1At = nowL; onStatus("lane line1: raw $r1 at " + (s.speedKmh?.toInt() ?: -1) + " km/h") }
+            return null
         }
         val oslot = if (bus == 2) adasSlot[id] else null
         if (oslot != null) {
