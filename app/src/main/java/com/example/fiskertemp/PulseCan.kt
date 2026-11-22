@@ -40,6 +40,10 @@ data class CanSnapshot(
     val dowLeft: Int = 0,              // door-open warning, left: 1-4 = a threat is approaching (0x315 ADAS_DOW_CID_LeDispReq, byte 2 bits 2-0)
     val doorBits: Int? = null,         // doors open (0x343 BCM on IBUS1, every 50 ms): bit0 driver, bit1 passenger, bit2 rear left, bit3 rear right
     val doorAt: Long = 0L,
+    val hatchOpen: Boolean? = null,    // 0x471 PLGM (IBUS1, 100 ms) PLGM_TrSts, byte 6 bit 1: 0 closed, 1 open (TEST: needs the chip filters to pass 0x471)
+    val hatchPos: Int? = null,         // PLGM_LeTrPosn, byte 1: 0-100 %
+    val hatchLatch: Int? = null,       // PLGM_TrLtchStsIndcn, byte 4 bits 7-5: 0 latched, 1 half latched, 2 open, 3 initialising
+    val hatchAt: Long = 0L,
     val dowRight: Int = 0,             // the same on the right (byte 2 bits 5-3)
     val bsdAt: Long = 0L,              // when 0x315 was last seen (ms), so old values can be ignored
     val uss: List<Int>? = null,        // 16 parking-sensor zones (0x352): rear 0-3, front 4-7, left 8-11, right 12-15; 0 off, 1-8 zone, 9 clear, 15 fault
@@ -191,7 +195,7 @@ class PulseCan(
 
     /** The IDs this app reads, per chip (0 = IBUS1, 1 = IBUS2). Must match the helper's ID lists in loop(). */
     private val wanted = mapOf(
-        0 to listOf(0x382, 0x2F5, 0x318, 0x179, 0x234, 0x335, 0x343, 0x2AC, 0x373, 0x507, 0x6DD),
+        0 to listOf(0x382, 0x2F5, 0x318, 0x179, 0x234, 0x335, 0x343, 0x471, 0x2AC, 0x373, 0x507, 0x6DD),
         1 to listOf(0x0E9, 0x1A9, 0x210, 0x351, 0x504, 0x580, 0x582, 0x332, 0x311, 0x491, 0x5EA, 0x505),
     )
 
@@ -311,6 +315,27 @@ class PulseCan(
     @Volatile private var txIfaces: Pair<String, String>? = null
     @Volatile private var txActive = false
     private val txLock = Any()
+
+    /**
+     * TEST: open or close the power hatch. 0x52 (the screen's message, IBUS1, every 100 ms) with ICC_TrActnCmd (byte 2, bits 2-1) = 1 open or 2 close,
+     * three cycles 100 ms apart, then the idle frame once, as the Oceanfront view's sender does (it is a cyclic message). The hatch moves!
+     */
+    fun sendHatch(open: Boolean): String {
+        if (!txActive) return "Control is off: tick it in Settings and restart the app"
+        val ifs = txIfaces ?: return "CAN reader not running"
+        val out = txOut ?: return "CAN reader not running"
+        val ask = "tx ${ifs.first} 52 02000${if (open) 2 else 4}0000000000\n"
+        val idle = "tx ${ifs.first} 52 0200000000000000\n"
+        Thread {
+            synchronized(txLock) {
+                try {
+                    for (i in 0 until 3) { out.write(ask.toByteArray()); out.flush(); Thread.sleep(100) }
+                    out.write(idle.toByteArray()); out.flush()
+                } catch (e: Exception) { onStatus("Hatch TX failed: ${e.message}") }
+            }
+        }.start()
+        return "Hatch ${if (open) "open" else "close"} requested on IBUS1"
+    }
 
     /**
      * Rear window defrost on or off. 0x4E (the screen's body message, IBUS1) with every signal idle and ICC_ReDefrstOpenReq (byte 5, bits 5-4)
@@ -576,9 +601,9 @@ class PulseCan(
                     onStatus(if (why == null) "CAN filters: $filterReadback" else "CAN filters not changed: $why")
                 }
                 txActive = context.getSharedPreferences("prefs", Context.MODE_PRIVATE).getBoolean("climateTx", true)
-                val base = listOf(bin, "$b1=382,2F5,2F4,554,318,179,234,335,343,2AC,373,507,6DD,1A9,5EA,505,530,534,386,528,512,518", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534,528,313,315,352")
+                val base = listOf(bin, "$b1=382,2F5,2F4,554,318,179,234,335,343,471,2AC,373,507,6DD,1A9,5EA,505,530,534,386,528,512,518", "$b2=0E9,1A9,210,351,504,580,582,332,311,491,5EA,505,373,530,534,528,313,315,352")
                 // transmit is allowed only for 0x530, 0x528 and 0x534 and only when the test is ticked in Settings; otherwise the helper is receive-only
-                val args = if (txActive) base + listOf("tx:$b1=530,528,534,4E", "tx:$b2=530,528,534") else base
+                val args = if (txActive) base + listOf("tx:$b1=530,528,534,4E,52", "tx:$b2=530,528,534") else base
                 onStatus("Starting CAN reader: IBUS1 = $b1, IBUS2 = $b2")
                 val p = ProcessBuilder(args).redirectErrorStream(false).start()
                 proc = p
@@ -645,7 +670,7 @@ class PulseCan(
         if (id == 0x534 && bytes.size == 8) { last534[bus] = bytes; last534At[bus] = System.currentTimeMillis() }
         if (id == 0x528 && bytes.size == 8) { last528[bus] = bytes; last528At[bus] = System.currentTimeMillis() }
         // note once where the less common IDs turn up (they may be on either bus)
-        if ((id == 0x1A9 || id == 0x5EA || id == 0x505 || id == 0x491 || id == 0x373 || id == 0x386 || id == 0x313 || id == 0x530 || id == 0x534) && seenFirst.add("$bus/$id"))
+        if ((id == 0x1A9 || id == 0x5EA || id == 0x505 || id == 0x491 || id == 0x373 || id == 0x471 || id == 0x386 || id == 0x313 || id == 0x530 || id == 0x534) && seenFirst.add("$bus/$id"))
             onStatus("First frame of 0x" + Integer.toHexString(id).uppercase() + " seen on IBUS$bus")
         val key = "$bus/$id"
         // keep the load down: a frame of the same ID is used at most every 90 ms (40 ms for brake and drive mode)
@@ -681,6 +706,8 @@ class PulseCan(
             val m = (b[7] shr 3) and 7
             return s.copy(driveMode = if (m <= 2) m else null, brakeVcu = ((b[1] shr 6) and 1) == 1, ready = ((b[1] shr 4) and 1) == 1)
         }
+        // 0x471 PLGM_0x471 (IBUS1, 100 ms), from the Oceanfront view's DBC: the power liftgate (TEST)
+        if (bus == 1 && id == 0x471) return s.copy(hatchOpen = ((b[6] shr 1) and 1) == 1, hatchPos = b[1], hatchLatch = (b[4] shr 5) and 7, hatchAt = System.currentTimeMillis())
         // 0x343 BCM_0x343 (IBUS1, 50 ms), signals from the Oceanfront view's DBC: BCM_DrFrntDoorSts byte 2 bit 5, BCM_PasFrntDoorSts byte 2 bit 6,
         // BCM_LeReDoorSts byte 3 bit 6, BCM_RiReDoorSts byte 3 bit 5 (0 closed, 1 open). The hatch is in 0x471, which the chip filters do not pass.
         if (bus == 1 && id == 0x343) {
