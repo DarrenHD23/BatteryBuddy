@@ -695,12 +695,12 @@ class RoadView(ctx: Context) : View(ctx) {
         val parAnim = par != parTarget
         val leadAnim = lAlpha > 0f && (!lOn || lAlpha < 1f || Math.abs(lGap - lGapS) > 0.05f || Math.abs(lLat - lLatS) > 0.01f)
         getLocationInWindow(la); cv.getLocationInWindow(lb)
-        val u = cv.height / 162f
+        val u = cv.height * cv.scaleY / 162f           // (the ADAS view scales the car view up)
         val carTop = (lb[1] - la[1]).toFloat()
         val carLeft = (lb[0] - la[0]).toFloat()
         c.save()
-        mapU = u; mapLeft = carLeft + (cv.width - 302f * u) / 2f; mapTop = carTop; parNow = par; tiltNow = (car as? CarView)?.tilt ?: 1f; bendFn = { 0f }
-        c.translate(carLeft + (cv.width - 302f * u) / 2f, carTop)
+        mapU = u; mapLeft = carLeft + (cv.width * cv.scaleX - 302f * u) / 2f; mapTop = carTop; parNow = par; tiltNow = (car as? CarView)?.tilt ?: 1f; bendFn = { 0f }
+        c.translate(carLeft + (cv.width * cv.scaleX - 302f * u) / 2f, carTop)
         c.scale(u, u)
         // seen from straight above (parked) the road is two straight parallel lines either side of the car; as the car gets going the view tips back
         // and the road narrows toward the horizon. The two are cross-faded by the car's tilt (0 = parked, 1 = driving).

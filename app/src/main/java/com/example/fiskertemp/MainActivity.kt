@@ -1841,6 +1841,12 @@ class MainActivity : Activity() {
     private lateinit var l2FlyBtn: TextView
     private lateinit var roadView: RoadView
     private var leadHoldUntil = 0L
+    // ADAS view: swipe down from the top (full screen only) hides the trip info / battery bar (Layout 1) or the battery bar and shortcuts (Layout 2) and enlarges the car and road
+    private var adasMode = false
+    private var adasDy = 0f
+    private var adasAnim: android.animation.ValueAnimator? = null
+    private var adasHandle: View? = null
+    private val adasHidden = ArrayList<View>()
     private lateinit var objView: ObjectsView
     private var car3d: Car3dView? = null
     private lateinit var l2ClimBtn: TextView
@@ -2137,11 +2143,70 @@ class MainActivity : Activity() {
 
     private fun wantLive3d(): Boolean = prefs().getBoolean("l2Live3d", true)
 
+    /** True when our window is the full screen (not a half or third split). The ADAS view is only offered then. */
+    private fun isFullWindow(): Boolean = try {
+        if (android.os.Build.VERSION.SDK_INT >= 30) windowManager.currentWindowMetrics.bounds.height() >= windowManager.maximumWindowMetrics.bounds.height() * 0.8 else true
+    } catch (e: Exception) { true }
+
+    /**
+     * The ADAS view (Layouts 1 and 2, full screen only): the car and road grow and the things around them fade away.
+     * Layout 1 hides the trip panel and battery bar and the car grows down into their space; Layout 2 hides the battery bar and the shortcuts
+     * and the car grows up into theirs. The road view, the 3D car and the objects layer all follow the car view's scale.
+     */
+    private fun setAdas(on: Boolean, animate: Boolean = true) {
+        if (on == adasMode) return
+        if (!::carView.isInitialized || !::dashRoot.isInitialized) return
+        if (on && !((l2Applied || l1cApplied) && dashShown && isFullWindow() && carView.width > 0 && carView.height > 0)) return
+        adasMode = on
+        val l2 = l2Applied
+        val views = if (l2) listOf<View>(chargeBar, lowerBox, flyBtn, l2FlyBtn) else listOf<View>(tripPanel, tripSpacer, chargeBar)
+        var kTo = 1f; var dyTo = 0f
+        if (on) {
+            val u0 = carView.height / 162f
+            val kW = 0.8f * carView.width / (114f * u0)           // keep the car well inside its column
+            val kH = if (l2) 1.35f else (dashMid.height - dp(8) - dp(14) - carView.top).toFloat() / carView.height     // Layout 1: down to the bottom of the column
+            kTo = minOf(kW, kH, 1.8f).coerceAtLeast(1f)
+            carView.pivotX = carView.width / 2f; carView.pivotY = if (l2) carView.height.toFloat() else 0f
+            if (adasHidden.isEmpty()) adasHidden.addAll(views)
+        }
+        val k0 = carView.scaleX; val dy0 = adasDy
+        adasAnim?.cancel()
+        fun apply(t: Float) {
+            val k = k0 + (kTo - k0) * t
+            carView.scaleX = k; carView.scaleY = k
+            adasDy = dy0 + (dyTo - dy0) * t
+            for (v in adasHidden) { v.alpha = if (on) 1f - t else t }
+            adasHandle?.alpha = if (on) t else 1f - t
+            placeL1Overlays(dashRoot); syncCar3d(dashRoot)
+            if (::roadView.isInitialized) roadView.invalidate()
+            if (::objView.isInitialized) objView.invalidate()
+        }
+        if (on && adasHandle == null) {
+            adasHandle = View(this).apply {
+                background = GradientDrawable().apply { setColor(Color.argb(150, 255, 255, 255)); cornerRadius = dp(3).toFloat() }
+                alpha = 0f
+            }
+            dashRoot.addView(adasHandle, FrameLayout.LayoutParams(dp(44), dp(5), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(5) })
+        }
+        for (v in adasHidden) v.isEnabled = !on
+        fun finish() {
+            if (!on) { adasHidden.clear(); carView.scaleX = 1f; carView.scaleY = 1f; adasDy = 0f; placeL1Overlays(dashRoot); syncCar3d(dashRoot) }
+        }
+        if (!animate) { apply(1f); finish(); return }
+        adasAnim = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 320
+            interpolator = android.view.animation.DecelerateInterpolator()
+            addUpdateListener { apply(it.animatedValue as Float) }
+            addListener(object : android.animation.AnimatorListenerAdapter() { override fun onAnimationEnd(a: android.animation.Animator) { finish() } })
+            start()
+        }
+    }
+
     /** Creates / removes the live 3D car and keeps it exactly over the car square (150 x 150 units in the 302 x 162 unit middle column). */
     /** Layout 1 with the 3D car: the speed sign sits on the speed gauge (left of its reading, wherever the gauges are), the traffic light above the car. */
     private fun placeL1Overlays(root: FrameLayout) {
         if (!(l1cApplied || l2Applied) || !::dashSlot.isInitialized || !::carView.isInitialized || !::dashSpeedGauge.isInitialized) return
-        carView.translationY = if (l1cApplied || l2Applied) dp(14).toFloat() else 0f        // Layouts 1 and 2: the car sits 14 dp lower
+        carView.translationY = (if (l1cApplied || l2Applied) dp(14).toFloat() else 0f) + adasDy        // Layouts 1 and 2: the car sits 14 dp lower (and lower still in the ADAS view)
         val g = dashSpeedGauge
         if (g.width <= 0 || carView.width <= 0 || dashSlot.width <= 0) return
         val r = IntArray(2); val ga = IntArray(2); val ca = IntArray(2)
@@ -2153,8 +2218,8 @@ class MainActivity : Activity() {
         val inward = if (gcx < root.width / 2f) 1f else -1f
         dashSlot.translationX = gcx + inward * 0.30f * diam - dashSlot.width / 2f - inward * dp(16)       // 16 dp toward the reading
         dashSlot.translationY = gcy - 0.02f * diam - dashSlot.height / 2f + dp(8)
-        val u = carView.height / 162f
-        val cxc = ca[0] - r[0] + carView.width / 2f
+        val u = carView.height * carView.scaleY / 162f
+        val cxc = ca[0] - r[0] + carView.width * carView.scaleX / 2f
         val lightY = ca[1] - r[1] - carView.translationY + 11f * u - dashLight.height      // the light stays put when the car is nudged down
         if (l2Applied && ::testBtn.isInitialized && testBtn.width > 0) {
             // Layout 2: the traffic light sits directly right of the Test button, its top edge level with the button's top edge, its distance under it
@@ -2192,11 +2257,11 @@ class MainActivity : Activity() {
             if (::objView.isInitialized) objView.bringToFront()
         }
         if (failed3d) return
-        val u = carView.height / 162f
+        val u = carView.height * carView.scaleY / 162f
         val a = IntArray(2); val b = IntArray(2)
         root.getLocationInWindow(a); carView.getLocationInWindow(b)
         val side = (150f * u).toInt().coerceAtLeast(1)
-        val x = b[0] - a[0] + ((carView.width - 302f * u) / 2f + 76f * u).toInt()
+        val x = b[0] - a[0] + ((carView.width * carView.scaleX - 302f * u) / 2f + 76f * u).toInt()
         val extra = (120f * u).toInt()         // room above the nose for the headlight beams
         val y = b[1] - a[1] + (3f * u).toInt() - extra
         val lp = v.layoutParams as FrameLayout.LayoutParams
@@ -2213,7 +2278,22 @@ class MainActivity : Activity() {
 
     private fun buildDashboard(): FrameLayout {
         Skins.current = prefs().getInt("skin", 7)
-        val f = FrameLayout(this)
+        val f = object : FrameLayout(this@MainActivity) {
+            private var swX = 0f; private var swY = 0f; private var swArmed = false
+            /** Swipe down from the top edge opens the ADAS view; swipe up anywhere closes it. Taps and small drags pass through untouched. */
+            override fun onInterceptTouchEvent(ev: android.view.MotionEvent): Boolean {
+                when (ev.actionMasked) {
+                    android.view.MotionEvent.ACTION_DOWN -> { swX = ev.x; swY = ev.y; swArmed = adasMode || ev.y < dp(56) }
+                    android.view.MotionEvent.ACTION_MOVE -> if (swArmed) {
+                        val dy = ev.y - swY; val dx = ev.x - swX
+                        if (!adasMode && dy > dp(70) && Math.abs(dx) < dy * 0.6f) { swArmed = false; setAdas(true); return true }
+                        if (adasMode && dy < -dp(70) && Math.abs(dx) < -dy * 0.6f) { swArmed = false; setAdas(false); return true }
+                    }
+                    android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> swArmed = false
+                }
+                return false
+            }
+        }
         f.visibility = View.GONE
         f.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Skins.look.bgTop, Skins.look.bgBottom))
         roadView = RoadView(this).apply { visibility = View.GONE; onCurve = { b -> car3d?.setSteer(b) } }        // Layout 2: the road, behind everything
@@ -3073,6 +3153,7 @@ class MainActivity : Activity() {
 
     private fun adaptDashLayout(wDp: Int, hDp: Int) {
         if (wDp <= 0 || hDp <= 0) return
+        if (adasMode && !(isFullWindow() && (l2Applied || l1cApplied))) setAdas(false, false)
         val narrow = wDp < 800
         val l2 = prefs().getInt("layout", 1) == 2 && wDp >= 640 && hDp >= 300
         // a third-height split window (not half or full) keeps the bottom buttons at the left edge
@@ -4090,6 +4171,7 @@ class MainActivity : Activity() {
     }
 
     private fun showDashboard(on: Boolean) {
+        if (!on) setAdas(false, false)
         dashShown = on
         paintEdges()
         ui.removeCallbacks(dashTick)
