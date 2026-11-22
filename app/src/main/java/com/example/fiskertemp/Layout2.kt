@@ -459,6 +459,8 @@ class RoadView(ctx: Context) : View(ctx) {
     var laneDeg: Float? = null
     var linesMode = 0           // Settings, ADAS options: 0 road lines always shown, 1 they fade away above 5 mph (8 km/h), 2 always hidden
     private var lineA = 1f
+    var hideRoad = false        // Settings, ADAS options: the shaded road surface is not drawn (lines, cars and the bend stay)
+    private var roadA = 1f
     var curveOn = true          // Settings, ADAS options: off keeps the road straight whatever the GPS / compass or the camera say
     private var curveShown = 0f
     var onCurve: ((Float) -> Unit)? = null        // the 3D car steers its front wheels with the same bend
@@ -707,6 +709,9 @@ class RoadView(ctx: Context) : View(ctx) {
         val lineT = if (linesMode == 2 || (linesMode == 1 && speedKmh > 8.05f)) 0f else 1f
         lineA += (lineT - lineA) * min(1f, dt * 2.5f)
         if (Math.abs(lineA - lineT) < 0.01f) lineA = lineT
+        val roadT = if (hideRoad) 0f else 1f
+        roadA += (roadT - roadA) * min(1f, dt * 3f)
+        if (Math.abs(roadA - roadT) < 0.01f) roadA = roadT
         lGapS += (lGap - lGapS) * min(1f, dt * 6f); lLatS += (lLat - lLatS) * min(1f, dt * 6f)
         lAlpha += ((if (lOn) 1f else 0f) - lAlpha) * min(1f, dt * 5f)
         if (lOn && lAlpha > 0.98f) lAlpha = 1f
@@ -755,7 +760,9 @@ class RoadView(ctx: Context) : View(ctx) {
         path.close()
         p.shader = LinearGradient(0f, yTop, 0f, 0f, Color.argb(20, 200, 206, 216), Color.argb(48, 200, 206, 216), Shader.TileMode.CLAMP)
         p.color = Color.WHITE
-        c.drawPath(path, p)
+        p.alpha = (255 * roadA).toInt()
+        if (roadA > 0.01f) c.drawPath(path, p)
+        p.alpha = 255
         p.shader = null
         if (lineA > 0.01f) for (side in intArrayOf(-1, 1)) {
             for (k in -2..40) {
@@ -786,7 +793,7 @@ class RoadView(ctx: Context) : View(ctx) {
         drawLead(c, tilt, par) { yy -> sh(yy) }
         c.restore()
         overlay?.postInvalidateOnAnimation()
-        animating = shown > 0f || target > 0f || curveShown != curveTarget || (tilt > 0f && tilt < 1f) || leadAnim || parAnim || adasAnimNow || lineA != lineT
+        animating = shown > 0f || target > 0f || curveShown != curveTarget || (tilt > 0f && tilt < 1f) || leadAnim || parAnim || adasAnimNow || lineA != lineT || roadA != roadT
         if (animating) postInvalidateDelayed(30)
     }
 }

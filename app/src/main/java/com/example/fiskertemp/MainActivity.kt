@@ -1281,6 +1281,10 @@ class MainActivity : Activity() {
             text = "Use the car's lane camera for the curve when it sees lane lines (the GPS / compass heading is used on roads without lines, and when the camera reports straight)"; isChecked = prefs().getBoolean("curveLane", true)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("curveLane", on).apply() }
         }, 4)
+        box.add(CheckBox(this).apply {
+            text = "Hide the road (the shaded road surface; the road lines below, the cars and the bend are separate)"; isChecked = prefs().getBoolean("hideRoad", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideRoad", on).apply() }
+        }, 12)
         box.add(TextView(this).apply { text = "Road lines (the dashed lane lines on the road)"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 12)
         val rlShow = RadioButton(this).apply { text = "Always show"; id = View.generateViewId() }
         val rlFade = RadioButton(this).apply { text = "Fade away above 5 mph (8 km/h)"; id = View.generateViewId() }
@@ -4443,6 +4447,7 @@ class MainActivity : Activity() {
             carView.speedKmh = (s.speedKmh ?: 0.0).toFloat(); roadView.speedKmh = carView.speedKmh
             // the bend of the road: the car's lane camera when it sees our lane (radius R: 45 m ahead turns the road by 45 / R rad), else the compass / GPS heading
             roadView.curveOn = prefs().getBoolean("roadCurve", true)
+            roadView.hideRoad = prefs().getBoolean("hideRoad", false)
             roadView.linesMode = when (prefs().getString("roadLines", if (prefs().getBoolean("fadeLines", false)) "fade" else "show")) { "fade" -> 1; "hide" -> 2; else -> 0 }
             roadView.laneDeg = run {
                 val rl = s.laneRadiusM
