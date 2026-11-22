@@ -454,6 +454,7 @@ class RoadView(ctx: Context) : View(ctx) {
     // the road bends with the compass: the heading change over the last 1.6 seconds, scaled up to a 3 second change (up to 30 degrees), turns the far road left or right.
     // A shorter window lets the bend fall away sooner when the road straightens.
     private val histT = ArrayList<Long>(); private val histH = ArrayList<Double>()
+    private val curveHist = FloatArray(5); private var curveN = 0; private var curveI = 0; private var curveSm = 0f; private var lastNoteMs = 0L
     private var curveTarget = 0f
     /** The bend of the road ahead in the same units as the compass bend (degrees over about 3 s, + = right), from the car's lane camera; null = use the compass. */
     var laneDeg: Float? = null
@@ -509,7 +510,10 @@ class RoadView(ctx: Context) : View(ctx) {
     // the other objects around the car, drawn by [ObjectsView] on top of everything: a state per object ID that fades in and out
     private class ObjSt(var gap: Float, var lat: Float, var w: Float, var cls: Int, var brake: Boolean) {
         var gapS = gap; var latS = lat; var alpha = 0f; var on = true
+        val gh = floatArrayOf(gap, gap, gap); val lh = floatArrayOf(lat, lat, lat); var hi = 0
     }
+    private fun med3(a: Float, b: Float, c: Float) = Math.max(Math.min(a, b), Math.min(Math.max(a, b), c))
+    private val lgH = floatArrayOf(0f, 0f, 0f); private val llH = floatArrayOf(0f, 0f, 0f); private var lhi = 0
     private val objs = HashMap<Int, ObjSt>()
     private var objLastMs = 0L
     var overlay: View? = null
@@ -530,7 +534,8 @@ class RoadView(ctx: Context) : View(ctx) {
         for (o in objs.values) o.on = false
         for (l in list) {
             val st = objs.getOrPut(l.id) { ObjSt(l.gapM.toFloat(), l.latM.toFloat(), l.widthM.toFloat(), l.cls, l.brake) }
-            st.gap = l.gapM.toFloat(); st.lat = l.latM.toFloat(); st.w = l.widthM.toFloat(); st.cls = l.cls; st.brake = l.brake; st.on = true
+            st.gh[st.hi] = l.gapM.toFloat(); st.lh[st.hi] = l.latM.toFloat(); st.hi = (st.hi + 1) % 3      // the median of the last 3 readings drops one-frame jumps
+            st.gap = med3(st.gh[0], st.gh[1], st.gh[2]); st.lat = med3(st.lh[0], st.lh[1], st.lh[2]); st.w = l.widthM.toFloat(); st.cls = l.cls; st.brake = l.brake; st.on = true
         }
         if (objs.isNotEmpty()) overlay?.postInvalidateOnAnimation()
     }
@@ -546,7 +551,7 @@ class RoadView(ctx: Context) : View(ctx) {
         val it = objs.values.iterator()
         while (it.hasNext()) {
             val o = it.next()
-            o.gapS += (o.gap - o.gapS) * min(1f, dt * 6f); o.latS += (o.lat - o.latS) * min(1f, dt * 6f)
+            o.gapS += (o.gap - o.gapS) * min(1f, dt * 4f); o.latS += (o.lat - o.latS) * min(1f, dt * 4f)
             o.alpha += ((if (o.on) 1f else 0f) - o.alpha) * min(1f, dt * 4f)
             if (o.on && o.alpha > 0.98f) o.alpha = 1f
             if (!o.on && o.alpha < 0.02f) { it.remove(); continue }
@@ -578,8 +583,10 @@ class RoadView(ctx: Context) : View(ctx) {
     }
 
     /** gap = metres ahead of the front bumper, lat = metres to the right of our centre line, w = width in metres (0 = unknown), cls = the car's object class. */
-    fun setLead(gap: Float, lat: Float, w: Float, cls: Int, brake: Boolean, src: Int) {
-        if (!lOn || lAlpha < 0.02f) { lGapS = gap; lLatS = lat }
+    fun setLead(gap0: Float, lat0: Float, w: Float, cls: Int, brake: Boolean, src: Int) {
+        if (!lOn || lAlpha < 0.02f) { lGapS = gap0; lLatS = lat0; for (i in 0..2) { lgH[i] = gap0; llH[i] = lat0 } }
+        lgH[lhi] = gap0; llH[lhi] = lat0; lhi = (lhi + 1) % 3      // the median of the last 3 readings drops one-frame jumps
+        val gap = med3(lgH[0], lgH[1], lgH[2]); val lat = med3(llH[0], llH[1], llH[2])
         lOn = true; lGap = gap; lLat = lat; lW = w; lCls = cls; lBrake = brake; lSrc = src
         postInvalidateOnAnimation()
     }
@@ -689,7 +696,16 @@ class RoadView(ctx: Context) : View(ctx) {
         var d = (h - histH[0]) * (3000.0 / 1600.0)
         if (d > 180) d -= 360; if (d < -180) d += 360
         val ld = laneDeg
-        curveTarget = if (curveOn && speedKmh >= 5f) (ld ?: d.toFloat()).coerceIn(-30f, 30f) else 0f
+        val raw = if (curveOn && speedKmh >= 5f) (ld ?: d.toFloat()).coerceIn(-30f, 30f) else 0f
+        // smoothing: the median of the last 5 readings drops one-off spikes (a compass / GPS glitch, the lane source changing), a low-pass of about half a second
+        // takes out the rest, and a small dead band keeps the road dead straight when the readings only wander around zero
+        curveHist[curveI] = raw; curveI = (curveI + 1) % curveHist.size; if (curveN < curveHist.size) curveN++
+        val srt = curveHist.copyOf(curveN); java.util.Arrays.sort(srt)
+        val med = srt[curveN / 2]
+        val dtn = if (lastNoteMs == 0L) 0.2f else ((now - lastNoteMs) / 1000f).coerceIn(0f, 0.5f); lastNoteMs = now
+        curveSm += (med - curveSm) * min(1f, dtn / 0.45f)
+        val db = 0.8f
+        curveTarget = if (Math.abs(curveSm) < db) 0f else curveSm - Math.signum(curveSm) * db
         if (!animating) postInvalidateOnAnimation()
     }
 
@@ -712,7 +728,7 @@ class RoadView(ctx: Context) : View(ctx) {
         val roadT = if (hideRoad) 0f else 1f
         roadA += (roadT - roadA) * min(1f, dt * 3f)
         if (Math.abs(roadA - roadT) < 0.01f) roadA = roadT
-        lGapS += (lGap - lGapS) * min(1f, dt * 6f); lLatS += (lLat - lLatS) * min(1f, dt * 6f)
+        lGapS += (lGap - lGapS) * min(1f, dt * 4f); lLatS += (lLat - lLatS) * min(1f, dt * 4f)
         lAlpha += ((if (lOn) 1f else 0f) - lAlpha) * min(1f, dt * 5f)
         if (lOn && lAlpha > 0.98f) lAlpha = 1f
         if (!lOn && lAlpha < 0.02f) lAlpha = 0f

@@ -1282,6 +1282,10 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("curveLane", on).apply() }
         }, 4)
         box.add(CheckBox(this).apply {
+            text = "Show the cars and objects the camera sees (the car in front, other cars, bikes and people)"; isChecked = prefs().getBoolean("showObjects", prefs().getBoolean("l2Alerts", true))
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("showObjects", on).apply() }
+        }, 12)
+        box.add(CheckBox(this).apply {
             text = "Hide the road (the shaded road surface; the road lines below, the cars and the bend are separate)"; isChecked = prefs().getBoolean("hideRoad", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideRoad", on).apply() }
         }, 12)
@@ -4457,6 +4461,7 @@ class MainActivity : Activity() {
             roadView.noteHeading(hd)
             run {
                 val alerts = prefs().getBoolean("l2Alerts", true); val nowMs = System.currentTimeMillis()
+                val showObj = prefs().getBoolean("showObjects", alerts)       // ADAS options: the car in front and the other objects the camera sees
                 val bFresh = alerts && nowMs - s.bsdAt < 2500
                 carView.bsdL = if (bFresh && s.bsdLeft in 1..3) s.bsdLeft else 0; carView.bsdR = if (bFresh && s.bsdRight in 1..3) s.bsdRight else 0
                 carView.dowL = if (bFresh && s.dowLeft in 1..4) s.dowLeft else 0; carView.dowR = if (bFresh && s.dowRight in 1..4) s.dowRight else 0
@@ -4464,8 +4469,8 @@ class MainActivity : Activity() {
                 carView.hatchPct = if (alerts && s.hatchOpen != null && nowMs - s.hatchAt < 3000) (if ((s.hatchPos ?: 0) > 0) s.hatchPos!!.coerceAtMost(100) else if (s.hatchOpen == true) 4 else 0) else -1
                 carView.doorBits = if (alerts && s.doorBits != null && nowMs - s.doorAt < 3000) s.doorBits else -1
                 val ld = s.lead
-                if (alerts && ld != null && nowMs - s.leadAt < 1500) { roadView.setLead(ld.gapM.toFloat(), ld.latM.toFloat(), ld.widthM.toFloat(), ld.cls, ld.brake, ld.src); leadHoldUntil = nowMs + 4000L } else roadView.clearLead()
-                if (alerts && nowMs - s.leadAt < 1500) roadView.setObjects(s.others) else roadView.setObjects(emptyList())
+                if (showObj && ld != null && nowMs - s.leadAt < 1500) { roadView.setLead(ld.gapM.toFloat(), ld.latM.toFloat(), ld.widthM.toFloat(), ld.cls, ld.brake, ld.src); leadHoldUntil = nowMs + 4000L } else roadView.clearLead()
+                if (showObj && nowMs - s.leadAt < 1500) roadView.setObjects(s.others) else roadView.setObjects(emptyList())
                 carView.holdTilt = nowMs < leadHoldUntil      // stopped behind a car: keep the road and the rear view (4 s after it is lost, so a flicker does not tip us over)
             }; carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true); carView.beamsOn = (s.beamsOn == true); carView.highBeam = (s.highBeamOn == true); carView.leftInd = s.leftInd; carView.rightInd = s.rightInd; carView.redInd = prefs().getString("signStyle", "us") != "eu"
             car3d?.red = carView.redInd       // USA / Canada: the turn signals glow red, as the rear lamps do on those cars
