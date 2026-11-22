@@ -336,6 +336,7 @@ class PulseCan(
     private val adasObjs = Array(8) { AdasObj() }
     private val adasSlot = mapOf(0x33B to 0, 0x34B to 1, 0x32D to 2, 0x33D to 3, 0x34D to 4, 0x32F to 5, 0x33F to 6, 0x34F to 7)
     private var lanePubAt = 0L; private var laneLogRaw = -1; private var laneLogAt = 0L; private var line1Raw = -1; private var line1At = 0L
+    private val lkT = LongArray(40); private val lkV = FloatArray(40); private val lkTmp = FloatArray(40); private var lkI = 0
     private var adasLeadId = 0; private var adasLeadAt = 0L      // 0x353 ADAS_LdngVhclID
     private var adasAccId = 0; private var adasAccAt = 0L        // 0x31C ADAS_ACCPrimTgtID
     private var adasPubAt = 0L; private var adasLogAt = 0L; private var adasLogKey = ""
@@ -827,15 +828,23 @@ class PulseCan(
             // raw 62..64 is 'straight': one count of jitter around 63 is not a 50 m curve
             val rad = if (rawL in 62..64) 0.0 else rawL * 50.0 - 3150.0
             val shown = rawL != 127 && rad > -3200.0 && rad < 3200.0
-            if (nowL - lanePubAt < 100) return null
-            lanePubAt = nowL
             if (rawL != laneLogRaw && nowL - laneLogAt > 1000) { laneLogRaw = rawL; laneLogAt = nowL; onStatus("lane: raw $rawL -> " + (if (shown) "${rad.toInt()} m" else "not shown") + " at " + (s.speedKmh?.toInt() ?: -1) + " km/h") }
-            return s.copy(laneRadiusM = if (shown) rad else null, laneAt = nowL)
+            return null      // 0x340 never moved off 'straight' on the car: the lane curve comes from 0x339 below
         }
         if (bus == 2 && id == 0x339) {
             val nowL = System.currentTimeMillis(); val r1 = b[0] and 0xFF
             if (r1 != line1Raw && nowL - line1At > 1000) { line1Raw = r1; line1At = nowL; onStatus("lane line1: raw $r1 at " + (s.speedKmh?.toInt() ?: -1) + " km/h") }
-            return null
+            // 0x339 byte 0 = the left lane line's radius (50 m steps, + = left): 63 = straight, 127 = no line. It flips between 'straight' and a radius many times a
+            // second, so keep the last second of curvatures (1 / R, straight = 0, no line = skipped) and publish their median
+            if (r1 != 127) { lkT[lkI] = nowL; lkV[lkI] = if (r1 in 62..64) 0f else (1.0 / (r1 * 50.0 - 3150.0)).toFloat(); lkI = (lkI + 1) % lkT.size }
+            if (nowL - lanePubAt < 100) return null
+            lanePubAt = nowL
+            var n = 0
+            for (i in lkT.indices) if (nowL - lkT[i] <= 1000) lkTmp[n++] = lkV[i]
+            if (n == 0) return s.copy(laneRadiusM = null, laneAt = nowL)
+            java.util.Arrays.sort(lkTmp, 0, n)
+            val kMed = lkTmp[n / 2]
+            return s.copy(laneRadiusM = if (Math.abs(kMed) < 1e-6f) 0.0 else 1.0 / kMed, laneAt = nowL)
         }
         val oslot = if (bus == 2) adasSlot[id] else null
         if (oslot != null) {
