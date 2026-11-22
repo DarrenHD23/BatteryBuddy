@@ -1435,13 +1435,44 @@ class MainActivity : Activity() {
         box.add(Button(this).apply {
             text = "Show event log"; isAllCaps = false
             setOnClickListener {
-                val tv = TextView(this@MainActivity).apply { text = EventLog.text(); textSize = 11f; setTextColor(Color.parseColor("#F0F3F8")); typeface = Typeface.MONOSPACE; setPadding(dp(12), dp(8), dp(12), dp(8)) }
-                val sv = ScrollView(this@MainActivity).apply { addView(tv); post { fullScroll(View.FOCUS_DOWN) } }
-                darkDialog().setTitle("Event log (newest at the bottom)").setView(sv)
+                var cleared = 0            // lines hidden by Clear (the log itself is kept)
+                var query = ""
+                val light = Color.parseColor("#F0F3F8")
+                val tv = TextView(this@MainActivity).apply { textSize = 11f; setTextColor(light); typeface = Typeface.MONOSPACE; setPadding(dp(12), dp(8), dp(12), dp(8)) }
+                val sv = ScrollView(this@MainActivity).apply { addView(tv) }
+                fun shownText(): String {
+                    val lines = EventLog.text().lines().let { it.drop(cleared.coerceAtMost(it.size)) }
+                    return (if (query.isBlank()) lines else lines.filter { it.contains(query, ignoreCase = true) }).joinToString("\n")
+                }
+                fun refresh(toEnd: Boolean) {
+                    val atEnd = toEnd || sv.getChildAt(0).bottom - (sv.scrollY + sv.height) < dp(40)
+                    val txt = shownText()
+                    if (tv.text.toString() != txt) { tv.text = txt; if (atEnd) sv.post { sv.fullScroll(View.FOCUS_DOWN) } }
+                }
+                val search = EditText(this@MainActivity).apply {
+                    hint = "Search the log (text)"; setHintTextColor(Color.parseColor("#8E99A8")); setTextColor(light)
+                    isSingleLine = true; textSize = 14f; imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+                    addTextChangedListener(object : android.text.TextWatcher {
+                        override fun afterTextChanged(s: android.text.Editable?) { query = s?.toString() ?: ""; refresh(true) }
+                        override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                        override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                    })
+                }
+                val col = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(search, LinearLayout.LayoutParams(-1, -2).apply { setMargins(dp(12), 0, dp(12), 0) })
+                    addView(sv, LinearLayout.LayoutParams(-1, (resources.displayMetrics.heightPixels * 0.6f).toInt()))
+                }
+                refresh(true)
+                val dlg = darkDialog().setTitle("Event log (newest at the bottom)").setView(col)
                     .setNeutralButton("Copy") { _, _ ->
-                        (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(ClipData.newPlainText("log", EventLog.text()))
+                        (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(ClipData.newPlainText("log", shownText()))
                         toast("Copied")
-                    }.setPositiveButton("Close", null).showDark()
+                    }.setNegativeButton("Clear", null).setPositiveButton("Close", null).showDark()
+                // Clear empties the screen only and stays open; new lines then appear under it (the window also keeps up with the log while it is open)
+                dlg.getButton(AlertDialog.BUTTON_NEGATIVE)?.setOnClickListener { cleared = EventLog.text().lines().size; refresh(true) }
+                val tick = object : Runnable { override fun run() { if (dlg.isShowing) { refresh(false); ui.postDelayed(this, 2000) } } }
+                ui.postDelayed(tick, 2000)
             }
         }, 8)
         box.add(Button(this).apply {

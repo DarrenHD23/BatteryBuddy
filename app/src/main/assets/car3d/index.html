@@ -83,6 +83,7 @@ function loop(now){
   const dt=Math.min(.1,(now-last)/1000);last=now;lastDraw=now;
   const g=smooth(Math.min(1,st.speed/10));
   const moving=st.speed>.5,settling=Math.abs(tilt-g)>.003||Math.abs(yaw-wantYaw())>.02,blinking=false;
+  resize();     // a bigger or smaller view must be redrawn even when idle, or the old small picture is stretched (blurry, baggy)
   if(!(moving||settling||blinking||dirty))return;     // idle: draw nothing
   tilt+=(g-tilt)*Math.min(1,dt*1.1);if(Math.abs(tilt-g)<.004)tilt=g;
   if(moving){spin-=st.speed/3.6/0.38*dt;for(const r of rolls)r.rotation.x=spin}
