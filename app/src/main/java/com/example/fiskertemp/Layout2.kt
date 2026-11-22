@@ -457,6 +457,8 @@ class RoadView(ctx: Context) : View(ctx) {
     private var curveTarget = 0f
     /** The bend of the road ahead in the same units as the compass bend (degrees over about 3 s, + = right), from the car's lane camera; null = use the compass. */
     var laneDeg: Float? = null
+    var fadeLines = false       // Settings, ADAS options: the dashed road lines fade away above 5 mph (8 km/h)
+    private var lineA = 1f
     var curveOn = true          // Settings, ADAS options: off keeps the road straight whatever the GPS / compass or the camera say
     private var curveShown = 0f
     var onCurve: ((Float) -> Unit)? = null        // the 3D car steers its front wheels with the same bend
@@ -702,6 +704,9 @@ class RoadView(ctx: Context) : View(ctx) {
         curveShown += (curveTarget - curveShown) * min(1f, dt * (if (Math.abs(curveTarget) < Math.abs(curveShown)) 8f else 4f))     // it eases back to straight about twice as fast as it eases into a bend
         if (Math.abs(curveShown - curveTarget) < 0.05f) curveShown = curveTarget
         onCurve?.invoke(curveShown)
+        val lineT = if (fadeLines && speedKmh > 8.05f) 0f else 1f
+        lineA += (lineT - lineA) * min(1f, dt * 2.5f)
+        if (Math.abs(lineA - lineT) < 0.01f) lineA = lineT
         lGapS += (lGap - lGapS) * min(1f, dt * 6f); lLatS += (lLat - lLatS) * min(1f, dt * 6f)
         lAlpha += ((if (lOn) 1f else 0f) - lAlpha) * min(1f, dt * 5f)
         if (lOn && lAlpha > 0.98f) lAlpha = 1f
@@ -752,7 +757,7 @@ class RoadView(ctx: Context) : View(ctx) {
         p.color = Color.WHITE
         c.drawPath(path, p)
         p.shader = null
-        for (side in intArrayOf(-1, 1)) {
+        if (lineA > 0.01f) for (side in intArrayOf(-1, 1)) {
             for (k in -2..40) {
                 var z1 = 1f + k * per - (roadOff * 0.006f) % per
                 var z2 = z1 + len
@@ -770,7 +775,7 @@ class RoadView(ctx: Context) : View(ctx) {
                 val w1 = 3.4f * e1; val w2 = 3.4f * e2
                 val x1 = cx + side * half * e1 + sh(y1); val x2 = cx + side * half * e2 + sh(y2)
                 val fade = if (yTop < 0f) 0.3f + 0.7f * (((y1 + y2) / 2f - yTop) / (-yTop)).coerceIn(0f, 1f) else 1f
-                p.color = Color.argb(((0.35f + 0.4f * e1) * 255 * fade).toInt().coerceIn(0, 255), 255, 255, 255)
+                p.color = Color.argb(((0.35f + 0.4f * e1) * 255 * fade * lineA).toInt().coerceIn(0, 255), 255, 255, 255)
                 path.reset()
                 path.moveTo(x1 - w1 / 2, y1); path.lineTo(x1 + w1 / 2, y1); path.lineTo(x2 + w2 / 2, y2); path.lineTo(x2 - w2 / 2, y2); path.close()
                 c.drawPath(path, p)
@@ -781,7 +786,7 @@ class RoadView(ctx: Context) : View(ctx) {
         drawLead(c, tilt, par) { yy -> sh(yy) }
         c.restore()
         overlay?.postInvalidateOnAnimation()
-        animating = shown > 0f || target > 0f || curveShown != curveTarget || (tilt > 0f && tilt < 1f) || leadAnim || parAnim || adasAnimNow
+        animating = shown > 0f || target > 0f || curveShown != curveTarget || (tilt > 0f && tilt < 1f) || leadAnim || parAnim || adasAnimNow || lineA != lineT
         if (animating) postInvalidateDelayed(30)
     }
 }

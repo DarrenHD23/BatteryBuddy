@@ -1282,6 +1282,10 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("curveLane", on).apply() }
         }, 4)
         box.add(CheckBox(this).apply {
+            text = "Fade away the road lines above 5 mph (8 km/h)"; isChecked = prefs().getBoolean("fadeLines", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("fadeLines", on).apply() }
+        }, 4)
+        box.add(CheckBox(this).apply {
             text = "Hide the traffic light"; isChecked = prefs().getBoolean("hideLight", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideLight", on).apply() }
         }, 4)
@@ -4435,6 +4439,7 @@ class MainActivity : Activity() {
             carView.speedKmh = (s.speedKmh ?: 0.0).toFloat(); roadView.speedKmh = carView.speedKmh
             // the bend of the road: the car's lane camera when it sees our lane (radius R: 45 m ahead turns the road by 45 / R rad), else the compass / GPS heading
             roadView.curveOn = prefs().getBoolean("roadCurve", true)
+            roadView.fadeLines = prefs().getBoolean("fadeLines", false)
             roadView.laneDeg = run {
                 val rl = s.laneRadiusM
                 if (!prefs().getBoolean("curveLane", true) || rl == null || rl == 0.0 || System.currentTimeMillis() - s.laneAt > 1000) null
