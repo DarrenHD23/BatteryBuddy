@@ -38,7 +38,8 @@ data class CanSnapshot(
     val bsdLeft: Int = 0,              // blind spot, left: 0 none, 1 threat, 2 threat + indicator on, 3 critical (0x315 ADAS_BSD_CID_LeDispReq, byte 5 bits 2-0)
     val bsdRight: Int = 0,             // the same on the right (byte 5 bits 5-3)
     val dowLeft: Int = 0,              // door-open warning, left: 1-4 = a threat is approaching (0x315 ADAS_DOW_CID_LeDispReq, byte 2 bits 2-0)
-    val doorBits: Int? = null,         // 0x343 BCM (IBUS1): bit0 driver door open, 1 passenger, 2 rear left, 3 rear right, 4 tailgate micro switch, 5 hood open, 6 driver door unlocked (TEST)
+    val doorBits: Int? = null,         // doors open (0x343 BCM on IBUS1, every 50 ms): bit0 driver, bit1 passenger, bit2 rear left, bit3 rear right
+    val doorAt: Long = 0L,
     val dowRight: Int = 0,             // the same on the right (byte 2 bits 5-3)
     val bsdAt: Long = 0L,              // when 0x315 was last seen (ms), so old values can be ignored
     val uss: List<Int>? = null,        // 16 parking-sensor zones (0x352): rear 0-3, front 4-7, left 8-11, right 12-15; 0 off, 1-8 zone, 9 clear, 15 fault
@@ -656,12 +657,11 @@ class PulseCan(
             val m = (b[7] shr 3) and 7
             return s.copy(driveMode = if (m <= 2) m else null, brakeVcu = ((b[1] shr 6) and 1) == 1, ready = ((b[1] shr 4) and 1) == 1)
         }
-        // 0x343 BCM_0x343 (IBUS1, 50 ms), from the Oceanfront view's DBC: door states 0 closed, 1 open (TEST: logged and shown on the car)
+        // 0x343 BCM_0x343 (IBUS1, 50 ms), signals from the Oceanfront view's DBC: BCM_DrFrntDoorSts byte 2 bit 5, BCM_PasFrntDoorSts byte 2 bit 6,
+        // BCM_LeReDoorSts byte 3 bit 6, BCM_RiReDoorSts byte 3 bit 5 (0 closed, 1 open). The hatch is in 0x471, which the chip filters do not pass.
         if (bus == 1 && id == 0x343) {
-            fun bit(i: Int, n: Int) = (b[i] shr n) and 1
-            val bits = bit(2, 5) or (bit(2, 6) shl 1) or (bit(3, 6) shl 2) or (bit(3, 5) shl 3) or (bit(2, 3) shl 4) or (bit(2, 0) shl 5) or (bit(2, 2) shl 6)
-            if (bits != s.doorBits) onStatus("door test: " + (if (s.doorBits == null) "first " else "") + "driver " + bit(2, 5) + " pass " + bit(2, 6) + " rear-left " + bit(3, 6) + " rear-right " + bit(3, 5) + " tailgate-switch " + bit(2, 3) + " hood " + bit(2, 0) + " unlocked " + bit(2, 2) + "  (" + b.joinToString(" ") { String.format("%02X", it and 0xFF) } + ")")
-            return s.copy(doorBits = bits)
+            val bits = ((b[2] shr 5) and 1) or (((b[2] shr 6) and 1) shl 1) or (((b[3] shr 6) and 1) shl 2) or (((b[3] shr 5) and 1) shl 3)
+            return s.copy(doorBits = bits, doorAt = System.currentTimeMillis())
         }
         // 0x335 BCM_0x335 (IBUS1): BCM_BrkLampOutpCmd, the brake lamp output command (1 = on)
         if (bus == 1 && id == 0x335) {
