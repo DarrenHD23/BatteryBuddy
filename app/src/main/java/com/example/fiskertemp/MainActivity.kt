@@ -1840,6 +1840,7 @@ class MainActivity : Activity() {
     }
     private lateinit var l2FlyBtn: TextView
     private lateinit var roadView: RoadView
+    private var leadHoldUntil = 0L
     private var car3d: Car3dView? = null
     private lateinit var l2ClimBtn: TextView
     private lateinit var l2MediaBtn: TextView
@@ -4230,7 +4231,8 @@ class MainActivity : Activity() {
                 carView.hatchPct = if (alerts && s.hatchOpen != null && nowMs - s.hatchAt < 3000) (if ((s.hatchPos ?: 0) > 0) s.hatchPos!!.coerceAtMost(100) else if (s.hatchOpen == true) 4 else 0) else -1
                 carView.doorBits = if (alerts && s.doorBits != null && nowMs - s.doorAt < 3000) s.doorBits else -1
                 val ld = s.lead
-                if (alerts && ld != null && nowMs - s.leadAt < 1500) roadView.setLead(ld.gapM.toFloat(), ld.latM.toFloat(), ld.widthM.toFloat(), ld.cls, ld.brake, ld.src) else roadView.clearLead()
+                if (alerts && ld != null && nowMs - s.leadAt < 1500) { roadView.setLead(ld.gapM.toFloat(), ld.latM.toFloat(), ld.widthM.toFloat(), ld.cls, ld.brake, ld.src); leadHoldUntil = nowMs + 4000L } else roadView.clearLead()
+                carView.holdTilt = nowMs < leadHoldUntil      // stopped behind a car: keep the road and the rear view (4 s after it is lost, so a flicker does not tip us over)
             }; carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true); carView.beamsOn = (s.beamsOn == true); carView.highBeam = (s.highBeamOn == true); carView.leftInd = s.leftInd; carView.rightInd = s.rightInd; carView.redInd = prefs().getString("signStyle", "us") != "eu"
             car3d?.red = carView.redInd       // USA / Canada: the turn signals glow red, as the rear lamps do on those cars
             car3d?.follow = prefs().getBoolean(if (l2Applied) "l2CarFollow" else "l1CarFollow", true)

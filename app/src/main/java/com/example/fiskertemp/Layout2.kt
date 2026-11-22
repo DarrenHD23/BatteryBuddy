@@ -184,6 +184,9 @@ class CarView(ctx: Context) : View(ctx) {
     /** false while the live 3D car (Car3dView) is showing: the pre-rendered car images are then not drawn (glow, warnings and the tilt still are). */
     var spriteCar = true
         set(v) { if (field != v) { field = v; invalidate() } }
+    /** True while a car is ahead: the view stays tipped back (road and rear view) even when stopped. */
+    var holdTilt = false
+        set(v) { if (field != v) { field = v; invalidate() } }
     /** 0 = seen from straight above (parked), 1 = seen from behind and above (driving); eases slowly. RoadView follows it. */
     var tilt = 0f
         private set
@@ -199,7 +202,7 @@ class CarView(ctx: Context) : View(ctx) {
         shown += (target - shown) * min(1f, dt * 4f)
         if (target == 0f && shown < 0.5f) shown = 0f
         roadOff += 200f * Math.pow((shown / 200f).toDouble(), 0.4).toFloat() * dt * 1.1f
-        val g0 = (shown / 10f).coerceIn(0f, 1f); val g = g0 * g0 * (3f - 2f * g0)      // fully tipped back by 10 km/h
+        val g0 = (shown / 10f).coerceIn(0f, 1f); val g = if (holdTilt) 1f else g0 * g0 * (3f - 2f * g0)      // fully tipped back by 10 km/h (or held tipped back while a car is ahead)
         tilt += (g - tilt) * min(1f, dt * 1.1f)
         if (Math.abs(tilt - g) < 0.004f) tilt = g
         val pos = tilt * (F_BASE.size - 1)
