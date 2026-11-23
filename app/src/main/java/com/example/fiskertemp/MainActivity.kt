@@ -7408,6 +7408,9 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     var accent = Color.parseColor("#3B9DFF")                         // the selected skin's accent: lit buttons, fan level, power button
     private val on get() = accent
+    /** Day theme (a light background): the climate readings are drawn near-black instead of white. */
+    private val dayBg get() = (0.299f * Color.red(bgColor) + 0.587f * Color.green(bgColor) + 0.114f * Color.blue(bgColor)) > 140f
+    private fun ink(a: Int = 255): Int = if (dayBg) Color.argb(a, 14, 18, 24) else Color.argb(a, 255, 255, 255)
     private val glassBase get() = mixC(Color.WHITE, accent, 0.28f)    // unlit glass buttons pick up a little of the skin colour
     private val warm = Color.parseColor("#FF8A3D")
     private val cool = Color.parseColor("#4DA3FF")
@@ -7635,8 +7638,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             canvas.drawCircle(cx + r * Math.cos(ang).toFloat(), cy + r * Math.sin(ang).toFloat(), sw * 0.62f, p)
         }
         val dpD = dd / d
-        text(name, cx, cy - dd * 0.20f, (dpD * 0.062f).coerceIn(9f, 13f), Color.argb(190, 255, 255, 255), true)
-        fitText(temp(t), cx, cy + dd * 0.06f, (dpD * 0.22f).coerceIn(20f, 44f), if (t == null) off else Color.WHITE, true, dd * 0.50f)
+        text(name, cx, cy - dd * 0.20f, (dpD * 0.062f).coerceIn(9f, 13f), ink(if (dayBg) 230 else 190), true)
+        fitText(temp(t), cx, cy + dd * 0.06f, (dpD * 0.22f).coerceIn(20f, 44f), if (t == null) off else ink(), true, dd * 0.50f)
         // - and + at the two ends of the ring
         val by = top + dd * 0.827f + dp(5f) + bs / 2f
         val minus = RectF(cx - r * 0.7071f - bs / 2, by - bs / 2, cx - r * 0.7071f + bs / 2, by + bs / 2)
@@ -8062,13 +8065,13 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
                 val sq = RectF(fx - br, fy - br, fx + br, fy + br); val cr = br * 0.38f
                 p.style = Paint.Style.FILL; p.color = Color.argb(40, 255, 255, 255); canvas.drawRoundRect(sq, cr, cr, p)
                 p.style = Paint.Style.STROKE; p.strokeWidth = dp(1.3f); p.color = Color.argb(110, 255, 255, 255); canvas.drawRoundRect(sq, cr, cr, p)
-                text(sym, fx, fy, if (small) 22f else 26f, Color.WHITE, true)
+                text(sym, fx, fy, if (small) 22f else 26f, ink(), true)
             }
             val hr = br + dp(6f)
             fanMinus.set(mx - hr, fy - hr, mx + hr, fy + hr); fanPlus.set(px - hr, fy - hr, px + hr, fy + hr)
         }
-        fan(cx - tw0 / 2 - dp(14f), ly, dp(if (small) 7f else 9f), Color.argb(190, 255, 255, 255))
-        text(label, cx + dp(8f), ly, if (small) 13f else 15f, Color.WHITE, true)
+        fan(cx - tw0 / 2 - dp(14f), ly, dp(if (small) 7f else 9f), ink(if (dayBg) 230 else 190))
+        text(label, cx + dp(8f), ly, if (small) 13f else 15f, ink(), true)
     }
 
     private var seatsPlaced = false
@@ -8210,8 +8213,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val r = RectF(right - (pad * 2 + lw + gp + vw), cy - ph / 2, right, cy + ph / 2)
         p.style = Paint.Style.FILL; p.color = Color.argb(18, 255, 255, 255); canvas.drawRoundRect(r, ph / 2, ph / 2, p)
         stroke(Color.argb(34, 255, 255, 255), 1f); canvas.drawRoundRect(r, ph / 2, ph / 2, p)
-        text(label, r.left + pad, cy, if (small) 11f else 12f, Color.argb(190, 255, 255, 255), false, Paint.Align.LEFT)
-        text(value, r.left + pad + lw + gp, cy, if (small) 13f else 15f, Color.WHITE, true, Paint.Align.LEFT)
+        text(label, r.left + pad, cy, if (small) 11f else 12f, ink(if (dayBg) 230 else 190), false, Paint.Align.LEFT)
+        text(value, r.left + pad + lw + gp, cy, if (small) 13f else 15f, ink(), true, Paint.Align.LEFT)
         return r.left
     }
 
@@ -8260,8 +8263,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             c.drawRoundRect(powerRect, ps * 0.30f, ps * 0.30f, p)
             stroke(pc, 1.8f); c.drawRoundRect(powerRect, ps * 0.30f, ps * 0.30f, p)
             powerIcon(powerRect.centerX(), powerRect.centerY() + ps * 0.03f, ps * 0.26f, Color.WHITE)
-            if (flip) text("Climate", powerRect.left - dp(12f), powerRect.centerY(), if (small) 18f else 22f, Color.WHITE, true, Paint.Align.RIGHT)
-            else text("Climate", powerRect.right + dp(12f), powerRect.centerY(), if (small) 18f else 22f, Color.WHITE, true, Paint.Align.LEFT)
+            if (flip) text("Climate", powerRect.left - dp(12f), powerRect.centerY(), if (small) 18f else 22f, ink(), true, Paint.Align.RIGHT)
+            else text("Climate", powerRect.right + dp(12f), powerRect.centerY(), if (small) 18f else 22f, ink(), true, Paint.Align.LEFT)
             val ph = dp(if (small) 26f else 32f)
             if (flip) {
                 val out = temp(s.outsideC); val cab = temp(s.cabinC)
@@ -8391,8 +8394,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             tempBtns.add(minus); tempBtns.add(plus)
             tempBtnInfo.add(Pair(driver, -1)); tempBtnInfo.add(Pair(driver, 1))
             val mx = x0 + blockW / 2f
-            text(name, mx, cy - topH * 0.30f, 10f, Color.argb(190, 255, 255, 255), true)
-            fitText(temp(t), mx, cy + topH * 0.10f, (topH / d * 0.46f).coerceIn(16f, 30f), if (t == null) off else Color.WHITE, true, blockW - 2 * bs - dp(6f))
+            text(name, mx, cy - topH * 0.30f, 10f, ink(if (dayBg) 230 else 190), true)
+            fitText(temp(t), mx, cy + topH * 0.10f, (topH / d * 0.46f).coerceIn(16f, 30f), if (t == null) off else ink(), true, blockW - 2 * bs - dp(6f))
         }
         val drvRight = rhdSide
         block(m, if (drvRight) "PASSENGER" else "DRIVER", if (drvRight) s.climPassT else s.climDrvT, !drvRight)
@@ -8407,8 +8410,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             drawSeatIcon(seatBtn, maxOf(maxOf(seatLevel(0, s), seatLevel(1, s)), maxOf(seatLevel(2, s), seatLevel(3, s))))
             midX = seatBtn.right + dp(6f) + (midW0 - sb - dp(6f)) / 2f; midW = midW0 - sb - dp(6f)
         }
-        text("Climate", midX, cy - topH * 0.22f, 16f, Color.WHITE, true)
-        fitText("Cabin " + temp(s.cabinC) + "   Outside " + temp(s.outsideC), midX, cy + topH * 0.22f, 11f, Color.argb(200, 255, 255, 255), false, midW)
+        text("Climate", midX, cy - topH * 0.22f, 16f, ink(), true)
+        fitText("Cabin " + temp(s.cabinC) + "   Outside " + temp(s.outsideC), midX, cy + topH * 0.22f, 11f, ink(if (dayBg) 235 else 200), false, midW)
         val tilesTop = pad + topH + gap
         val cols = 7
         tile(0, cols, m, tilesTop, w - 2 * m, tileH, "A/C", s.climAc, on, true) { x, yy, r, col -> snowflake(x, yy, r, col) }
