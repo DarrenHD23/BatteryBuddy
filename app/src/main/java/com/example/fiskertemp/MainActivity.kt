@@ -2876,8 +2876,9 @@ class MainActivity : Activity() {
     private var viewer3d: Car3dView? = null
     private var lpDownX = 0f; private var lpDownY = 0f; private var lpActive = false
     private var lpRing: View? = null
+    private var lpDownAt = 0L; private var carClickBlock = false      // a long press on the car must not also count as the tap that opens the colour list
     private var lpAnim: ValueAnimator? = null
-    private val lpRun = Runnable { lpActive = false; clearLpRing(); openCarViewer() }
+    private val lpRun = Runnable { lpActive = false; carClickBlock = true; clearLpRing(); openCarViewer() }
     private fun clearLpRing() { lpAnim?.cancel(); lpAnim = null; lpRing?.let { (it.parent as? ViewGroup)?.removeView(it) }; lpRing = null }
     private fun cancelCarLongPress() { if (lpActive) { lpActive = false; dashRoot.removeCallbacks(lpRun) }; clearLpRing() }
     private fun carTouchRect(): RectF? {
@@ -2892,11 +2893,11 @@ class MainActivity : Activity() {
         if (!::dashRoot.isInitialized || !dashShown || viewerLayer != null) return
         when (ev.actionMasked) {
             android.view.MotionEvent.ACTION_DOWN -> {
-                cancelCarLongPress()
+                cancelCarLongPress(); carClickBlock = false; lpDownAt = 0L
                 if (carView.speedKmh >= 1f) return
                 val r = carTouchRect() ?: return
                 if (!r.contains(ev.rawX, ev.rawY)) return
-                lpDownX = ev.rawX; lpDownY = ev.rawY; lpActive = true
+                lpDownX = ev.rawX; lpDownY = ev.rawY; lpActive = true; lpDownAt = android.os.SystemClock.uptimeMillis()
                 dashRoot.postDelayed(lpRun, 1000)
                 // a ring fills around the car while the finger stays down (it begins after a short pause, so a plain tap shows nothing)
                 val ring = HoldRing(this)
@@ -2906,7 +2907,11 @@ class MainActivity : Activity() {
                 lpAnim = ValueAnimator.ofFloat(0f, 1f).apply { startDelay = 250; duration = 750; addUpdateListener { ring.p = it.animatedValue as Float; ring.invalidate() }; start() }
             }
             android.view.MotionEvent.ACTION_MOVE -> if (lpActive && Math.hypot((ev.rawX - lpDownX).toDouble(), (ev.rawY - lpDownY).toDouble()) > dp(14).toDouble()) cancelCarLongPress()
-            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL, android.view.MotionEvent.ACTION_POINTER_DOWN -> cancelCarLongPress()
+            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL, android.view.MotionEvent.ACTION_POINTER_DOWN -> {
+                // held for more than a tap (the ring was filling, or the viewer opened): the release is not a tap on the car
+                if (lpDownAt > 0L && android.os.SystemClock.uptimeMillis() - lpDownAt > 350L) carClickBlock = true
+                cancelCarLongPress()
+            }
         }
     }
     private fun openCarViewer() {
@@ -3054,6 +3059,7 @@ class MainActivity : Activity() {
         carView = CarView(this).apply {
             paintIdx = prefs().getInt("carPaint", 3)
             setOnClickListener {
+                if (carClickBlock) { carClickBlock = false; return@setOnClickListener }
                 val cur = prefs().getInt("carPaint", 3).coerceIn(0, CAR_PAINTS.size - 1)
                 darkDialog().setTitle("Car colour").setSingleChoiceItems(CAR_PAINTS.map { it.first }.toTypedArray(), cur) { dlg, i ->
                     setCarPaint(i); dlg.dismiss()

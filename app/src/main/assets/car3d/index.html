@@ -4,6 +4,7 @@
 <script type="module">
 import * as THREE from './three.module.min.js';
 import {GLTFLoader} from './GLTFLoader.js';
+import {toCreasedNormals} from './BufferGeometryUtils.js';
 import B64 from './model.js';
 const bridge=window.CarBridge||{ready(){},fail(){}};
 try{
@@ -20,13 +21,13 @@ const VIEWER=/viewer=1/.test(location.search);
 const pcam=new THREE.PerspectiveCamera(32,1,.1,200),ORB0={th:.6,ph:1.25,d:11},orb={th:.6,ph:1.25,d:11,auto:false},vt=new THREE.Vector3(0,.7,0);
 if(VIEWER){cv.style.touchAction='none';const ps=new Map();let pd=0;
   const clamp=()=>{orb.ph=Math.max(.05,Math.min(Math.PI-.05,orb.ph));orb.d=Math.max(4.5,Math.min(22,orb.d))};
-  cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);ps.set(e.pointerId,{x:e.clientX,y:e.clientY});if(ps.size===2){const a=[...ps.values()];pd=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)}});
+  cv.addEventListener('pointerdown',e=>{moving();cv.setPointerCapture(e.pointerId);ps.set(e.pointerId,{x:e.clientX,y:e.clientY});if(ps.size===2){const a=[...ps.values()];pd=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)}});
   cv.addEventListener('pointermove',e=>{const q=ps.get(e.pointerId);if(!q)return;
     if(ps.size===1){orb.th-=(e.clientX-q.x)*.009;orb.ph-=(e.clientY-q.y)*.009}
     q.x=e.clientX;q.y=e.clientY;
     if(ps.size===2){const a=[...ps.values()],n=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);if(pd>0&&n>0)orb.d*=pd/n;pd=n}
     clamp();dirty=true});
-  const up=e=>{ps.delete(e.pointerId);pd=0;if(ps.size===1){}};
+  const up=e=>{ps.delete(e.pointerId);pd=0;if(ps.size===0)settled()};
   cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up)}
 const mats=new Map(),rolls=[],steers=[],beams={Dipped:[],High:[]},glows={};let brakeMesh=null;
 let st={speed:0,head:0,turn:0,brake:false,left:false,right:false,rev:false,follow:true,red:false,paint:'#e7e8e3'},tilt=0,spin=0,last=performance.now(),lastDraw=0,dirty=true,loaded=false,size=0;
@@ -62,11 +63,18 @@ function lamps(now){
    for(const key in glows){const g=glows[key];if(g&&g.userData.side){if(rd)g.material.color.setHex(0xff2a1a);else g.material.color.setRGB(1,.45,0);g.material.opacity=lit[g.userData.side]?IND_GLOW:0}}}     // red (USA / Canada) or amber (Euro / UK) lamps with a small soft glow on the rear ones
 }
 function paint(){for(const m of mats.get('Paint_Body')||[]){m.color.set(st.paint);m.metalness=.1;m.roughness=.76;if('clearcoat'in m)m.clearcoat=0}}
-function resize(){const w=cv.clientWidth,h=cv.clientHeight;if(!w||!h)return;const r=Math.min(window.devicePixelRatio||1,2);if(size!==w*1000+h){size=w*1000+h;renderer.setPixelRatio(r);renderer.setSize(w,h,false);dirty=true}}
-window.car3d={set(o){Object.assign(st,o);if(loaded&&o.paint)paint();dirty=true},reset(){Object.assign(orb,ORB0,{auto:false});dirty=true},auto(b){orb.auto=!!b;dirty=true}};
+// full-screen viewer: drawn at 2.5-3x the screen's pixels and scaled down (smooth edges, the WebView's own edge smoothing is often off); at the normal 1-2x while a finger is moving it, sharp again 0.3 s after
+let qHi=true,qT=0;
+function pxr(){const dpr=window.devicePixelRatio||1;if(!VIEWER||!qHi)return Math.min(dpr,2);const w=cv.clientWidth,h=cv.clientHeight;return Math.max(1,Math.min(3,Math.max(dpr*1.5,2.5),Math.sqrt(7.5e6/Math.max(1,w*h))))}
+function setQ(hi){if(!VIEWER||qHi===hi)return;qHi=hi;size='';resize()}
+function moving(){clearTimeout(qT);setQ(false)}
+function settled(){clearTimeout(qT);qT=setTimeout(()=>{if(!orb.auto)setQ(true)},300)}
+function resize(){const w=cv.clientWidth,h=cv.clientHeight;if(!w||!h)return;const r=pxr();if(size!==w*1000+h){size=w*1000+h;renderer.setPixelRatio(r);renderer.setSize(w,h,false);dirty=true}}
+window.car3d={set(o){Object.assign(st,o);if(loaded&&o.paint)paint();dirty=true},reset(){Object.assign(orb,ORB0,{auto:false});dirty=true},auto(b){orb.auto=!!b;if(orb.auto)moving();else settled();dirty=true}};
 const u8=Uint8Array.from(atob(B64),c=>c.charCodeAt(0));
 new GLTFLoader().parse(u8.buffer,'',g=>{
   model=g.scene;scene.add(model);
+  if(VIEWER)model.traverse(o=>{if(o.isMesh&&!/^Beam_/.test(o.name)){try{o.geometry=toCreasedNormals(o.geometry,Math.PI/5)}catch(e){}}});      // viewer only: smooth shading across the flat segments of the low-poly body (edges sharper than 36 degrees stay crisp)
   model.traverse(o=>{if(o.isMesh){for(const m of Array.isArray(o.material)?o.material:[o.material]){if(!mats.has(m.name))mats.set(m.name,[]);mats.get(m.name).push(m)}}const mn=o.isMesh?(Array.isArray(o.material)?o.material:[o.material]).map(m=>m.name).join(' '):'';
     if(/Spot|Anchor/.test(o.name)||o.isLight)o.visible=false;
     const bm=/^Beam_(Dipped|High)_[LR]$/.exec(o.name);if(bm){beams[bm[1]].push(o);o.visible=false;o.scale.setScalar(0)}});
