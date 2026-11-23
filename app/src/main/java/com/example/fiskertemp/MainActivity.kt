@@ -2724,7 +2724,7 @@ class MainActivity : Activity() {
                 dashRoot.addView(ring, lp); ring.isClickable = false; lpRing = ring
                 lpAnim = ValueAnimator.ofFloat(0f, 1f).apply { startDelay = 250; duration = 750; addUpdateListener { ring.p = it.animatedValue as Float; ring.invalidate() }; start() }
             }
-            android.view.MotionEvent.ACTION_MOVE -> if (lpActive && Math.hypot((ev.rawX - lpDownX).toDouble(), (ev.rawY - lpDownY).toDouble()) > dp(14f)) cancelCarLongPress()
+            android.view.MotionEvent.ACTION_MOVE -> if (lpActive && Math.hypot((ev.rawX - lpDownX).toDouble(), (ev.rawY - lpDownY).toDouble()) > dp(14).toDouble()) cancelCarLongPress()
             android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL, android.view.MotionEvent.ACTION_POINTER_DOWN -> cancelCarLongPress()
         }
     }
