@@ -1698,24 +1698,32 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------- Layout 2 presets (up to 6)
     /** Settings that belong to the car, the install or the user's data rather than to how the screen looks: a preset leaves them alone. */
-    private val presetSkip = setOf("presetsL2", "presetsL1", "devToken", "betaOn", "betaUnlocked", "updDeferred", "source", "legacyCan", "canSafe", "climateTx", "radioFavs", "reopenSettings", "reopenDash", "spdAdjMph", "spdAdjKmh", "packKwh")
+    private val presetSkip = setOf("presets", "presetsL2", "presetsL1", "devToken", "betaOn", "betaUnlocked", "updDeferred", "source", "legacyCan", "canSafe", "climateTx", "radioFavs", "reopenSettings", "reopenDash", "spdAdjMph", "spdAdjKmh", "packKwh")
 
     private fun curLayout() = if (prefs().getInt("layout", 1) == 2) 2 else 1
-    private fun presetKey() = if (curLayout() == 2) "presetsL2" else "presetsL1"      // the two layouts keep their own presets
-
+    /** One shared list of up to 6 presets, whichever layout saved them (older per-layout lists are merged in the first time). */
     private fun readPresets(): MutableList<Pair<String, org.json.JSONObject>> {
         val out = ArrayList<Pair<String, org.json.JSONObject>>()
-        try {
-            val arr = org.json.JSONArray(prefs().getString(presetKey(), "[]"))
-            for (i in 0 until arr.length()) { val o = arr.getJSONObject(i); out.add(o.getString("name") to o.getJSONObject("data")) }
-        } catch (e: Exception) { }
+        fun parse(key: String, lay: Int) {
+            try {
+                val arr = org.json.JSONArray(prefs().getString(key, "[]"))
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i); val d = o.getJSONObject("data")
+                    if (!d.has("layout")) d.put("layout", org.json.JSONObject().put("t", "i").put("v", lay))
+                    var n = o.getString("name"); var k = 2
+                    while (out.any { it.first.equals(n, true) }) { n = o.getString("name") + " (" + k + ")"; k++ }
+                    out.add(n to d)
+                }
+            } catch (e: Exception) { }
+        }
+        if (prefs().contains("presets")) parse("presets", 2) else { parse("presetsL2", 2); parse("presetsL1", 1) }
         return out
     }
 
     private fun writePresets(list: List<Pair<String, org.json.JSONObject>>) {
         val arr = org.json.JSONArray()
         for ((n, d) in list) arr.put(org.json.JSONObject().put("name", n).put("data", d))
-        prefs().edit().putString(presetKey(), arr.toString()).apply()
+        prefs().edit().putString("presets", arr.toString()).remove("presetsL1").remove("presetsL2").apply()
     }
 
     /** Every current setting (skin, layout, cards, shortcuts, options), typed, as JSON. */
@@ -1774,7 +1782,7 @@ class MainActivity : Activity() {
         if (list.isEmpty()) { darkDialog().setTitle("Load Preset").setMessage("None").setPositiveButton("OK", null).showDark(); return }
         var sel = -1
         val d = darkDialog().setTitle("Load Preset")
-            .setSingleChoiceItems(list.map { it.first }.toTypedArray(), -1) { _, w -> sel = w }
+            .setSingleChoiceItems(list.map { it.first + "   (Layout " + (it.second.optJSONObject("layout")?.optInt("v", 0)?.takeIf { l -> l == 1 || l == 2 } ?: 2) + ")" }.toTypedArray(), -1) { _, w -> sel = w }
             .setPositiveButton("Load", null).setNeutralButton("Delete", null).setNegativeButton("Cancel", null).showDark()
         d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             if (sel < 0) { Toast.makeText(this, "Select a preset first", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
