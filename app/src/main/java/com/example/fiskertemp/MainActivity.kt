@@ -1836,6 +1836,15 @@ class MainActivity : Activity() {
         ed.putBoolean("reopenDash", true)
         if (data.optJSONObject("adasOn")?.optBoolean("v", false) == true) ed.putBoolean("adasRestore", true)
         ed.commit()
+        // read back what was written, and log any setting that did not stick
+        var bad = 0; val now = prefs().all
+        for (k in data.keys()) {
+            if (k == "adasOn") continue
+            val e = data.getJSONObject(k)
+            val want: Any? = when (e.getString("t")) { "b" -> e.getBoolean("v"); "s" -> e.getString("v"); "i" -> e.getInt("v"); "l" -> e.getLong("v"); "f" -> e.getDouble("v").toFloat(); else -> null }
+            if (want != null && now[k] != want) { bad++; EventLog.add("preset: $k is ${now[k]}, wanted $want") }
+        }
+        EventLog.add("preset: ${data.length()} settings written, $bad differ")
     }
 
     private fun applyPreset(name: String, data: org.json.JSONObject) {
@@ -2072,6 +2081,7 @@ class MainActivity : Activity() {
     // ADAS view: the ADAS View button at the top (full screen only) hides the trip info / battery bar (Layout 1) or the battery bar and shortcuts (Layout 2) and enlarges the car and road
     private var adasMode = false
     private var adasDy = 0f
+    private var adasRestoreTries = 0
     private var adasNoCards = false                                  // ADAS view with Climate and Media both closed (set by adasFit)
     private lateinit var adasSpdBox: LinearLayout; private lateinit var adasSpdNum: TextView; private lateinit var adasSpdTitle: TextView
     private lateinit var adasPwrBox: LinearLayout; private lateinit var adasPwrNum: TextView; private lateinit var adasPwrTitle: TextView
@@ -2426,6 +2436,9 @@ class MainActivity : Activity() {
         }
         fade(dashSpeedGauge, !hide); fade(dashPowerGauge, !hide)
         fade(adasSpdBox, hide); fade(adasPwrBox, hide); fade(adasClockBox, hide); fade(adasTempBox, hide)
+        // Layout 2: with the clock in the middle, "Ready" (and the brake-light note under it) moves down to clear it
+        val readyShift = if (hide && l2Applied && adasClockBox.height > 0) (adasClockBox.height + dp(6)).toFloat() else 0f
+        for (v in listOf<View>(dashReady, dashBrake)) if (v.translationY != readyShift) v.translationY = readyShift
         val ta = if (hide) 0f else 1f
         if (::dashClock.isInitialized && dashClock.alpha != ta) dashClock.animate().alpha(ta).setDuration(150).start()      // the normal clock steps aside for the centred one
         if (hide) {
@@ -3014,10 +3027,13 @@ class MainActivity : Activity() {
     private val dashTick = object : Runnable {
         override fun run() {
             renderDash()
-            // a preset saved with the ADAS view on: switch it on once the screen has its size (one try; it only goes on in a window that allows it)
-            if (::carView.isInitialized && carView.width > 0 && carView.height > 0 && prefs().getBoolean("adasRestore", false)) {
-                prefs().edit().remove("adasRestore").apply()
-                ui.postDelayed({ if (dashShown && !adasMode) setAdas(true, false) }, 600)
+            // a preset saved with the ADAS view on: switch it on as soon as the screen is ready for it, trying again every tick for ten seconds
+            if (prefs().getBoolean("adasRestore", false)) {
+                if (adasMode) { prefs().edit().remove("adasRestore").apply(); EventLog.add("preset: ADAS view on") }
+                else if (::carView.isInitialized && carView.width > 0 && carView.height > 0) {
+                    setAdas(true, false)
+                    if (!adasMode && ++adasRestoreTries > 50) { prefs().edit().remove("adasRestore").apply(); EventLog.add("preset: the ADAS view could not be switched on here") }
+                }
             }
             applyAdasGauges()
             if (adasMode) refitAdas()
