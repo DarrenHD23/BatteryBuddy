@@ -710,6 +710,13 @@ class MainActivity : Activity() {
             visibility = View.GONE
             setOnClickListener { showSkinPicker() }
         }
+        presetsBtn = Button(this).apply {
+            minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0; text = "Presets"; isAllCaps = false; setTextColor(Color.WHITE); textSize = 12f
+            background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(22).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
+            setPadding(dp(12), 0, dp(12), 0)
+            visibility = View.GONE
+            setOnClickListener { showPresetsMenu() }
+        }
         settingsBtn = Button(this).apply {
             minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0; text = "Settings"; isAllCaps = false; setTextColor(Color.WHITE); textSize = 12f
             background = GradientDrawable().apply { setColor(Color.argb(150, 20, 20, 40)); cornerRadius = dp(22).toFloat(); setStroke(dp(1), Color.argb(120, 255, 255, 255)) }
@@ -1087,7 +1094,7 @@ class MainActivity : Activity() {
         }
         box.add(rtg, 6)
         box.add(CheckBox(this).apply {
-            text = "Show the Skin button on the dashboard"; isChecked = showSkinBtn()
+            text = "Show the Skin button on the dashboard (Layout 2 gear menu; Layout 1 has the Presets button instead)"; isChecked = showSkinBtn()
             setOnCheckedChangeListener { _, on ->
                 prefs().edit().putBoolean("showSkin", on).apply()
                 relayoutDash(); refreshLowerLabels(); paintLowerTabs()
@@ -1691,12 +1698,15 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------- Layout 2 presets (up to 6)
     /** Settings that belong to the car, the install or the user's data rather than to how the screen looks: a preset leaves them alone. */
-    private val presetSkip = setOf("presetsL2", "devToken", "betaOn", "betaUnlocked", "updDeferred", "source", "legacyCan", "canSafe", "climateTx", "radioFavs", "reopenSettings", "reopenDash", "spdAdjMph", "spdAdjKmh", "packKwh")
+    private val presetSkip = setOf("presetsL2", "presetsL1", "devToken", "betaOn", "betaUnlocked", "updDeferred", "source", "legacyCan", "canSafe", "climateTx", "radioFavs", "reopenSettings", "reopenDash", "spdAdjMph", "spdAdjKmh", "packKwh")
+
+    private fun curLayout() = if (prefs().getInt("layout", 1) == 2) 2 else 1
+    private fun presetKey() = if (curLayout() == 2) "presetsL2" else "presetsL1"      // the two layouts keep their own presets
 
     private fun readPresets(): MutableList<Pair<String, org.json.JSONObject>> {
         val out = ArrayList<Pair<String, org.json.JSONObject>>()
         try {
-            val arr = org.json.JSONArray(prefs().getString("presetsL2", "[]"))
+            val arr = org.json.JSONArray(prefs().getString(presetKey(), "[]"))
             for (i in 0 until arr.length()) { val o = arr.getJSONObject(i); out.add(o.getString("name") to o.getJSONObject("data")) }
         } catch (e: Exception) { }
         return out
@@ -1705,7 +1715,7 @@ class MainActivity : Activity() {
     private fun writePresets(list: List<Pair<String, org.json.JSONObject>>) {
         val arr = org.json.JSONArray()
         for ((n, d) in list) arr.put(org.json.JSONObject().put("name", n).put("data", d))
-        prefs().edit().putString("presetsL2", arr.toString()).apply()
+        prefs().edit().putString(presetKey(), arr.toString()).apply()
     }
 
     /** Every current setting (skin, layout, cards, shortcuts, options), typed, as JSON. */
@@ -1725,13 +1735,20 @@ class MainActivity : Activity() {
             }
             o.put(k, e)
         }
+        o.put("layout", org.json.JSONObject().put("t", "i").put("v", curLayout()))
         return o
+    }
+
+    /** Layout 1's Presets button: Load or Save. */
+    private fun showPresetsMenu() {
+        val d = darkDialog().setTitle("Presets").setItems(arrayOf("Load", "Save")) { dlg, w -> dlg.dismiss(); if (w == 0) showLoadPreset() else showSavePreset() }
+            .setNegativeButton("Cancel", null).showDark()
     }
 
     private fun showSavePreset() {
         val input = EditText(this).apply {
             hint = "Preset name"; setSingleLine(); setTextColor(Color.WHITE); setHintTextColor(Color.GRAY)
-            filters = arrayOf(android.text.InputFilter.LengthFilter(24))
+            filters = arrayOf(android.text.InputFilter.LengthFilter(65))
         }
         val box = FrameLayout(this).apply { setPadding(dp(20), dp(4), dp(20), 0); addView(input) }
         val d = darkDialog().setTitle("Save Preset")
@@ -1784,7 +1801,7 @@ class MainActivity : Activity() {
                 "ss" -> { val a = e.getJSONArray("v"); ed.putStringSet(k, (0 until a.length()).map { a.getString(it) }.toSet()) }
             }
         }
-        if (!data.has("layout")) ed.putInt("layout", 2)
+        if (!data.has("layout")) ed.putInt("layout", curLayout())
         ed.putBoolean("reopenDash", true)
         ed.commit()
         EventLog.add("preset loaded: $name")
@@ -1922,6 +1939,7 @@ class MainActivity : Activity() {
     private lateinit var dashRoot: FrameLayout
     private lateinit var dashBtn: Button
     private lateinit var skinBtn: Button
+    private lateinit var presetsBtn: Button      // Layout 1: replaces the Skin button
     private lateinit var settingsBtn: Button
     private lateinit var dashSpeedGauge: ArcGaugeView
     private lateinit var dashPowerGauge: ArcGaugeView
@@ -3772,7 +3790,7 @@ class MainActivity : Activity() {
                 if (rhd) setMargins(edgeOff, 0, 0, dp(16)) else setMargins(0, 0, dp(8), dp(16))
             }
         }
-        val barKids = (if (l2) listOf(l2ClimBtn, l2MediaBtn, resBtn) + (if (rhd) listOf(l2SaveBtn, l2LoadBtn) else listOf(l2LoadBtn, l2SaveBtn)) else emptyList()) + (if (showSkinBtn()) listOf(skinBtn, settingsBtn, dashBtn, exitBtn) else listOf(settingsBtn, dashBtn, exitBtn))
+        val barKids = (if (l2) listOf(l2ClimBtn, l2MediaBtn, resBtn) + (if (rhd) listOf(l2SaveBtn, l2LoadBtn) else listOf(l2LoadBtn, l2SaveBtn)) else emptyList()) + (if (!l2) listOf(presetsBtn, settingsBtn, dashBtn, exitBtn) else if (showSkinBtn()) listOf(skinBtn, settingsBtn, dashBtn, exitBtn) else listOf(settingsBtn, dashBtn, exitBtn))
         btnBar.removeAllViews()
         if (l2) {
             btnBar.orientation = LinearLayout.VERTICAL
@@ -3795,6 +3813,7 @@ class MainActivity : Activity() {
             else btnBar.addView(v, LinearLayout.LayoutParams(-2, dp(36)).apply { if (i < barKids.size - 1) rightMargin = dp(8) })
         }
         if (showSkinBtn()) skinBtn.visibility = if (dashShown) View.VISIBLE else View.GONE
+        if (!l2) presetsBtn.visibility = if (dashShown) View.VISIBLE else View.GONE
         btnBar.requestLayout(); lowerBox.requestLayout()
         refreshLowerLabels()
         (poolBar.layoutParams as FrameLayout.LayoutParams).apply { setMargins(dp(8), 0, dp(8), dp(lowerBottomM)) }
@@ -4133,6 +4152,7 @@ class MainActivity : Activity() {
         val lk = Skins.look
         if (::dashBtn.isInitialized) dashBtn.background = chipBg(22)
         if (::skinBtn.isInitialized) skinBtn.background = chipBg(22)
+        if (::presetsBtn.isInitialized) presetsBtn.background = chipBg(22)
         if (::settingsBtn.isInitialized) settingsBtn.background = chipBg(22)
         if (::exitBtn.isInitialized) exitBtn.background = chipBg(22)
         if (::resBtn.isInitialized) resBtn.background = chipBg(12)
@@ -4510,6 +4530,7 @@ class MainActivity : Activity() {
         rootScroll.visibility = if (on) View.GONE else View.VISIBLE
         dashBtn.text = if (on) "Hide" else "Show Dashboard"
         skinBtn.visibility = if (on) View.VISIBLE else View.GONE
+        presetsBtn.visibility = if (on) View.VISIBLE else View.GONE
         settingsBtn.visibility = if (on) View.VISIBLE else View.GONE
         if (on) {
             actionBar?.hide()
