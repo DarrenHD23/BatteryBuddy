@@ -1915,6 +1915,10 @@ class MainActivity : Activity() {
     private var adasNoCards = false                                  // ADAS view with Climate and Media both closed (set by adasFit)
     private lateinit var adasSpdBox: LinearLayout; private lateinit var adasSpdNum: TextView; private lateinit var adasSpdTitle: TextView
     private lateinit var adasPwrBox: LinearLayout; private lateinit var adasPwrNum: TextView; private lateinit var adasPwrTitle: TextView
+    private lateinit var adasClockBox: LinearLayout; private lateinit var adasClockNum: TextView; private lateinit var adasClockTitle: TextView
+    private lateinit var adasTempBox: LinearLayout; private lateinit var adasTempNum: TextView; private lateinit var adasTempTitle: TextView
+    private val adasTimeFmt by lazy { java.text.SimpleDateFormat(if (android.text.format.DateFormat.is24HourFormat(this)) "HH:mm" else "h:mm a", java.util.Locale.getDefault()) }
+    private val adasDateFmt by lazy { java.text.SimpleDateFormat("EEE, MMM d", java.util.Locale.getDefault()) }
     private var adasAnim: android.animation.ValueAnimator? = null
     private var adasBar: View? = null
     private val adasHidden = ArrayList<View>()
@@ -2256,14 +2260,24 @@ class MainActivity : Activity() {
             else if (v.visibility == View.VISIBLE) v.animate().alpha(0f).setDuration(150).withEndAction { v.visibility = View.INVISIBLE }.start()
         }
         fade(dashSpeedGauge, !hide); fade(dashPowerGauge, !hide)
-        fade(adasSpdBox, hide); fade(adasPwrBox, hide)
+        fade(adasSpdBox, hide); fade(adasPwrBox, hide); fade(adasClockBox, hide); fade(adasTempBox, hide)
+        val ta = if (hide) 0f else 1f
+        if (::dashClock.isInitialized && dashClock.alpha != ta) dashClock.animate().alpha(ta).setDuration(150).start()      // the normal clock steps aside for the centred one
         if (hide) {
-            val speedLeft = prefs().getBoolean("speedLeft", false)
+            // the numbers sit on the side each gauge is on (the gauges' real positions: the swap setting, in left- and right-hand drive alike)
+            val ra = IntArray(2); val ga = IntArray(2)
+            dashRoot.getLocationInWindow(ra); dashSpeedGauge.getLocationInWindow(ga)
+            val speedLeft = if (dashSpeedGauge.width > 0 && dashRoot.width > 0) (ga[0] - ra[0]) + dashSpeedGauge.width * dashSpeedGauge.scaleX / 2f < dashRoot.width / 2f else prefs().getBoolean("speedLeft", false)
             for ((box, left) in listOf(adasSpdBox to speedLeft, adasPwrBox to !speedLeft)) {
                 val lp = box.layoutParams as FrameLayout.LayoutParams
                 val g = Gravity.TOP or (if (left) Gravity.START else Gravity.END)
                 if (lp.gravity != g) { lp.gravity = g; lp.leftMargin = if (left) dp(16) else 0; lp.rightMargin = if (left) 0 else dp(16); box.layoutParams = lp }
             }
+            val now = java.util.Date()
+            adasClockNum.text = adasTimeFmt.format(now); adasClockTitle.text = adasDateFmt.format(now)
+            adasTempNum.text = canSnap.outsideC?.let { fmt(it, "\u00B0C", 0) } ?: "--"; adasTempTitle.text = "OUTSIDE"
+            val cw = adasClockBox.width; val tw = adasTempBox.width
+            if (cw > 0 && tw > 0) adasTempBox.translationX = (if (prefs().getBoolean("rhd", false)) -1f else 1f) * (cw / 2f + tw / 2f + dp(22))
         }
     }
 
@@ -2782,17 +2796,22 @@ class MainActivity : Activity() {
         dashClock = DashClockView(this).apply { visibility = View.GONE }
         f.addView(dashClock, FrameLayout.LayoutParams(dp(150), dp(80), Gravity.TOP or Gravity.START).apply { setMargins(dp(14), dp(8), 0, 0) })
         // compact Speed and Power readouts for the top corners (shown instead of the gauges when the ADAS-view option hides them)
-        fun readout(): Triple<LinearLayout, TextView, TextView> {
-            val num = TextView(this).apply { textSize = 30f; setTextColor(Color.WHITE); gravity = Gravity.CENTER; includeFontPadding = false }
-            val ttl = TextView(this).apply { textSize = 11f; setTextColor(Color.argb(190, 255, 255, 255)); gravity = Gravity.CENTER; includeFontPadding = false; letterSpacing = 0.08f }
+        fun readout(numSp: Float = 60f, ttlSp: Float = 14f): Triple<LinearLayout, TextView, TextView> {
+            val num = TextView(this).apply { textSize = numSp; setTextColor(Color.WHITE); gravity = Gravity.CENTER; includeFontPadding = false }
+            val ttl = TextView(this).apply { textSize = ttlSp; setTextColor(Color.argb(190, 255, 255, 255)); gravity = Gravity.CENTER; includeFontPadding = false; letterSpacing = 0.08f }
             val b = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; alpha = 0f; visibility = View.INVISIBLE }
             b.addView(num, LinearLayout.LayoutParams(-2, -2)); b.addView(ttl, LinearLayout.LayoutParams(-2, -2))
             return Triple(b, num, ttl)
         }
         readout().let { adasSpdBox = it.first; adasSpdNum = it.second; adasSpdTitle = it.third }
         readout().let { adasPwrBox = it.first; adasPwrNum = it.second; adasPwrTitle = it.third }
-        f.addView(adasSpdBox, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(10), dp(16), 0) })
-        f.addView(adasPwrBox, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { setMargins(dp(16), dp(10), 0, 0) })
+        f.addView(adasSpdBox, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(70), dp(16), 0) })
+        f.addView(adasPwrBox, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { setMargins(dp(16), dp(70), 0, 0) })
+        // the clock in the middle at the top, with the outside temperature beside it (right in left-hand drive, left in right-hand drive)
+        readout(28f, 12f).let { adasClockBox = it.first; adasClockNum = it.second; adasClockTitle = it.third }
+        readout(28f, 12f).let { adasTempBox = it.first; adasTempNum = it.second; adasTempTitle = it.third }
+        f.addView(adasClockBox, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { setMargins(0, dp(8), 0, 0) })
+        f.addView(adasTempBox, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { setMargins(0, dp(8), 0, 0) })
         // a test button in the empty space beside the clock: shows the speed sign and the traffic light (cycling red / amber / green) with nothing else moving
         testBtn = TextView(this).apply {
             text = "Test sign"; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
@@ -2867,8 +2886,8 @@ class MainActivity : Activity() {
         if (::adasSpdNum.isInitialized) {
             val tf = Typeface.create(Skins.look.numFont, if (Skins.look.italic) Typeface.ITALIC else Typeface.NORMAL)
             val sub = if (day) Color.argb(190, 20, 32, 46) else Color.argb(190, 255, 255, 255)
-            for (t in listOf(adasSpdNum, adasPwrNum)) { t.setTextColor(ink); t.typeface = tf }
-            for (t in listOf(adasSpdTitle, adasPwrTitle)) t.setTextColor(sub)
+            for (t in listOf(adasSpdNum, adasPwrNum, adasClockNum, adasTempNum)) { t.setTextColor(ink); t.typeface = tf }
+            for (t in listOf(adasSpdTitle, adasPwrTitle, adasClockTitle, adasTempTitle)) t.setTextColor(sub)
         }
         dashHeading.typeface = Typeface.create(Skins.look.numFont, if (Skins.look.italic) Typeface.ITALIC else Typeface.NORMAL)
         dashReady.setTextColor(Color.parseColor(if (day) "#2E9E1F" else "#7CFF3A"))
