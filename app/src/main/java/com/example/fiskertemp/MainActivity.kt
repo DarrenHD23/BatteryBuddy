@@ -2212,6 +2212,7 @@ class MainActivity : Activity() {
     }
 
     override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        watchCarLongPress(ev)
         if (dashShown && !StatusStripView.dragging) swipe.onTouchEvent(ev)      // only watches: touches still reach the buttons
         return super.dispatchTouchEvent(ev)
     }
@@ -2683,11 +2684,88 @@ class MainActivity : Activity() {
         if (lp.width != side + 2 * pad || lp.height != side + extra || lp.leftMargin != x - pad || lp.topMargin != y) {
             lp.width = side + 2 * pad; lp.height = side + extra; lp.leftMargin = x - pad; lp.topMargin = y; v.layoutParams = lp
         }
-        if (v.live) { v.visibility = View.VISIBLE; carView.spriteCar = false }
+        if (v.live) { v.visibility = if (viewerLayer != null) View.INVISIBLE else View.VISIBLE; carView.spriteCar = false }
         // Layout 1: the traffic light (and its distance) sit on top of the 3D car's headlight glow; it is moved once, not on every layout pass
         if (l1cApplied && ::dashLight.isInitialized) for (t in listOf<View>(dashLight, dashLightDist)) if (t.parent === root && root.indexOfChild(t) < root.indexOfChild(v)) t.bringToFront()
     }
     private var failed3d = false
+
+    // ---- parked: press and hold the 3D car for about a second and it opens full screen, to turn with a finger and zoom with two
+    private var viewerLayer: FrameLayout? = null
+    private var viewer3d: Car3dView? = null
+    private var lpDownX = 0f; private var lpDownY = 0f; private var lpActive = false
+    private var lpRing: View? = null
+    private var lpAnim: ValueAnimator? = null
+    private val lpRun = Runnable { lpActive = false; clearLpRing(); openCarViewer() }
+    private fun clearLpRing() { lpAnim?.cancel(); lpAnim = null; lpRing?.let { (it.parent as? ViewGroup)?.removeView(it) }; lpRing = null }
+    private fun cancelCarLongPress() { if (lpActive) { lpActive = false; dashRoot.removeCallbacks(lpRun) }; clearLpRing() }
+    private fun carTouchRect(): RectF? {
+        val c = car3d ?: return null
+        if (!c.live || c.width <= 0 || !c.isShown) return null
+        val loc = IntArray(2); c.getLocationOnScreen(loc)
+        val side = c.height - 120f * (carView.height * carView.scaleY / 162f)       // the square the car sits in (the view has room above the nose for the beams)
+        val cx = loc[0] + c.width / 2f
+        return RectF(cx - side * 0.28f, loc[1] + c.height - side, cx + side * 0.28f, loc[1] + c.height.toFloat())
+    }
+    private fun watchCarLongPress(ev: android.view.MotionEvent) {
+        if (!::dashRoot.isInitialized || !dashShown || viewerLayer != null) return
+        when (ev.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                cancelCarLongPress()
+                if (carView.speedKmh >= 1f) return
+                val r = carTouchRect() ?: return
+                if (!r.contains(ev.rawX, ev.rawY)) return
+                lpDownX = ev.rawX; lpDownY = ev.rawY; lpActive = true
+                dashRoot.postDelayed(lpRun, 1000)
+                // a ring fills around the car while the finger stays down (it begins after a short pause, so a plain tap shows nothing)
+                val ring = HoldRing(this)
+                val sz = dp(150); val loc = IntArray(2); dashRoot.getLocationOnScreen(loc)
+                val lp = FrameLayout.LayoutParams(sz, sz); lp.leftMargin = (r.centerX() - sz / 2f - loc[0]).toInt(); lp.topMargin = (r.centerY() - sz / 2f - loc[1]).toInt()
+                dashRoot.addView(ring, lp); ring.isClickable = false; lpRing = ring
+                lpAnim = ValueAnimator.ofFloat(0f, 1f).apply { startDelay = 250; duration = 750; addUpdateListener { ring.p = it.animatedValue as Float; ring.invalidate() }; start() }
+            }
+            android.view.MotionEvent.ACTION_MOVE -> if (lpActive && Math.hypot((ev.rawX - lpDownX).toDouble(), (ev.rawY - lpDownY).toDouble()) > dp(14f)) cancelCarLongPress()
+            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL, android.view.MotionEvent.ACTION_POINTER_DOWN -> cancelCarLongPress()
+        }
+    }
+    private fun openCarViewer() {
+        if (viewerLayer != null || car3d?.live != true) return
+        val layer = FrameLayout(this)
+        layer.isClickable = true
+        layer.setBackgroundColor((Skins.look.bgTop and 0xFFFFFF) or (0xEE shl 24))
+        val v = Car3dView(this, true) { ok -> runOnUiThread { if (!ok) closeCarViewer() else viewer3d?.visibility = View.VISIBLE } }
+        v.visibility = View.INVISIBLE
+        viewer3d = v
+        layer.addView(v, FrameLayout.LayoutParams(-1, -1))
+        fun circle(glyph: String, label: String, top: Int, onTap: (TextView) -> Unit) {
+            val col = LinearLayout(this); col.orientation = LinearLayout.HORIZONTAL; col.gravity = Gravity.CENTER_VERTICAL
+            val lb = TextView(this).apply { text = label; setTextColor(Color.parseColor("#9FB3C4")); setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f); setPadding(0, 0, dp(10), 0) }
+            val b = TextView(this).apply {
+                text = glyph; setTextColor(Color.WHITE); setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f); gravity = Gravity.CENTER
+                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.parseColor("#223242")); setStroke(dp(1), Color.parseColor("#4B6277")) }
+                setOnClickListener { onTap(this) }
+            }
+            col.addView(lb); col.addView(b, LinearLayout.LayoutParams(dp(52), dp(52)))
+            val lp = FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END); lp.topMargin = top; lp.rightMargin = dp(28)
+            layer.addView(col, lp)
+        }
+        circle("\u2715", "Close", dp(28)) { closeCarViewer() }
+        circle("\u21BA", "Reset view", dp(98)) { viewer3d?.viewReset() }
+        var spin = false
+        circle("\u27F3", "Auto spin", dp(168)) { b -> spin = !spin; viewer3d?.viewAuto(spin); (b.background as GradientDrawable).setColor(Color.parseColor(if (spin) "#2E6FA6" else "#223242")) }
+        val hint = TextView(this).apply { text = "Drag to rotate  \u00B7  Pinch to zoom"; setTextColor(Color.parseColor("#9FB3C4")); setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f); gravity = Gravity.CENTER }
+        val hlp = FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM); hlp.bottomMargin = dp(24)
+        layer.addView(hint, hlp)
+        dashRoot.addView(layer, FrameLayout.LayoutParams(-1, -1))
+        viewerLayer = layer
+        car3d?.visibility = View.INVISIBLE
+    }
+    private fun closeCarViewer() {
+        val l = viewerLayer ?: return
+        viewerLayer = null
+        dashRoot.removeView(l); viewer3d?.destroy(); viewer3d = null
+        car3d?.let { if (it.live) it.visibility = View.VISIBLE }
+    }
 
     private fun buildDashboard(): FrameLayout {
         Skins.current = prefs().getInt("skin", 7)
@@ -4787,6 +4865,8 @@ class MainActivity : Activity() {
             }; carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true); carView.beamsOn = (s.beamsOn == true); carView.highBeam = (s.highBeamOn == true); carView.leftInd = s.leftInd; carView.rightInd = s.rightInd; carView.redInd = prefs().getString("signStyle", "us") != "eu"
             car3d?.red = carView.redInd       // USA / Canada: the turn signals glow red, as the rear lamps do on those cars
             car3d?.follow = prefs().getBoolean(if (l2Applied) "l2CarFollow" else "l1CarFollow", true)
+            if (viewerLayer != null && carView.speedKmh > 3f) closeCarViewer()      // driving off closes the viewer
+            viewer3d?.let { it.red = carView.redInd; it.push(carView.speedKmh, if (carView.highBeam) 2 else if (carView.beamsOn) 1 else if (carView.headlights) 3 else 0, carView.braking, carView.leftInd, carView.rightInd, carView.reverse, CAR_PAINTS[carView.paintIdx].second) }
             car3d?.push(carView.speedKmh, if (carView.highBeam) 2 else if (carView.beamsOn) 1 else if (carView.headlights) 3 else 0, carView.braking, carView.leftInd, carView.rightInd, carView.reverse, CAR_PAINTS[carView.paintIdx].second)
             if (l2Applied) {
             fun shortLabel(l: String) = when (l.lowercase()) { "distance driven" -> "Distance"; "energy consumed" -> "Energy"; "average speed" -> "Avg speed"; else -> l }

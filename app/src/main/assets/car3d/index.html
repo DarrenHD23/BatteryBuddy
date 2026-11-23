@@ -15,6 +15,19 @@ scene.add(new THREE.HemisphereLight(0xf2f5fa,0x53606d,2.1));
 const key=new THREE.DirectionalLight(0xf1f5fa,.75);key.position.set(-3,6,4);scene.add(key);
 const cam=new THREE.OrthographicCamera(-1,1,1,-1,.05,100);cam.up.set(0,0,-1);
 const target=new THREE.Vector3(0,.55,0);
+// viewer mode (?viewer=1): the car on its own, turned by dragging and zoomed by pinching, seen by a normal perspective camera
+const VIEWER=/viewer=1/.test(location.search);
+const pcam=new THREE.PerspectiveCamera(32,1,.1,200),ORB0={th:.6,ph:1.25,d:11},orb={th:.6,ph:1.25,d:11,auto:false},vt=new THREE.Vector3(0,.7,0);
+if(VIEWER){cv.style.touchAction='none';const ps=new Map();let pd=0;
+  const clamp=()=>{orb.ph=Math.max(.05,Math.min(Math.PI-.05,orb.ph));orb.d=Math.max(4.5,Math.min(22,orb.d))};
+  cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);ps.set(e.pointerId,{x:e.clientX,y:e.clientY});if(ps.size===2){const a=[...ps.values()];pd=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)}});
+  cv.addEventListener('pointermove',e=>{const q=ps.get(e.pointerId);if(!q)return;
+    if(ps.size===1){orb.th-=(e.clientX-q.x)*.009;orb.ph-=(e.clientY-q.y)*.009}
+    q.x=e.clientX;q.y=e.clientY;
+    if(ps.size===2){const a=[...ps.values()],n=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);if(pd>0&&n>0)orb.d*=pd/n;pd=n}
+    clamp();dirty=true});
+  const up=e=>{ps.delete(e.pointerId);pd=0;if(ps.size===1){}};
+  cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up)}
 const mats=new Map(),rolls=[],steers=[],beams={Dipped:[],High:[]},glows={};let brakeMesh=null;
 let st={speed:0,head:0,turn:0,brake:false,left:false,right:false,rev:false,follow:true,red:false,paint:'#e7e8e3'},tilt=0,spin=0,last=performance.now(),lastDraw=0,dirty=true,loaded=false,size=0;
 const smooth=x=>x*x*(3-2*x);
@@ -50,7 +63,7 @@ function lamps(now){
 }
 function paint(){for(const m of mats.get('Paint_Body')||[]){m.color.set(st.paint);m.metalness=.1;m.roughness=.76;if('clearcoat'in m)m.clearcoat=0}}
 function resize(){const w=cv.clientWidth,h=cv.clientHeight;if(!w||!h)return;const r=Math.min(window.devicePixelRatio||1,2);if(size!==w*1000+h){size=w*1000+h;renderer.setPixelRatio(r);renderer.setSize(w,h,false);dirty=true}}
-window.car3d={set(o){Object.assign(st,o);if(loaded&&o.paint)paint();dirty=true}};
+window.car3d={set(o){Object.assign(st,o);if(loaded&&o.paint)paint();dirty=true},reset(){Object.assign(orb,ORB0,{auto:false});dirty=true},auto(b){orb.auto=!!b;dirty=true}};
 const u8=Uint8Array.from(atob(B64),c=>c.charCodeAt(0));
 new GLTFLoader().parse(u8.buffer,'',g=>{
   model=g.scene;scene.add(model);
@@ -84,12 +97,14 @@ function loop(now){
   const g=smooth(Math.min(1,st.speed/10));
   const moving=st.speed>.5,settling=Math.abs(tilt-g)>.003||Math.abs(yaw-wantYaw())>.02,blinking=false;
   resize();     // a bigger or smaller view must be redrawn even when idle, or the old small picture is stretched (blurry, baggy)
-  if(!(moving||settling||blinking||dirty))return;     // idle: draw nothing
+  if(!(moving||settling||blinking||dirty||(VIEWER&&orb.auto)))return;     // idle: draw nothing
   tilt+=(g-tilt)*Math.min(1,dt*1.1);if(Math.abs(tilt-g)<.004)tilt=g;
   if(moving){spin-=st.speed/3.6/0.38*dt;for(const r of rolls)r.rotation.x=spin}
   const steer=Math.max(-28,Math.min(28,st.turn))*STEER_K;for(const o of steers)o.rotation.y=-steer*Math.PI/180;     // positive = right turn
   {const w=wantYaw();yaw+=(w-yaw)*Math.min(1,dt*(Math.abs(w)<Math.abs(yaw)?9:5));if(Math.abs(yaw-w)<.02)yaw=w;model.rotation.y=-yaw*Math.PI/180*tilt;for(const k in glows){const q=glows[k];if(q&&q.userData.b)q.position.copy(q.userData.b).applyAxisAngle(Y_AXIS,model.rotation.y)}}     // the glow sprites live in the scene, so they turn with the car
   resize();applyBody();lamps(now);
+  if(VIEWER){if(orb.auto)orb.th+=dt*.6;const sp=Math.sin(orb.ph);pcam.aspect=cv.clientWidth/Math.max(1,cv.clientHeight);pcam.updateProjectionMatrix();
+    pcam.position.set(vt.x+orb.d*sp*Math.sin(orb.th),vt.y+orb.d*Math.cos(orb.ph),vt.z+orb.d*sp*Math.cos(orb.th));pcam.lookAt(vt);renderer.render(scene,pcam);dirty=false;return}
   const pitch=90+(24-90)*tilt,H=(7.4+(5.0-7.4)*tilt)*150/162/1.2,rad=pitch*Math.PI/180;
   const wr=cv.clientWidth/(cv.clientHeight*150/270)||1;cam.left=-H/2*wr;cam.right=H/2*wr;     // the view is wider than the car square, so the headlight beams are not cut off at its sides
   cam.top=H/2+H*120/150;cam.bottom=-H/2;cam.updateProjectionMatrix();

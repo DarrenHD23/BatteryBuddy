@@ -1364,18 +1364,18 @@ class ActionCardView(ctx: Context) : View(ctx) {
  * reports back whether it started; if it does not, the caller falls back to the pre-rendered car images.
  */
 @android.annotation.SuppressLint("SetJavaScriptEnabled")
-class Car3dView(ctx: Context, private val onState: (Boolean) -> Unit) : android.webkit.WebView(ctx) {
+class Car3dView(ctx: Context, private val viewer: Boolean = false, private val onState: (Boolean) -> Unit) : android.webkit.WebView(ctx) {
     private var ready = false
     private var failed = false
     private var lastJson = ""
     private var lastPush = 0L
     val live: Boolean get() = ready && !failed
-    override fun onTouchEvent(event: android.view.MotionEvent): Boolean = false      // the view reaches over the gauges beside the car, so it never takes a touch
+    override fun onTouchEvent(event: android.view.MotionEvent): Boolean = if (viewer) super.onTouchEvent(event) else false      // the view reaches over the gauges beside the car, so it never takes a touch (the full-screen viewer does)
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
 
     init {
         setBackgroundColor(Color.TRANSPARENT)
-        isClickable = false; isFocusable = false; isVerticalScrollBarEnabled = false; isHorizontalScrollBarEnabled = false
+        isClickable = viewer; isFocusable = false; isVerticalScrollBarEnabled = false; isHorizontalScrollBarEnabled = false
         overScrollMode = OVER_SCROLL_NEVER
         settings.javaScriptEnabled = true
         settings.allowFileAccess = false; settings.allowContentAccess = false
@@ -1403,13 +1403,17 @@ class Car3dView(ctx: Context, private val onState: (Boolean) -> Unit) : android.
                 main.post { failed = true; onState(false) }; return true
             }
         }
-        loadUrl("https://$HOST/car3d/index.html")
+        loadUrl("https://$HOST/car3d/index.html" + if (viewer) "?viewer=1" else "")
         // if the page has not reported ready in 10 seconds, give up and use the car images
         main.postDelayed({ if (!ready) { failed = true; onState(false) } }, 10000)
     }
 
     /** Lets every touch fall through to whatever is underneath. */
-    override fun dispatchTouchEvent(ev: android.view.MotionEvent?) = false
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent?): Boolean = if (viewer) super.dispatchTouchEvent(ev) else false
+
+    /** Full-screen viewer: back to the starting angle and distance, and the slow auto spin on or off. */
+    fun viewReset() { evaluateJavascript("window.car3d&&car3d.reset()", null) }
+    fun viewAuto(on: Boolean) { evaluateJavascript("window.car3d&&car3d.auto($on)", null) }
 
     /** Sends the car's state to the page (about 7 times a second at most, sooner when something other than the speed changes). */
     private var lastSteer = 999f
@@ -1445,4 +1449,12 @@ class Car3dView(ctx: Context, private val onState: (Boolean) -> Unit) : android.
 class ObjectsView(ctx: Context, private val road: RoadView) : View(ctx) {
     init { isClickable = false; isFocusable = false; road.overlay = this }
     override fun onDraw(c: Canvas) { road.drawObjects(c) }
+}
+
+
+/** The ring that fills around the 3D car while it is held (p = 0..1). */
+class HoldRing(ctx: Context) : View(ctx) {
+    var p = 0f
+    private val pt = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 5f * ctx.resources.displayMetrics.density; strokeCap = Paint.Cap.ROUND; color = Color.parseColor("#7FB4E5") }
+    override fun onDraw(c: Canvas) { val m = 6f * resources.displayMetrics.density; c.drawArc(m, m, width - m, height - m, -90f, 360f * p, false, pt) }
 }
