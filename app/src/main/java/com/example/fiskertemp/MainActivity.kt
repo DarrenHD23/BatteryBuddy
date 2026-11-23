@@ -3292,6 +3292,7 @@ class MainActivity : Activity() {
             }
             applyAdasGauges()
             if (adasMode) refitAdas()
+            placeUpdateBtn()
             if (dashShown) ui.postDelayed(this, 200)
         }
     }
@@ -4504,9 +4505,26 @@ class MainActivity : Activity() {
     private fun placeUpdateBtn() {
         if (!::updateBtn.isInitialized || updateBtn.visibility != View.VISIBLE) return
         val lp = updateBtn.layoutParams as FrameLayout.LayoutParams
+        val par = updateBtn.parent as? View
+        val rhd = prefs().getBoolean("rhd", false)
+        // beside the word Ready, on the side away from the ADAS View button (which sits to the left of the road; right of it on right-hand drive)
+        if (par != null && ::dashReady.isInitialized && dashReady.isShown && dashReady.width > 0 && par.width > 0) {
+            val rp = IntArray(2); val pp = IntArray(2)
+            dashReady.getLocationInWindow(rp); par.getLocationInWindow(pp)
+            val txtW = dashReady.paint.measureText(dashReady.text.toString()).coerceAtMost(dashReady.width.toFloat())
+            val cxr = rp[0] - pp[0] + dashReady.width / 2f
+            val bw = if (updateBtn.width > 0) updateBtn.width else dp(130)
+            val x = (if (rhd) cxr - txtW / 2f - dp(12) - bw else cxr + txtW / 2f + dp(12)).toInt().coerceIn(dp(4), (par.width - bw - dp(4)).coerceAtLeast(dp(4)))
+            val y = (rp[1] - pp[1] + (dashReady.height - dp(30)) / 2).coerceAtLeast(dp(2))
+            if (lp.gravity != (Gravity.TOP or Gravity.START) || lp.leftMargin != x || lp.topMargin != y || lp.rightMargin != 0) {
+                lp.gravity = Gravity.TOP or Gravity.START; lp.leftMargin = x; lp.topMargin = y; lp.rightMargin = 0
+                updateBtn.layoutParams = lp
+            }
+            return
+        }
+        // the Ready word is not showing (Layout 1 in some views): beside the clock, as before
         val clp = dashClock.layoutParams as FrameLayout.LayoutParams
         val clockOn = dashClock.visibility == View.VISIBLE
-        val rhd = prefs().getBoolean("rhd", false)
         val side = (if (rhd) clp.rightMargin else clp.leftMargin) + (if (clockOn) dashClock.textW.toInt() + dp(12) else dp(0))
         val top = clp.topMargin + (if (clockOn && clp.height >= dp(52)) dp(12) else 0)
         val grav = Gravity.TOP or (if (rhd) Gravity.END else Gravity.START)
