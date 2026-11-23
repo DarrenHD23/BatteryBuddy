@@ -1927,6 +1927,7 @@ class MainActivity : Activity() {
     private lateinit var l2ClimBtn: TextView
     private lateinit var l2MediaBtn: TextView
     private var l2ClimTop = 0; private var l2ClimH = 0; private var l2ClimInline = false; private var wasL2Clim = false
+    private var l2ClimClosed = false      // Layout 2: the Climate chip in the gear menu closed the Climate screen; a relayout (the Media chip, say) must not bring it back
     private var l2MediaInPlace = false; private var l2MiniNow = false      // 2/3 split: the Media button swaps the Climate panel for the media card
     private var l2BtnRowBottom = 0; private var l2BtnW = 60; private var l2ClimHidden = false   // the Media / Climate button row, and whether the Climate button hid the inline panel
     private var l2FlyOpen = false
@@ -2604,8 +2605,9 @@ class MainActivity : Activity() {
             }
         }
         l2ClimBtn = flyChip("Climate") {
-            if (prefs().getBoolean("l2Climate", true) && climateView.visibility == View.VISIBLE) climateView.visibility = View.GONE
+            if (prefs().getBoolean("l2Climate", true) && climateView.visibility == View.VISIBLE) { climateView.visibility = View.GONE; l2ClimClosed = true }
             else {
+                l2ClimClosed = false
                 prefs().edit().putBoolean("l2Climate", true).apply()
                 relayoutDash()
                 if (climateView.visibility != View.VISIBLE) openClimate()
@@ -3845,7 +3847,7 @@ class MainActivity : Activity() {
                 mediaCard.rhd = prefs().getBoolean("rhd", false)
                 mediaCard.visibility = View.VISIBLE; mediaCard.bringToFront(); mediaCard.requestLayout()
             }
-            if (inline) edgeBox.post { if (dashShown && l2Applied) { if (climateView.visibility == View.VISIBLE) placeClimate() else if (!l2ClimHidden) openClimate() } }
+            if (inline) edgeBox.post { if (dashShown && l2Applied) { if (climateView.visibility == View.VISIBLE) placeClimate() else if (!l2ClimHidden && !l2ClimClosed) openClimate() } }
             else if (wasL2Clim) { climateView.visibility = View.GONE }   // no longer room for it under the cards
             wasL2Clim = inline
         }
