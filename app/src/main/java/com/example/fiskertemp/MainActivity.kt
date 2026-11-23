@@ -418,12 +418,13 @@ class MainActivity : Activity() {
         if (reopenDash || getSharedPreferences("prefs", MODE_PRIVATE).getBoolean("dashDefault", false)) showDashboard(true)
         // optionally go into split screen right after a fresh start (not when the screen is only being rebuilt)
         val startSplit = prefs().getString("startSplit", "")
-        if (savedInstanceState == null && !splitOnStartDone && (startSplit == "spotify" || startSplit == "maps")) {
+        if (savedInstanceState == null && !splitOnStartDone && (startSplit == "spotify" || startSplit == "maps" || (startSplit == "custom" && !prefs().getString("startSplitPkg", "").isNullOrEmpty()))) {
             splitOnStartDone = true
             ui.postDelayed({
                 if (!isInMultiWindowMode && !isFinishing) {
                     EventLog.add("start option: split screen with $startSplit at the bottom")
-                    openLower(if (startSplit == "spotify") 1 else 0)
+                    if (startSplit == "custom") { pendingPkg = prefs().getString("startSplitPkg", "") ?: ""; openLower(-1) }
+                    else openLower(if (startSplit == "spotify") 1 else 0)
                 }
             }, 2500)
         }
@@ -1220,12 +1221,20 @@ class MainActivity : Activity() {
         val ssNone = RadioButton(this).apply { text = "Full screen"; id = View.generateViewId() }
         val ssSpotify = RadioButton(this).apply { text = "Split screen: this app on top, Spotify at the bottom"; id = View.generateViewId() }
         val ssMaps = RadioButton(this).apply { text = "Split screen: this app on top, Maps at the bottom"; id = View.generateViewId() }
-        val ssg = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL; addView(ssNone); addView(ssSpotify); addView(ssMaps) }
-        when (prefs().getString("startSplit", "")) { "spotify" -> ssSpotify.isChecked = true; "maps" -> ssMaps.isChecked = true; else -> ssNone.isChecked = true }
+        val ssCustom = RadioButton(this).apply { text = "Split screen: this app on top, my own app at the bottom"; id = View.generateViewId() }
+        val ssg = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL; addView(ssNone); addView(ssSpotify); addView(ssMaps); addView(ssCustom) }
+        val ssPick = TextView(this).apply { textSize = 14f; setTextColor(Color.parseColor("#6AA8FF")); setPadding(dp(32), dp(6), 0, dp(6)) }
+        fun ssPickText() { val k = prefs().getString("startSplitPkg", "") ?: ""; ssPick.text = if (k.isEmpty()) "Choose my app\u2026" else "My app: ${appLabelOf(k)}  (tap to change)"; ssPick.visibility = if (ssCustom.isChecked) View.VISIBLE else View.GONE }
+        when (prefs().getString("startSplit", "")) { "spotify" -> ssSpotify.isChecked = true; "maps" -> ssMaps.isChecked = true; "custom" -> ssCustom.isChecked = true; else -> ssNone.isChecked = true }
+        ssPickText()
+        ssPick.setOnClickListener { pickLowerApp(-1) { pkg -> prefs().edit().putString("startSplitPkg", pkg).apply(); ssPickText() } }
         ssg.setOnCheckedChangeListener { _, checkedId ->
-            prefs().edit().putString("startSplit", when (checkedId) { ssSpotify.id -> "spotify"; ssMaps.id -> "maps"; else -> "" }).apply()
+            prefs().edit().putString("startSplit", when (checkedId) { ssSpotify.id -> "spotify"; ssMaps.id -> "maps"; ssCustom.id -> "custom"; else -> "" }).apply()
+            ssPickText()
+            if (checkedId == ssCustom.id && (prefs().getString("startSplitPkg", "") ?: "").isEmpty()) ssPick.performClick()
         }
         box.add(ssg, 4)
+        box.add(ssPick, 4)
         box.add(label("Gauge arcs", 13f), 8)
         val arcMirror = RadioButton(this).apply { text = "Mirrored (the two arcs curve toward each other)"; id = View.generateViewId() }
         val arcLeft = RadioButton(this).apply { text = "Both arcs the same: curved like ("; id = View.generateViewId() }
@@ -4261,7 +4270,7 @@ class MainActivity : Activity() {
     }
 
     /** Let the user choose which installed app a lower button opens (long press on a button changes it later). */
-    private fun pickLowerApp(slot: Int) {
+    private fun pickLowerApp(slot: Int, onPick: ((String) -> Unit)? = null) {
         Thread {
             val pm = packageManager
             val found = LinkedHashMap<String, Pair<String, android.graphics.drawable.Drawable?>>()
@@ -4293,12 +4302,13 @@ class MainActivity : Activity() {
                     }
                 }
                 list.setOnItemClickListener { _, _, pos, _ ->
+                    if (onPick != null) { onPick(apps[pos].key); dlg?.dismiss(); return@setOnItemClickListener }
                     prefs().edit().putString("slotPkg$slot", apps[pos].key).apply()
                     EventLog.add("lower button ${slot + 1} set to ${apps[pos].key}")
                     refreshLowerLabels(); dlg?.dismiss()
                 }
                 val b = darkDialog().setTitle("Choose the app for this button").setView(list).setNegativeButton("Cancel", null)
-                if (slotPkg(slot).isNotEmpty()) b.setNeutralButton("Clear button") { _, _ ->
+                if (onPick == null && slotPkg(slot).isNotEmpty()) b.setNeutralButton("Clear button") { _, _ ->
                     clearSlot(slot)
                 }
                 dlg = b.showDark()
