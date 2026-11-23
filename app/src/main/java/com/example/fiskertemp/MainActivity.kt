@@ -8353,7 +8353,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             if (cr.left > w) continue
             p.style = Paint.Style.FILL; p.color = Color.argb(40, 255, 255, 255); c.drawRoundRect(cr, xs / 2, xs / 2, p)
             stroke(Color.argb(100, 255, 255, 255), 1.4f); c.drawRoundRect(cr, xs / 2, xs / 2, p)
-            text("Close", cr.centerX(), cr.centerY(), if (small) 13f else 15f, Color.WHITE, true)
+            text("Close", cr.centerX(), cr.centerY(), if (small) 13f else 15f, ink(), true)
         }
         val state = when (s.climState) { 0 -> "starting"; 1 -> "low-voltage"; 2 -> "high-voltage on"; 3 -> "charging"; 4 -> "remote"; 5 -> "HV discharge"; 6 -> "delay"; else -> "--" }
         val advice = when (s.climAdvice) { 1 -> "natural air"; 2 -> "cold air"; 3 -> "hot air"; else -> "" }
