@@ -1290,6 +1290,10 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("onlyLead", on).apply() }
         }, 4)
         box.add(CheckBox(this).apply {
+            text = "Hide the gauges in the ADAS view and show compact Speed and Power numbers in the top corners instead (the gauges show by default)"; isChecked = prefs().getBoolean("adasHideGauges", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("adasHideGauges", on).apply() }
+        }, 12)
+        box.add(CheckBox(this).apply {
             text = "ADAS view with Climate and Media closed: move the 3D car to the middle of the screen (the road lines move up with it)"; isChecked = prefs().getBoolean("adasCenter", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("adasCenter", on).apply() }
         }, 12)
@@ -1908,6 +1912,9 @@ class MainActivity : Activity() {
     // ADAS view: the ADAS View button at the top (full screen only) hides the trip info / battery bar (Layout 1) or the battery bar and shortcuts (Layout 2) and enlarges the car and road
     private var adasMode = false
     private var adasDy = 0f
+    private var adasNoCards = false                                  // ADAS view with Climate and Media both closed (set by adasFit)
+    private lateinit var adasSpdBox: LinearLayout; private lateinit var adasSpdNum: TextView; private lateinit var adasSpdTitle: TextView
+    private lateinit var adasPwrBox: LinearLayout; private lateinit var adasPwrNum: TextView; private lateinit var adasPwrTitle: TextView
     private var adasAnim: android.animation.ValueAnimator? = null
     private var adasBar: View? = null
     private val adasHidden = ArrayList<View>()
@@ -2240,6 +2247,26 @@ class MainActivity : Activity() {
         if (android.os.Build.VERSION.SDK_INT >= 30) windowManager.currentWindowMetrics.bounds.height() >= windowManager.maximumWindowMetrics.bounds.height() * 0.8 else true
     } catch (e: Exception) { true }
 
+    /** ADAS view + the "hide gauges" option: the two gauges fade out and compact Speed / Power numbers (title underneath) fade in at the top corners, on the side each gauge was. */
+    private fun applyAdasGauges() {
+        if (!::dashSpeedGauge.isInitialized || !::adasSpdBox.isInitialized) return
+        val hide = adasMode && prefs().getBoolean("adasHideGauges", false)
+        fun fade(v: View, show: Boolean) {
+            if (show) { if (v.visibility != View.VISIBLE || v.alpha < 1f) { v.visibility = View.VISIBLE; v.animate().alpha(1f).setDuration(150).start() } }
+            else if (v.visibility == View.VISIBLE) v.animate().alpha(0f).setDuration(150).withEndAction { v.visibility = View.INVISIBLE }.start()
+        }
+        fade(dashSpeedGauge, !hide); fade(dashPowerGauge, !hide)
+        fade(adasSpdBox, hide); fade(adasPwrBox, hide)
+        if (hide) {
+            val speedLeft = prefs().getBoolean("speedLeft", false)
+            for ((box, left) in listOf(adasSpdBox to speedLeft, adasPwrBox to !speedLeft)) {
+                val lp = box.layoutParams as FrameLayout.LayoutParams
+                val g = Gravity.TOP or (if (left) Gravity.START else Gravity.END)
+                if (lp.gravity != g) { lp.gravity = g; lp.leftMargin = if (left) dp(16) else 0; lp.rightMargin = if (left) 0 else dp(16); box.layoutParams = lp }
+            }
+        }
+    }
+
     /** While the ADAS view is on, follows changes in what is below it: Climate / Media cards coming or going move the car back up or down. */
     private fun refitAdas() {
         if (!adasMode || adasAnim?.isRunning == true || !::carView.isInitialized || carView.width <= 0) return
@@ -2292,6 +2319,7 @@ class MainActivity : Activity() {
                     if (st > carTop + carView.height) { target = st; break }
                 }
             }
+            if (adasNoCards != noCards) { adasNoCards = noCards; dashRoot.post { placeL1Overlays(dashRoot) } }
             target -= dp(4)
             val kH = (target - carTop) / carView.height
             kTo = minOf(if (noCards) maxOf(kW, 1.4f * carView.width / (114f * u0)) else kW, kH, if (noCards) 3.2f else 1.8f).coerceAtLeast(1f)
@@ -2376,7 +2404,9 @@ class MainActivity : Activity() {
             val ta = IntArray(2); testBtn.getLocationInWindow(ta)
             val lx0 = ta[0] - r[0] + testBtn.width + dp(6).toFloat()
             // right-hand drive: the light moves to the other side of the car, mirrored across the screen, at the same height
-            val lx = if (prefs().getBoolean("rhd", false)) root.width - lx0 - dashLight.width else lx0
+            var lx = if (prefs().getBoolean("rhd", false)) root.width - lx0 - dashLight.width else lx0
+            // ADAS view with Climate and Media closed: the same height, but in the middle of the screen instead of off to the side
+            if (adasMode && adasNoCards) lx = (root.width - dashLight.width) / 2f
             val ly = (ta[1] - r[1]).toFloat()
             dashLight.translationX = lx
             dashLight.translationY = ly
@@ -2751,6 +2781,18 @@ class MainActivity : Activity() {
         f.addView(dashTop, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(6), dp(8), 0) })
         dashClock = DashClockView(this).apply { visibility = View.GONE }
         f.addView(dashClock, FrameLayout.LayoutParams(dp(150), dp(80), Gravity.TOP or Gravity.START).apply { setMargins(dp(14), dp(8), 0, 0) })
+        // compact Speed and Power readouts for the top corners (shown instead of the gauges when the ADAS-view option hides them)
+        fun readout(): Triple<LinearLayout, TextView, TextView> {
+            val num = TextView(this).apply { textSize = 30f; setTextColor(Color.WHITE); gravity = Gravity.CENTER; includeFontPadding = false }
+            val ttl = TextView(this).apply { textSize = 11f; setTextColor(Color.argb(190, 255, 255, 255)); gravity = Gravity.CENTER; includeFontPadding = false; letterSpacing = 0.08f }
+            val b = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; alpha = 0f; visibility = View.INVISIBLE }
+            b.addView(num, LinearLayout.LayoutParams(-2, -2)); b.addView(ttl, LinearLayout.LayoutParams(-2, -2))
+            return Triple(b, num, ttl)
+        }
+        readout().let { adasSpdBox = it.first; adasSpdNum = it.second; adasSpdTitle = it.third }
+        readout().let { adasPwrBox = it.first; adasPwrNum = it.second; adasPwrTitle = it.third }
+        f.addView(adasSpdBox, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(10), dp(16), 0) })
+        f.addView(adasPwrBox, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { setMargins(dp(16), dp(10), 0, 0) })
         // a test button in the empty space beside the clock: shows the speed sign and the traffic light (cycling red / amber / green) with nothing else moving
         testBtn = TextView(this).apply {
             text = "Test sign"; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
@@ -2785,6 +2827,7 @@ class MainActivity : Activity() {
     private val dashTick = object : Runnable {
         override fun run() {
             renderDash()
+            applyAdasGauges()
             if (adasMode) refitAdas()
             if (dashShown) ui.postDelayed(this, 200)
         }
@@ -2821,6 +2864,12 @@ class MainActivity : Activity() {
         if (::dashClock.isInitialized) { dashClock.day = day; dashClock.invalidate() }
         val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
         dashHeading.setTextColor(ink)
+        if (::adasSpdNum.isInitialized) {
+            val tf = Typeface.create(Skins.look.numFont, if (Skins.look.italic) Typeface.ITALIC else Typeface.NORMAL)
+            val sub = if (day) Color.argb(190, 20, 32, 46) else Color.argb(190, 255, 255, 255)
+            for (t in listOf(adasSpdNum, adasPwrNum)) { t.setTextColor(ink); t.typeface = tf }
+            for (t in listOf(adasSpdTitle, adasPwrTitle)) t.setTextColor(sub)
+        }
         dashHeading.typeface = Typeface.create(Skins.look.numFont, if (Skins.look.italic) Typeface.ITALIC else Typeface.NORMAL)
         dashReady.setTextColor(Color.parseColor(if (day) "#2E9E1F" else "#7CFF3A"))
         dashLightDist.setTextColor(if (day) Color.argb(200, 20, 32, 46) else Color.argb(200, 255, 255, 255))
@@ -4365,6 +4414,7 @@ class MainActivity : Activity() {
         if (scaleMph != mph) { scaleMph = mph; dashSpeedGauge.scale = speedScale(mph); dashPowerGauge.scale = powerScale() }
         dashSpeedGauge.valueText = spd?.let { String.format("%.0f", it) } ?: "--"
         dashSpeedGauge.unit = if (mph) "mph" else "km/h"
+        if (::adasSpdNum.isInitialized) { adasSpdNum.text = dashSpeedGauge.valueText; adasSpdTitle.text = "SPEED  " + dashSpeedGauge.unit }
         dashSpeedGauge.setFraction(spd?.let { Math.pow((it / (if (mph) 112.0 else 180.0)).coerceIn(0.0, 1.0), 0.75).toFloat() })
         dashSpeedGauge.topValue = s.avgTempC?.let { fmt(it, "\u00B0C", 0) } ?: "--"
         // high-voltage battery thermal state, from the BMS: heating orange, cooling blue
@@ -4383,6 +4433,7 @@ class MainActivity : Activity() {
 
         val kw = s.packKw?.let { it * (if (prefs().getBoolean("flipPower", false)) -1 else 1) }
         dashPowerGauge.valueText = kw?.let { String.format("%.1f", it) } ?: "--"
+        if (::adasPwrNum.isInitialized) { adasPwrNum.text = dashPowerGauge.valueText; adasPwrTitle.text = "POWER  kW" }
         dashPowerGauge.setFraction(kw?.let {
             // square-root scale so everyday power fills a good part of the arc; zero sits at 20%
             if (it >= 0) (0.2 + 0.8 * Math.sqrt((it / 250.0).coerceIn(0.0, 1.0))).toFloat()
