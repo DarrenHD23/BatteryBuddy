@@ -1700,8 +1700,8 @@ class MainActivity : Activity() {
         }
         // both cards cycle through the same pages: trip information, compass, navigation, media, the apps, then the controls
         fun pages(ps: PageSet): List<View> = listOf<View>(ps.trip, ps.compass, ps.nav, ps.media) + ps.shorts + listOf<View>(ps.actions)
-        leftPager.setPages(pages(pageSets[0]), if (first) 0 else -1)      // Trip Information
-        rightPager.setPages(pages(pageSets[1]), if (first) 1 else -1)     // Compass
+        leftPager.setPages(pages(pageSets[0]), if (first) (if (curLayout() == 2) prefs().getInt("l2PageL", 0) else 0) else -1)      // Trip Information
+        rightPager.setPages(pages(pageSets[1]), if (first) (if (curLayout() == 2) prefs().getInt("l2PageR", 1) else 1) else -1)     // Compass
     }
 
     private fun addShortcutApp() {
@@ -1766,6 +1766,11 @@ class MainActivity : Activity() {
         }
         o.put("layout", org.json.JSONObject().put("t", "i").put("v", curLayout()))
         o.put("adasOn", org.json.JSONObject().put("t", "b").put("v", adasMode))      // the ADAS view is on or off right now (not a setting of its own)
+        // Layout 2: which page each of the two cards under the car is showing (Trip Information and the one behind it), kept only in a preset
+        if (l2Applied && ::leftPager.isInitialized && ::rightPager.isInitialized) {
+            o.put("l2PageL", org.json.JSONObject().put("t", "i").put("v", leftPager.index))
+            o.put("l2PageR", org.json.JSONObject().put("t", "i").put("v", rightPager.index))
+        }
         return o
     }
 
