@@ -478,6 +478,72 @@ class RoadView(ctx: Context) : View(ctx) {
     private val lr = RectF()
     private val lPath = Path()
     /** The car ahead seen from straight above (our own car is top-down while stopped); its rear edge sits at (x, y) and it extends up the screen. */
+    // ---- bicycle (3), pedestrian (4) and animal (5): drawn from above when stopped and from behind when driving, in a 48-unit-wide drawing space
+    private fun vOval(c: Canvas, cx: Float, cy: Float, rx: Float, ry: Float, col: Int) { lr.set(cx - rx, cy - ry, cx + rx, cy + ry); lp.style = Paint.Style.FILL; lp.color = col; c.drawOval(lr, lp) }
+    private fun vRect(c: Canvas, l: Float, t: Float, r: Float, b: Float, rad: Float, col: Int) { lr.set(l, t, r, b); lp.style = Paint.Style.FILL; lp.color = col; c.drawRoundRect(lr, rad, rad, lp) }
+    private fun vLine(c: Canvas, x1: Float, y1: Float, x2: Float, y2: Float, w: Float, col: Int) { lp.style = Paint.Style.STROKE; lp.strokeCap = Paint.Cap.ROUND; lp.strokeWidth = w; lp.color = col; c.drawLine(x1, y1, x2, y2, lp); lp.style = Paint.Style.FILL }
+
+    /** [aTop] fades the from-above drawing, [aRear] the from-behind one; the rear edge (feet, wheel) stands on (x, y). */
+    private fun drawVru(c: Canvas, cls: Int, x: Float, y: Float, wU: Float, aTop: Int, aRear: Int) {
+        val k = wU / 48f
+        lp.shader = null
+        if (aTop > 2) {
+            val half = when (cls) { 3 -> 52f; 5 -> 54f; else -> 13f }
+            c.save(); c.translate(x, y - half * k); c.scale(k, k)
+            vruShape(c, cls, true, aTop)
+            c.restore()
+        }
+        if (aRear > 2) {
+            val ground = when (cls) { 3 -> 57f; 5 -> 52f; else -> 56f }
+            c.save(); c.translate(x, y - ground * k); c.scale(k, k)
+            vruShape(c, cls, false, aRear)
+            c.restore()
+        }
+        lp.style = Paint.Style.FILL
+    }
+
+    private fun vruShape(c: Canvas, cls: Int, top: Boolean, a: Int) {
+        val b = Color.argb(a, 190, 201, 213); val d = Color.argb(a, 138, 154, 171); val dk = Color.argb(a, 92, 108, 126)
+        if (!top) when (cls) {
+            3 -> {      // cyclist from behind, with a red rear light
+                vOval(c, 0f, 30f, 6f, 27f, d); vRect(c, -4f, 14f, 4f, 19f, 2f, Color.argb(a, 210, 55, 55))
+                vRect(c, -10f, -2f, -1f, 36f, 4.5f, b); vRect(c, 1f, -2f, 10f, 36f, 4.5f, b)
+                vRect(c, -18f, -42f, 18f, 4f, 14f, b)
+                vLine(c, -17f, -34f, -30f, -12f, 8f, b); vLine(c, 17f, -34f, 30f, -12f, 8f, b); vLine(c, -34f, -12f, 34f, -12f, 4f, dk)
+                vOval(c, 0f, -54f, 10f, 10f, b); vOval(c, 0f, -58f, 11f, 7f, d)
+            }
+            4 -> {      // person on foot from behind
+                vRect(c, -13f, 4f, -1f, 52f, 5f, b); vRect(c, 1f, 4f, 13f, 52f, 5f, b)
+                vRect(c, -15f, 50f, -1f, 56f, 3f, dk); vRect(c, 1f, 50f, 15f, 56f, 3f, dk)
+                vRect(c, -26f, -38f, -17f, 4f, 4.5f, d); vRect(c, 17f, -38f, 26f, 4f, 4.5f, d)
+                vRect(c, -18f, -42f, 18f, 10f, 13f, b); vOval(c, 0f, -54f, 10f, 10f, b)
+            }
+            else -> {   // an animal from behind: rump, hind legs, ears, tail
+                vRect(c, -18f, 12f, -9f, 52f, 4f, d); vRect(c, 9f, 12f, 18f, 52f, 4f, d)
+                vRect(c, -14f, 16f, -7f, 52f, 3f, dk); vRect(c, 7f, 16f, 14f, 52f, 3f, dk)
+                vOval(c, 0f, -2f, 26f, 24f, b); vOval(c, 0f, -30f, 9f, 10f, b)
+                vOval(c, -9f, -42f, 4f, 9f, d); vOval(c, 9f, -42f, 4f, 9f, d)
+                vLine(c, 0f, -8f, 3f, 18f, 5f, dk)
+            }
+        } else when (cls) {
+            3 -> {      // bicycle from above: wheel line, handlebars, rider's arms, shoulders, head, saddle
+                vRect(c, -4f, -52f, 4f, 52f, 4f, d); vRect(c, -28f, -34f, 28f, -28f, 3f, dk)
+                vLine(c, -17f, -6f, -26f, -30f, 7f, b); vLine(c, 17f, -6f, 26f, -30f, 7f, b)
+                vOval(c, 0f, -4f, 21f, 10f, b); vOval(c, 0f, -5f, 9f, 9f, d); vOval(c, 0f, 16f, 8f, 6f, dk)
+            }
+            4 -> {      // person from above: shoulders and head
+                vOval(c, -25f, 3f, 5f, 12f, d); vOval(c, 25f, 3f, 5f, 12f, d)
+                vOval(c, 0f, 0f, 21f, 11f, b); vOval(c, 0f, -1f, 9.5f, 9.5f, d)
+            }
+            else -> {   // animal from above: body, head, ears, tail, four paws
+                vOval(c, -15f, -14f, 5f, 8f, dk); vOval(c, 15f, -14f, 5f, 8f, dk); vOval(c, -15f, 16f, 5f, 8f, dk); vOval(c, 15f, 16f, 5f, 8f, dk)
+                vOval(c, 0f, 2f, 16f, 30f, b); vOval(c, 0f, -36f, 9f, 11f, b)
+                vOval(c, -8f, -45f, 3f, 6f, d); vOval(c, 8f, -45f, 3f, 6f, d)
+                vLine(c, 0f, 32f, 4f, 48f, 5f, dk)
+            }
+        }
+    }
+
     private fun drawLeadTop(c: Canvas, x: Float, y: Float, wU: Float, truck: Boolean, small: Boolean, a: Int) {
         if (a <= 2) return
         val len = wU * (if (truck) 2.8f else if (small) 2.2f else 2.4f)
@@ -627,11 +693,18 @@ class RoadView(ctx: Context) : View(ctx) {
         val hU = wU * (if (truck) 0.95f else if (small) 1.3f else 0.6f)
         val a = (a0 * tilt).toInt()          // the rear view fades in as we tip back to driving, the top-down one fades out
         lp.shader = null; lp.style = Paint.Style.FILL
-        if (tilt < 0.99f) drawLeadTop(c, x, y, wU, truck, small, (a0 * (1f - tilt)).toInt())
+        val vru = cls in 3..5            // bicycle, pedestrian, animal: their own shapes
+        if (vru) {
+            lp.color = Color.argb(a * 3 / 10, 0, 0, 0)
+            lr.set(x - wU * 0.56f, y - hU * 0.07f, x + wU * 0.56f, y + hU * 0.07f); c.drawOval(lr, lp)
+            drawVru(c, cls, x, y, wU, (a0 * (1f - tilt)).toInt(), a)
+        } else if (tilt < 0.99f) drawLeadTop(c, x, y, wU, truck, small, (a0 * (1f - tilt)).toInt())
         // shadow on the road
-        lp.color = Color.argb(a * 3 / 10, 0, 0, 0)
-        lr.set(x - wU * 0.56f, y - hU * 0.07f, x + wU * 0.56f, y + hU * 0.07f); c.drawOval(lr, lp)
-        if (a > 2) {
+        if (!vru) {
+            lp.color = Color.argb(a * 3 / 10, 0, 0, 0)
+            lr.set(x - wU * 0.56f, y - hU * 0.07f, x + wU * 0.56f, y + hU * 0.07f); c.drawOval(lr, lp)
+        }
+        if (a > 2 && !vru) {
             if (small) {
                 lp.color = Color.argb(a, 150, 162, 176)
                 lr.set(x - wU / 2f, y - hU, x + wU / 2f, y); c.drawRoundRect(lr, wU / 2f, wU / 2f, lp)
