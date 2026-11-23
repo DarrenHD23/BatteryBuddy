@@ -2603,6 +2603,15 @@ class MainActivity : Activity() {
         // Layouts 1 and 2: with the clock in the middle, "Ready" (and the brake-light note under it) moves down to clear the clock and date
         val readyShift = if (hide && (l2Applied || l1cApplied) && adasClockBox.height > 0) (adasClockBox.height + dp(10)).toFloat() else 0f
         for (v in listOf<View>(dashReady, dashBrake)) if (v.translationY != readyShift) v.translationY = readyShift
+        // Layout 1, traffic light showing (it would sit on top of the word): Ready moves to just under the trip information, above the media player
+        if (l1cApplied && !adasMode && dashReady.visibility == View.VISIBLE && dashLight.isShown && dashLight.alpha > 0.1f && ::tripPanel.isInitialized && tripPanel.height > 0) {
+            val tp = IntArray(2); tripPanel.getLocationInWindow(tp)
+            var bottom = tp[1] + tripPanel.height
+            if (::chargeBar.isInitialized && chargeBar.isShown && chargeBar.height > 0) { val cp = IntArray(2); chargeBar.getLocationInWindow(cp); bottom = maxOf(bottom, cp[1] + chargeBar.height) }
+            val rp = IntArray(2); dashReady.getLocationInWindow(rp)
+            val dy = (bottom - (rp[1] - dashReady.translationY) + dp(2)).toFloat()
+            if (Math.abs(dashReady.translationY - dy) > 1f) dashReady.translationY = dy
+        }
         val ta = if (hide) 0f else 1f
         if (::dashClock.isInitialized && dashClock.alpha != ta) dashClock.animate().alpha(ta).setDuration(150).start()      // the normal clock steps aside for the centred one
         if (hide || adasHideWas) dashRoot.post { placeL1Overlays(dashRoot) }      // also once more when it ends, so the sign and light go back
@@ -2773,7 +2782,9 @@ class MainActivity : Activity() {
         val u = carView.height * carView.scaleY / 162f
         val cxc = ca[0] - r[0] + carView.width * carView.scaleX / 2f
         // the light stays put when the car is nudged down; with the centred clock showing it is kept below the clock and date
-        val lightY = maxOf(ca[1] - r[1] - carView.translationY + 11f * u - dashLight.height, adasClockBottom().let { if (it > 0f) it + dp(6) else 0f })
+        // ADAS view with the centred clock: the word Ready sits under the clock, so the light goes below the word as well
+        val rdyBottom = if (adasClockBottom() > 0f && dashReady.visibility == View.VISIBLE && dashReady.isShown && dashReady.height > 0) { val q = IntArray(2); dashReady.getLocationInWindow(q); (q[1] - r[1] + dashReady.height + dp(4)).toFloat() } else 0f
+        val lightY = maxOf(ca[1] - r[1] - carView.translationY + 11f * u - dashLight.height, adasClockBottom().let { if (it > 0f) it + dp(6) else 0f }, rdyBottom)
         if (l2Applied && ::testBtn.isInitialized && testBtn.width > 0) {
             // Layout 2: the traffic light sits directly right of the Test button, its top edge level with the button's top edge, its distance under it
             val ta = IntArray(2); testBtn.getLocationInWindow(ta)
@@ -2782,7 +2793,7 @@ class MainActivity : Activity() {
             var lx = if (prefs().getBoolean("rhd", false)) root.width - lx0 - dashLight.width else lx0
             // ADAS view with Climate and Media closed: the same height, but in the middle of the screen instead of off to the side
             if (adasMode && adasNoCards) lx = (root.width - dashLight.width) / 2f
-            val ly = maxOf((ta[1] - r[1]).toFloat(), adasClockBottom().let { if (it > 0f) it + dp(6) else 0f })
+            val ly = maxOf((ta[1] - r[1]).toFloat(), adasClockBottom().let { if (it > 0f) it + dp(6) else 0f }, if (adasMode && adasNoCards) rdyBottom else 0f)
             dashLight.translationX = lx
             dashLight.translationY = ly
             dashLightDist.translationX = lx + dashLight.width / 2f - dashLightDist.width / 2f
