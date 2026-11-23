@@ -1953,7 +1953,11 @@ class MainActivity : Activity() {
             addView(TextView(this@MainActivity).apply { text = "Preset"; textSize = 13f; setTextColor(Color.parseColor("#9FB3C4")) }, LinearLayout.LayoutParams(0, -2, 1f))
             addView(TextView(this@MainActivity).apply { text = "Load at Startup"; textSize = 13f; gravity = Gravity.CENTER; setTextColor(Color.parseColor("#9FB3C4")) }, LinearLayout.LayoutParams(dp(90), -2))
         }
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(head); addView(lv) }
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; addView(head)
+            // the list scrolls inside a fixed share of the screen height, so the buttons below it are never pushed off, however many presets there are
+            addView(lv, LinearLayout.LayoutParams(-1, if (list.size > 4) (resources.displayMetrics.heightPixels * 0.5f).toInt() else -2))
+        }
         val d = darkDialog().setTitle("Load Preset").setView(col)
             .setPositiveButton("Load", null).setNeutralButton("Delete", null).setNegativeButton("Cancel", null).showDark()
         d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
