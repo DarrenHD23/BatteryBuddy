@@ -2102,6 +2102,7 @@ class MainActivity : Activity() {
     private var adasMode = false
     private var adasDy = 0f
     private var adasRestoreTries = 0
+    private var adasHideWas = false
     private var adasNoCards = false                                  // ADAS view with Climate and Media both closed (set by adasFit)
     private lateinit var adasSpdBox: LinearLayout; private lateinit var adasSpdNum: TextView; private lateinit var adasSpdTitle: TextView
     private lateinit var adasPwrBox: LinearLayout; private lateinit var adasPwrNum: TextView; private lateinit var adasPwrTitle: TextView
@@ -2456,11 +2457,13 @@ class MainActivity : Activity() {
         }
         fade(dashSpeedGauge, !hide); fade(dashPowerGauge, !hide)
         fade(adasSpdBox, hide); fade(adasPwrBox, hide); fade(adasClockBox, hide); fade(adasTempBox, hide)
-        // Layout 2: with the clock in the middle, "Ready" (and the brake-light note under it) moves down to clear it
-        val readyShift = if (hide && l2Applied && adasClockBox.height > 0) (adasClockBox.height + dp(6)).toFloat() else 0f
+        // Layouts 1 and 2: with the clock in the middle, "Ready" (and the brake-light note under it) moves down to clear the clock and date
+        val readyShift = if (hide && (l2Applied || l1cApplied) && adasClockBox.height > 0) (adasClockBox.height + dp(10)).toFloat() else 0f
         for (v in listOf<View>(dashReady, dashBrake)) if (v.translationY != readyShift) v.translationY = readyShift
         val ta = if (hide) 0f else 1f
         if (::dashClock.isInitialized && dashClock.alpha != ta) dashClock.animate().alpha(ta).setDuration(150).start()      // the normal clock steps aside for the centred one
+        if (hide || adasHideWas) dashRoot.post { placeL1Overlays(dashRoot) }      // also once more when it ends, so the sign and light go back
+        adasHideWas = hide
         if (hide) {
             // the numbers sit on the side each gauge is on (the gauges' real positions: the swap setting, in left- and right-hand drive alike)
             val ra = IntArray(2); val ga = IntArray(2)
@@ -2593,6 +2596,10 @@ class MainActivity : Activity() {
 
     /** Creates / removes the live 3D car and keeps it exactly over the car square (150 x 150 units in the 302 x 162 unit middle column). */
     /** Layout 1 with the 3D car: the speed sign sits on the speed gauge (left of its reading, wherever the gauges are), the traffic light above the car. */
+    /** The bottom edge of the centred clock and date (ADAS view with the gauges hidden), or 0 when it is not showing. */
+    private fun adasClockBottom(): Float =
+        if (adasMode && prefs().getBoolean("adasHideGauges", false) && ::adasClockBox.isInitialized && adasClockBox.height > 0) (dp(8) + adasClockBox.height).toFloat() else 0f
+
     private fun placeL1Overlays(root: FrameLayout) {
         if (!(l1cApplied || l2Applied) || !::dashSlot.isInitialized || !::carView.isInitialized || !::dashSpeedGauge.isInitialized) return
         placeAdasBar(root)
@@ -2608,9 +2615,22 @@ class MainActivity : Activity() {
         val inward = if (gcx < root.width / 2f) 1f else -1f
         dashSlot.translationX = gcx + inward * 0.30f * diam - dashSlot.width / 2f - inward * dp(16)       // 16 dp toward the reading
         dashSlot.translationY = gcy - 0.02f * diam - dashSlot.height / 2f + dp(8)
+        // ADAS view with the gauges hidden: the speed-limit sign sits on the inner side of the compact Speed number, level with the number
+        // (the number is on the side its gauge was on, so this follows the gauge swap and right-hand drive)
+        if (adasMode && prefs().getBoolean("adasHideGauges", false) && ::adasSpdNum.isInitialized && adasSpdNum.width > 0 && adasSpdBox.width > 0) {
+            val sa = IntArray(2); adasSpdBox.getLocationInWindow(sa)
+            val na = IntArray(2); adasSpdNum.getLocationInWindow(na)
+            val sl = sa[0] - r[0]; val sr = sl + adasSpdBox.width
+            val signW = if (dashSign.width > 0) dashSign.width.toFloat() else dp(48).toFloat()
+            val onRight = (sl + sr) / 2f > root.width / 2f
+            val sx = if (onRight) sl - dp(14) - signW / 2f else sr + dp(14) + signW / 2f
+            dashSlot.translationX = sx - dashSlot.width / 2f
+            dashSlot.translationY = (na[1] - r[1]) + adasSpdNum.height / 2f - dashSlot.height / 2f
+        }
         val u = carView.height * carView.scaleY / 162f
         val cxc = ca[0] - r[0] + carView.width * carView.scaleX / 2f
-        val lightY = ca[1] - r[1] - carView.translationY + 11f * u - dashLight.height      // the light stays put when the car is nudged down
+        // the light stays put when the car is nudged down; with the centred clock showing it is kept below the clock and date
+        val lightY = maxOf(ca[1] - r[1] - carView.translationY + 11f * u - dashLight.height, adasClockBottom().let { if (it > 0f) it + dp(6) else 0f })
         if (l2Applied && ::testBtn.isInitialized && testBtn.width > 0) {
             // Layout 2: the traffic light sits directly right of the Test button, its top edge level with the button's top edge, its distance under it
             val ta = IntArray(2); testBtn.getLocationInWindow(ta)
@@ -2619,7 +2639,7 @@ class MainActivity : Activity() {
             var lx = if (prefs().getBoolean("rhd", false)) root.width - lx0 - dashLight.width else lx0
             // ADAS view with Climate and Media closed: the same height, but in the middle of the screen instead of off to the side
             if (adasMode && adasNoCards) lx = (root.width - dashLight.width) / 2f
-            val ly = (ta[1] - r[1]).toFloat()
+            val ly = maxOf((ta[1] - r[1]).toFloat(), adasClockBottom().let { if (it > 0f) it + dp(6) else 0f })
             dashLight.translationX = lx
             dashLight.translationY = ly
             dashLightDist.translationX = lx + dashLight.width / 2f - dashLightDist.width / 2f
