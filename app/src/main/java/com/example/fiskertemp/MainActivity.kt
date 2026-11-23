@@ -2357,9 +2357,9 @@ class MainActivity : Activity() {
         if (on && !((l2Applied || l1cApplied) && dashShown && isFullWindow() && carView.width > 0 && carView.height > 0)) return
         adasMode = on
         val l2 = l2Applied
-        // hidden in the ADAS view: Layout 2 the battery bar, the shortcut row and the two swipe cards (trip / compass / shortcuts); Layout 1 the trip panel and the battery bar; both the compass reading
+        // hidden in the ADAS view: Layout 2 the battery bar, the shortcut row, the Climate and Media buttons and the two swipe cards (trip / compass / shortcuts); Layout 1 the trip panel and the battery bar; both the compass reading
         val views = ArrayList<View>()
-        if (l2) { views.addAll(listOf<View>(chargeBar, lowerBox, flyBtn)); if (l2Mid.childCount > 1) views.add(l2Mid.getChildAt(1)) } else views.addAll(listOf<View>(tripPanel, tripSpacer, chargeBar))
+        if (l2) { views.addAll(listOf<View>(chargeBar, lowerBox, flyBtn, climateBtn, mediaBtn)); if (l2Mid.childCount > 1) views.add(l2Mid.getChildAt(1)) } else views.addAll(listOf<View>(tripPanel, tripSpacer, chargeBar))
         if (::dashHeading.isInitialized) views.add(dashHeading)
         var kTo = 1f; var dyTo = 0f
         if (on) {
