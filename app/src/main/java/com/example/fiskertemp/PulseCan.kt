@@ -346,8 +346,8 @@ class PulseCan(
         val live = adasObjs.filter { it.id != 0 && now - it.at < 600 }
         if (adasLeadId != 0 && now - adasLeadAt < 800) live.firstOrNull { it.id == adasLeadId }?.let { return mk(it, 2) }
         if (adasAccId != 0 && now - adasAccAt < 800) live.firstOrNull { it.id == adasAccId }?.let { return mk(it, 1) }
-        // otherwise the nearest vehicle-like object in our own lane
-        val near = live.filter { it.conf && (it.cls == 0 || it.cls == 1 || it.cls == 2 || it.cls == 7 || it.cls == 8) && it.gx in 1.0..60.0 && Math.abs(it.gy) < 1.7 }.minByOrNull { it.gx }
+        // otherwise the nearest object in our own lane that the camera has classified (cars, trucks, motorcycles, bicycles, people, animals); "general unknown" is left out
+        val near = live.filter { it.conf && (it.cls != 6) && it.gx in 1.0..60.0 && Math.abs(it.gy) < 1.7 }.minByOrNull { it.gx }
         return near?.let { mk(it, 0) }
     }
 
