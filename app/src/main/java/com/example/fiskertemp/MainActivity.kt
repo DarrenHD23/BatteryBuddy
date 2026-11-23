@@ -1286,6 +1286,14 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("showObjects", on).apply() }
         }, 12)
         box.add(CheckBox(this).apply {
+            text = "Only show the lead vehicle / object (the one in front of you; the other cars, bikes and people are hidden). Applies with the ADAS view on or off"; isChecked = prefs().getBoolean("onlyLead", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("onlyLead", on).apply() }
+        }, 4)
+        box.add(CheckBox(this).apply {
+            text = "ADAS view with Climate and Media closed: move the 3D car to the middle of the screen (the road lines move up with it)"; isChecked = prefs().getBoolean("adasCenter", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("adasCenter", on).apply() }
+        }, 12)
+        box.add(CheckBox(this).apply {
             text = "Hide the road (the shaded road surface; the road lines below, the cars and the bend are separate)"; isChecked = prefs().getBoolean("hideRoad", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideRoad", on).apply() }
         }, 12)
@@ -2291,6 +2299,8 @@ class MainActivity : Activity() {
             val c3 = car3d
             if (c3 != null && c3.live) kTo = minOf(kTo, 2600f / (2.4f * 150f * u0)).coerceAtLeast(1f)      // (keeps the 3D view's width within what the graphics can draw)
             dyTo = (target - carTop - kTo * carView.height).coerceAtLeast(0f)
+            // option: with Climate and Media closed, the car sits in the middle of the screen instead of at the bottom (the road lines run up from it)
+            if (noCards && prefs().getBoolean("adasCenter", false)) dyTo = minOf(dyTo, (dashRoot.height / 2f - carTop - kTo * carView.height / 2f).coerceAtLeast(0f))
         return floatArrayOf(kTo, dyTo)
     }
 
@@ -4470,7 +4480,7 @@ class MainActivity : Activity() {
                 carView.doorBits = if (alerts && s.doorBits != null && nowMs - s.doorAt < 3000) s.doorBits else -1
                 val ld = s.lead
                 if (showObj && ld != null && nowMs - s.leadAt < 1500) { roadView.setLead(ld.gapM.toFloat(), ld.latM.toFloat(), ld.widthM.toFloat(), ld.cls, ld.brake, ld.src); leadHoldUntil = nowMs + 4000L } else roadView.clearLead()
-                if (showObj && nowMs - s.leadAt < 1500) roadView.setObjects(s.others) else roadView.setObjects(emptyList())
+                if (showObj && !prefs().getBoolean("onlyLead", false) && nowMs - s.leadAt < 1500) roadView.setObjects(s.others) else roadView.setObjects(emptyList())
                 carView.holdTilt = nowMs < leadHoldUntil      // stopped behind a car: keep the road and the rear view (4 s after it is lost, so a flicker does not tip us over)
             }; carView.braking = (s.brakeBcm ?: s.brakeVcu ?: false); carView.headlights = (s.headlights == true); carView.beamsOn = (s.beamsOn == true); carView.highBeam = (s.highBeamOn == true); carView.leftInd = s.leftInd; carView.rightInd = s.rightInd; carView.redInd = prefs().getString("signStyle", "us") != "eu"
             car3d?.red = carView.redInd       // USA / Canada: the turn signals glow red, as the rear lamps do on those cars
