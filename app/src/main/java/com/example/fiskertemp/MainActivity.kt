@@ -4634,12 +4634,30 @@ class MainActivity : Activity() {
             // Android 12L and later: the system UI's shell can put a task into split screen. Position 0 = top.
             val out = if (bad == null) rootRun("dumpsys activity service SystemUIService WMShell splitscreen moveToSideStage $myTask 0") else ""
             splitOut = out.trim().take(300)
-            EventLog.add("split shell command (task $myTask): ${splitOut.ifEmpty { "no output" }}")
+            EventLog.add("split shell command (task $myTask, Android ${Build.VERSION.RELEASE}, API ${Build.VERSION.SDK_INT}): ${(if (bad == null) out.trim().replace("\n", " | ") else "no root: $bad").take(700).ifEmpty { "no output" }}")
             ui.post { waitForSplit(i, 0, false) }
         }.start()
     }
 
     private var splitOut = ""
+
+    /** When split screen fails, write what this device is and what its system UI says to the event log, so it can be diagnosed from the log alone. */
+    private fun logSplitDiag() {
+        val myTask = taskId
+        Thread {
+            try {
+                EventLog.add("split diag: ${Build.MANUFACTURER} ${Build.MODEL} / ${Build.DEVICE}, Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}), task $myTask, helper running=${SplitService.instance != null}")
+                val bad = rootCheck()
+                EventLog.add("split diag: root ${if (bad == null) "ok" else "not available: $bad"}")
+                if (bad == null) {
+                    EventLog.add("split diag: WMShell says: " + rootRun("dumpsys activity service SystemUIService WMShell 2>&1 | head -c 700").trim().replace("\n", " | ").ifEmpty { "nothing" })
+                    EventLog.add("split diag: windowing mode of this task: " + rootRun("am task get-windowing-mode $myTask 2>&1 | head -c 120").trim().replace("\n", " ").ifEmpty { "nothing" })
+                    EventLog.add("split diag: accessibility services: " + rootRun("settings get secure enabled_accessibility_services").trim())
+                    EventLog.add("split diag: split-screen support: " + rootRun("getprop persist.wm.debug.enable_split_screen; getprop ro.config.low_ram; dumpsys activity | grep -i -m3 'multi.window\\|split' ").trim().replace("\n", " | ").take(300))
+                }
+            } catch (e: Throwable) { EventLog.add("split diag failed: ${e.message}") }
+        }.start()
+    }
 
     private fun waitForSplit(i: Int, tries: Int, second: Boolean) {
         if (isInMultiWindowMode) { EventLog.add("split screen is on"); ui.postDelayed({ launchLower(i) }, 500); return }
@@ -4650,14 +4668,15 @@ class MainActivity : Activity() {
                 Thread {
                     val ok = ensureSplitService()
                     ui.post {
-                        if (!ok) { EventLog.add("split screen did not start"); toast("Could not start split screen. Use the Pulse's split-screen controls (this app on top), then tap again. Shell said: ${splitOut.ifEmpty { "nothing" }}"); return@post }
+                        if (!ok) { EventLog.add("split screen did not start"); logSplitDiag(); toast("Could not start split screen. Use the Pulse's split-screen controls (this app on top), then tap again. Shell said: ${splitOut.ifEmpty { "nothing" }}"); return@post }
                         val r = SplitService.instance?.splitScreen()
                         EventLog.add("split screen action returned $r")
                         waitForSplit(i, 0, true)
                     }
                 }.start()
             } else {
-                EventLog.add("split screen did not start")
+                EventLog.add("split screen did not start (multi-window=$isInMultiWindowMode)")
+                logSplitDiag()
                 toast("Split screen did not start. Use the Pulse's split-screen controls, then tap again. Shell said: ${splitOut.ifEmpty { "nothing" }}")
             }
             return
