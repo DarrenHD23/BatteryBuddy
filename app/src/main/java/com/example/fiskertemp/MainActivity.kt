@@ -1928,8 +1928,10 @@ class MainActivity : Activity() {
                 val lay = (pr.second.optJSONObject("layout")?.optInt("v", 0)?.takeIf { l -> l == 1 || l == 2 } ?: 2)
                 return LinearLayout(this@MainActivity).apply {
                     orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(20), dp(8), dp(8), dp(8))
+                    setPadding(dp(12), dp(8), dp(8), dp(8))
                     setBackgroundColor(if (position == sel) Color.parseColor("#2B4A6B") else Color.TRANSPARENT)
+                    // a selection circle on the left: the preset that Load will open
+                    addView(RadioButton(this@MainActivity).apply { isChecked = position == sel; isClickable = false; isFocusable = false }, LinearLayout.LayoutParams(dp(44), -2))
                     addView(LinearLayout(this@MainActivity).apply {
                         orientation = LinearLayout.VERTICAL
                         addView(TextView(this@MainActivity).apply { text = pr.first; textSize = 16f; setTextColor(Color.parseColor("#F0F3F8")) })
@@ -1949,14 +1951,14 @@ class MainActivity : Activity() {
         lv.adapter = adapter
         lv.setOnItemClickListener { _, _, pos, _ -> sel = pos; adapter.notifyDataSetChanged() }
         val head = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; setPadding(dp(20), dp(4), dp(8), dp(4))
-            addView(TextView(this@MainActivity).apply { text = "Preset"; textSize = 13f; setTextColor(Color.parseColor("#9FB3C4")) }, LinearLayout.LayoutParams(0, -2, 1f))
+            orientation = LinearLayout.HORIZONTAL; setPadding(dp(12), dp(4), dp(8), dp(4))
+            addView(TextView(this@MainActivity).apply { text = "Select a preset, then Load"; textSize = 13f; setPadding(dp(44), 0, 0, 0); setTextColor(Color.parseColor("#9FB3C4")) }, LinearLayout.LayoutParams(0, -2, 1f))
             addView(TextView(this@MainActivity).apply { text = "Load at Startup"; textSize = 13f; gravity = Gravity.CENTER; setTextColor(Color.parseColor("#9FB3C4")) }, LinearLayout.LayoutParams(dp(90), -2))
         }
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; addView(head)
             // the list scrolls inside a fixed share of the screen height, so the buttons below it are never pushed off, however many presets there are
-            addView(lv, LinearLayout.LayoutParams(-1, if (list.size > 4) (resources.displayMetrics.heightPixels * 0.5f).toInt() else -2))
+            addView(lv, LinearLayout.LayoutParams(-1, if (list.size > 7) (resources.displayMetrics.heightPixels * 0.55f).toInt() else -2))
         }
         val d = darkDialog().setTitle("Load Preset").setView(col)
             .setPositiveButton("Load", null).setNeutralButton("Delete", null).setNegativeButton("Cancel", null).showDark()
