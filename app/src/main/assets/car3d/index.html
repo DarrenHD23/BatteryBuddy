@@ -19,7 +19,8 @@ const target=new THREE.Vector3(0,.55,0);
 // viewer mode (?viewer=1): the car on its own, turned by dragging and zoomed by pinching, seen by a normal perspective camera
 const VIEWER=/viewer=1/.test(location.search);
 const pcam=new THREE.PerspectiveCamera(32,1,.1,200),ORB0={th:.6,ph:1.25,d:11},orb={th:.6,ph:1.25,d:11,auto:false},vt=new THREE.Vector3(0,.7,0);
-if(VIEWER){cv.style.touchAction='none';const ps=new Map();let pd=0;
+if(VIEWER){{const q=new URLSearchParams(location.search);for(const k of['th','ph','d'])if(q.has(k)){orb[k]=ORB0[k]=parseFloat(q.get(k))}}      // (test pages can start at a chosen angle)
+  cv.style.touchAction='none';const ps=new Map();let pd=0;
   const clamp=()=>{orb.ph=Math.max(.05,Math.min(Math.PI-.05,orb.ph));orb.d=Math.max(4.5,Math.min(22,orb.d))};
   cv.addEventListener('pointerdown',e=>{moving();cv.setPointerCapture(e.pointerId);ps.set(e.pointerId,{x:e.clientX,y:e.clientY});if(ps.size===2){const a=[...ps.values()];pd=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)}});
   cv.addEventListener('pointermove',e=>{const q=ps.get(e.pointerId);if(!q)return;
@@ -68,12 +69,24 @@ let qHi=true,qT=0;
 function pxr(){const dpr=window.devicePixelRatio||1;if(!VIEWER||!qHi)return Math.min(dpr,2);const w=cv.clientWidth,h=cv.clientHeight;return Math.max(1,Math.min(3,Math.max(dpr*1.5,2.5),Math.sqrt(7.5e6/Math.max(1,w*h))))}
 function setQ(hi){if(!VIEWER||qHi===hi)return;qHi=hi;size='';resize()}
 function moving(){clearTimeout(qT);setQ(false)}
+function smoothArches(g){      // the low-poly body's wheel-arch edge wanders in and out by a few cm; even it out round each wheel (viewer only)
+  const P=g.attributes.position,I=g.index;if(!I)return;
+  const K=i=>Math.round(P.getX(i)*1e4)+','+Math.round(P.getY(i)*1e4)+','+Math.round(P.getZ(i)*1e4);
+  const grp=new Map();for(let i=0;i<P.count;i++){const k=K(i);let a=grp.get(k);if(!a)grp.set(k,a=[]);a.push(i)}
+  const ec=new Map();for(let t=0;t<I.count;t+=3){const a=[0,1,2].map(j=>K(I.getX(t+j)));for(let j=0;j<3;j++){const x=a[j],y=a[(j+1)%3],k=x<y?x+'|'+y:y+'|'+x;ec.set(k,(ec.get(k)||0)+1)}}
+  const bnd=new Set();for(const[k,v]of ec)if(v===1){const q=k.split('|');bnd.add(q[0]);bnd.add(q[1])}
+  for(const sx of[1,-1])for(const cz of[1.37,-1.37]){
+    const arr=[];for(const k of bnd){const q=k.split(',').map(v=>v/1e4);if(q[0]*sx<.885)continue;const dy=q[1]-.39,dz=q[2]-cz,r=Math.hypot(dy,dz);if(r<.47||r>.6)continue;arr.push({k,x:q[0],a:Math.atan2(dy,dz),r})}
+    const med=arr.map(o=>{const n=arr.filter(q=>Math.abs(q.a-o.a)<.2).map(q=>q.r).sort((u,v)=>u-v);return n[n.length>>1]});
+    arr.forEach((o,j)=>{const r=med[j],y=.39+r*Math.sin(o.a),z=cz+r*Math.cos(o.a);for(const i of grp.get(o.k))P.setXYZ(i,P.getX(i),y,z)})}
+  P.needsUpdate=true;g.computeBoundingSphere()}
 function settled(){clearTimeout(qT);qT=setTimeout(()=>{if(!orb.auto)setQ(true)},300)}
 function resize(){const w=cv.clientWidth,h=cv.clientHeight;if(!w||!h)return;const r=pxr();if(size!==w*1000+h){size=w*1000+h;renderer.setPixelRatio(r);renderer.setSize(w,h,false);dirty=true}}
 window.car3d={set(o){Object.assign(st,o);if(loaded&&o.paint)paint();dirty=true},reset(){Object.assign(orb,ORB0,{auto:false});dirty=true},auto(b){orb.auto=!!b;if(orb.auto)moving();else settled();dirty=true}};
 const u8=Uint8Array.from(atob(B64),c=>c.charCodeAt(0));
 new GLTFLoader().parse(u8.buffer,'',g=>{
   model=g.scene;scene.add(model);
+  if(VIEWER)model.traverse(o=>{if(o.isMesh&&o.name==='Body_Main_1'){try{smoothArches(o.geometry)}catch(e){}}});
   if(VIEWER)model.traverse(o=>{if(o.isMesh&&!/^Beam_/.test(o.name)){try{o.geometry=toCreasedNormals(o.geometry,Math.PI/5)}catch(e){}}});      // viewer only: smooth shading across the flat segments of the low-poly body (edges sharper than 36 degrees stay crisp)
   model.traverse(o=>{if(o.isMesh){for(const m of Array.isArray(o.material)?o.material:[o.material]){if(!mats.has(m.name))mats.set(m.name,[]);mats.get(m.name).push(m)}}const mn=o.isMesh?(Array.isArray(o.material)?o.material:[o.material]).map(m=>m.name).join(' '):'';
     if(/Spot|Anchor/.test(o.name)||o.isLight)o.visible=false;
