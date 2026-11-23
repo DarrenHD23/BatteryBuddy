@@ -1845,9 +1845,13 @@ class MainActivity : Activity() {
                 val lay = (pr.second.optJSONObject("layout")?.optInt("v", 0)?.takeIf { l -> l == 1 || l == 2 } ?: 2)
                 return LinearLayout(this@MainActivity).apply {
                     orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(12), dp(8), dp(8), dp(8))
+                    setPadding(dp(20), dp(8), dp(8), dp(8))
                     setBackgroundColor(if (position == sel) Color.parseColor("#2B4A6B") else Color.TRANSPARENT)
-                    addView(TextView(this@MainActivity).apply { text = pr.first + "   (Layout $lay)"; textSize = 16f; setTextColor(Color.parseColor("#F0F3F8")) }, LinearLayout.LayoutParams(0, -2, 1f))
+                    addView(LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        addView(TextView(this@MainActivity).apply { text = pr.first; textSize = 16f; setTextColor(Color.parseColor("#F0F3F8")) })
+                        addView(TextView(this@MainActivity).apply { text = "Layout $lay"; textSize = 12f; setTextColor(Color.parseColor("#9FB3C4")) })
+                    }, LinearLayout.LayoutParams(0, -2, 1f))
                     addView(CheckBox(this@MainActivity).apply {
                         isChecked = isStart(pr.first)
                         setOnClickListener {
@@ -1862,7 +1866,7 @@ class MainActivity : Activity() {
         lv.adapter = adapter
         lv.setOnItemClickListener { _, _, pos, _ -> sel = pos; adapter.notifyDataSetChanged() }
         val head = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; setPadding(dp(12), dp(4), dp(8), dp(4))
+            orientation = LinearLayout.HORIZONTAL; setPadding(dp(20), dp(4), dp(8), dp(4))
             addView(TextView(this@MainActivity).apply { text = "Preset"; textSize = 13f; setTextColor(Color.parseColor("#9FB3C4")) }, LinearLayout.LayoutParams(0, -2, 1f))
             addView(TextView(this@MainActivity).apply { text = "Load at Startup"; textSize = 13f; gravity = Gravity.CENTER; setTextColor(Color.parseColor("#9FB3C4")) }, LinearLayout.LayoutParams(dp(90), -2))
         }
