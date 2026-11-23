@@ -742,7 +742,7 @@ class MainActivity : Activity() {
         }
         edgeBox.addView(btnBar, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(8), dp(16)) })
         climateView = ClimateScreenView(this).apply {
-            visibility = View.GONE; onClose = { visibility = View.GONE }
+            visibility = View.GONE; onClose = { visibility = View.GONE; if (!l2Applied) prefs().edit().putBoolean("l1Climate", false).apply() }      // Layout 1: remember that Climate was closed (presets and restarts keep it closed)
             onPower = { turnOn ->
                 val msg = pulse?.sendClimatePower(turnOn) ?: "CAN reader is not running"
                 EventLog.add("Climate power test (" + (if (turnOn) "on" else "off") + "): $msg")
@@ -2847,8 +2847,8 @@ class MainActivity : Activity() {
             background = chipBg(12)
             setOnClickListener {
                 if (l2MediaInPlace) { l2MediaInPlace = false; l2ClimHidden = false; relayoutDash(); return@setOnClickListener }
-                if (climateView.visibility == View.VISIBLE) { climateView.visibility = View.GONE; if (l2Applied && l2ClimInline) l2ClimHidden = true }
-                else { l2ClimHidden = false; openClimate() }
+                if (climateView.visibility == View.VISIBLE) { climateView.visibility = View.GONE; if (l2Applied && l2ClimInline) l2ClimHidden = true; if (!l2Applied) prefs().edit().putBoolean("l1Climate", false).apply() }
+                else { l2ClimHidden = false; if (!l2Applied) prefs().edit().putBoolean("l1Climate", true).apply(); openClimate() }
             }
         }
         mediaBtn = TextView(this).apply {
@@ -3732,7 +3732,7 @@ class MainActivity : Activity() {
         climateTopDp = if (showMedia) climTop else 0
         climateHDp = if (showMedia) climBottomY - climTop else 0
         if (climateView.visibility == View.VISIBLE) edgeBox.post { placeClimate() }
-        else if (showMedia && !wasFullOrder && dashShown) edgeBox.post { if (dashShown) openClimate() }   // entering full screen: the Climate section comes up by itself
+        else if (showMedia && !wasFullOrder && dashShown && prefs().getBoolean("l1Climate", true)) edgeBox.post { if (dashShown) openClimate() }   // entering full screen: the Climate section comes up by itself
         if (dashShown) wasFullOrder = showMedia
         (mediaCard.layoutParams as FrameLayout.LayoutParams).apply { height = dp(mediaH); gravity = Gravity.BOTTOM; setMargins(dp(8), 0, dp(8), dp(maxOf(hDp - mediaEndY, 0))) }
         mediaCard.rhd = prefs().getBoolean("rhd", false); mediaPopup.rhd = mediaCard.rhd; mediaCard.invalidate(); mediaPopup.invalidate()
