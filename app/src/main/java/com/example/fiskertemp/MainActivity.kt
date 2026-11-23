@@ -441,7 +441,7 @@ class MainActivity : Activity() {
     private fun showAbout() {
         val tv = TextView(this).apply {
             textSize = 15f; setTextColor(Color.parseColor("#E6EBF2")); setPadding(dp(22), dp(10), dp(22), dp(10)); setLineSpacing(0f, 1.12f)
-            text = "FiskerBattery Buddy (+DashBoard)\n\nDesigned by DarrenHD23\n\n" +
+            text = "Fisker BatteryBuddy (+Dashboard)\n\nDesigned by DarrenHD23\n\n" +
                 "Thank you to Majd (otherwise none of this would be possible), Ben Kay, Moistpope, and sunnypilot for writing Oceanscape for which this gave me inspiration, JoseDB for suggesting the 3D model and Layout 2 graphics and bug reports, Gabriello Gambale for technical advice and help with the main BatteryBuddy app, and several other early adopters and testers for their suggestions and bug reports.\n\n" +
                 "Please remember to KEEP your EYES on the ROAD and enjoy driving your Fisker Ocean!  Safety First!  Read the Disclaimer!  It is for your safety!"
         }
@@ -471,6 +471,7 @@ class MainActivity : Activity() {
         val hint = TextView(this).apply { text = "Scroll to the end to continue."; textSize = 12f; setTextColor(Color.parseColor("#9FB3C4")); setPadding(dp(24), dp(4), dp(20), 0) }
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            minimumHeight = (resources.displayMetrics.heightPixels * 0.68f).toInt()      // tall, like the About screen's copy
             addView(sv, LinearLayout.LayoutParams(-1, 0, 1f)); addView(hint); addView(cb, LinearLayout.LayoutParams(-1, -2).apply { leftMargin = dp(16) })
         }
         val d = darkDialog().setTitle(title).setView(col).setCancelable(false)
