@@ -1834,8 +1834,40 @@ class MainActivity : Activity() {
         val list = readPresets()
         if (list.isEmpty()) { darkDialog().setTitle("Load Preset").setMessage("None").setPositiveButton("OK", null).showDark(); return }
         var sel = -1
-        val d = darkDialog().setTitle("Load Preset")
-            .setSingleChoiceItems(list.map { it.first + (if (it.first.equals(prefs().getString("startupPreset", null), true)) "  [starts the app]" else "") + "   (Layout " + (it.second.optJSONObject("layout")?.optInt("v", 0)?.takeIf { l -> l == 1 || l == 2 } ?: 2) + ")" }.toTypedArray(), -1) { _, w -> sel = w }
+        val lv = ListView(this)
+        fun isStart(n: String) = n.equals(prefs().getString("startupPreset", null), true)
+        val adapter = object : BaseAdapter() {
+            override fun getCount() = list.size
+            override fun getItem(position: Int) = list[position]
+            override fun getItemId(position: Int) = position.toLong()
+            override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup?): View {
+                val pr = list[position]
+                val lay = (pr.second.optJSONObject("layout")?.optInt("v", 0)?.takeIf { l -> l == 1 || l == 2 } ?: 2)
+                return LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(12), dp(8), dp(8), dp(8))
+                    setBackgroundColor(if (position == sel) Color.parseColor("#2B4A6B") else Color.TRANSPARENT)
+                    addView(TextView(this@MainActivity).apply { text = pr.first + "   (Layout $lay)"; textSize = 16f; setTextColor(Color.parseColor("#F0F3F8")) }, LinearLayout.LayoutParams(0, -2, 1f))
+                    addView(CheckBox(this@MainActivity).apply {
+                        isChecked = isStart(pr.first)
+                        setOnClickListener {
+                            // only one preset starts the app: ticking this one clears the tick on the others; unticking leaves the app starting as it is
+                            if (isChecked) prefs().edit().putString("startupPreset", pr.first).apply() else prefs().edit().remove("startupPreset").apply()
+                            notifyDataSetChanged()
+                        }
+                    }, LinearLayout.LayoutParams(dp(90), -2))
+                }
+            }
+        }
+        lv.adapter = adapter
+        lv.setOnItemClickListener { _, _, pos, _ -> sel = pos; adapter.notifyDataSetChanged() }
+        val head = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; setPadding(dp(12), dp(4), dp(8), dp(4))
+            addView(TextView(this@MainActivity).apply { text = "Preset"; textSize = 13f; setTextColor(Color.parseColor("#9FB3C4")) }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(TextView(this@MainActivity).apply { text = "Load at Startup"; textSize = 13f; gravity = Gravity.CENTER; setTextColor(Color.parseColor("#9FB3C4")) }, LinearLayout.LayoutParams(dp(90), -2))
+        }
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(head); addView(lv) }
+        val d = darkDialog().setTitle("Load Preset").setView(col)
             .setPositiveButton("Load", null).setNeutralButton("Delete", null).setNegativeButton("Cancel", null).showDark()
         d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             if (sel < 0) { Toast.makeText(this, "Select a preset first", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
