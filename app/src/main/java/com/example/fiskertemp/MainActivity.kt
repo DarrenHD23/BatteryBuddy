@@ -742,7 +742,7 @@ class MainActivity : Activity() {
         }
         edgeBox.addView(btnBar, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(8), dp(16)) })
         climateView = ClimateScreenView(this).apply {
-            visibility = View.GONE; onClose = { visibility = View.GONE; if (!l2Applied) prefs().edit().putBoolean("l1Climate", false).apply() }      // Layout 1: remember that Climate was closed (presets and restarts keep it closed)
+            visibility = View.GONE; onClose = { visibility = View.GONE; if (l2Applied) l2ClimClosed = true else prefs().edit().putBoolean("l1Climate", false).apply() }      // Layout 1: remember that Climate was closed (presets and restarts keep it closed)
             onPower = { turnOn ->
                 val msg = pulse?.sendClimatePower(turnOn) ?: "CAN reader is not running"
                 EventLog.add("Climate power test (" + (if (turnOn) "on" else "off") + "): $msg")
@@ -1698,7 +1698,7 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------- Layout 2 presets (up to 6)
     /** Settings that belong to the car, the install or the user's data rather than to how the screen looks: a preset leaves them alone. */
-    private val presetSkip = setOf("presets", "presetsL2", "presetsL1", "devToken", "betaOn", "betaUnlocked", "updDeferred", "source", "legacyCan", "canSafe", "climateTx", "radioFavs", "reopenSettings", "reopenDash", "spdAdjMph", "spdAdjKmh", "packKwh")
+    private val presetSkip = setOf("presets", "presetsL2", "presetsL1", "devToken", "betaOn", "betaUnlocked", "updDeferred", "source", "legacyCan", "canSafe", "climateTx", "radioFavs", "reopenSettings", "reopenDash", "adasRestore", "adasOn", "spdAdjMph", "spdAdjKmh", "packKwh")
 
     private fun curLayout() = if (prefs().getInt("layout", 1) == 2) 2 else 1
     /** One shared list of up to 6 presets, whichever layout saved them (older per-layout lists are merged in the first time). */
@@ -1744,6 +1744,7 @@ class MainActivity : Activity() {
             o.put(k, e)
         }
         o.put("layout", org.json.JSONObject().put("t", "i").put("v", curLayout()))
+        o.put("adasOn", org.json.JSONObject().put("t", "b").put("v", adasMode))      // the ADAS view is on or off right now (not a setting of its own)
         return o
     }
 
@@ -1760,14 +1761,14 @@ class MainActivity : Activity() {
         }
         val box = FrameLayout(this).apply { setPadding(dp(20), dp(4), dp(20), 0); addView(input) }
         val d = darkDialog().setTitle("Save Preset")
-            .setMessage("Saves the skin, layout, cards and every setting as they are now. Up to 6 presets; a name you have used is replaced.")
+            .setMessage("Saves the skin, layout, cards and every setting as they are now. Up to 12 presets; a name you have used is replaced.")
             .setView(box).setNegativeButton("Cancel", null).setPositiveButton("Save", null).showDark()
         d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             val name = input.text.toString().trim()
             if (name.isEmpty()) { Toast.makeText(this, "Type a name for the preset", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
             val list = readPresets()
             val at = list.indexOfFirst { it.first.equals(name, true) }
-            if (at < 0 && list.size >= 6) { Toast.makeText(this, "6 presets are saved already: use a saved name to replace one, or delete one in Load Preset", Toast.LENGTH_LONG).show(); return@setOnClickListener }
+            if (at < 0 && list.size >= 12) { Toast.makeText(this, "12 presets are saved already: use a saved name to replace one, or delete one in Load Preset", Toast.LENGTH_LONG).show(); return@setOnClickListener }
             val entry = name to snapshotPrefs()
             if (at >= 0) list[at] = entry else list.add(entry)
             writePresets(list)
@@ -1799,6 +1800,7 @@ class MainActivity : Activity() {
         val ed = prefs().edit()
         for (k in prefs().all.keys) if (k !in presetSkip) ed.remove(k)
         for (k in data.keys()) {
+            if (k == "adasOn") continue
             val e = data.getJSONObject(k)
             when (e.getString("t")) {
                 "b" -> ed.putBoolean(k, e.getBoolean("v"))
@@ -1811,6 +1813,7 @@ class MainActivity : Activity() {
         }
         if (!data.has("layout")) ed.putInt("layout", curLayout())
         ed.putBoolean("reopenDash", true)
+        if (data.optJSONObject("adasOn")?.optBoolean("v", false) == true) ed.putBoolean("adasRestore", true)
         ed.commit()
         EventLog.add("preset loaded: $name")
         layoutRecreating = true
@@ -2061,7 +2064,9 @@ class MainActivity : Activity() {
     private lateinit var l2LoadBtn: TextView
     private lateinit var l2SaveBtn: TextView
     private var l2ClimTop = 0; private var l2ClimH = 0; private var l2ClimInline = false; private var wasL2Clim = false
-    private var l2ClimClosed = false      // Layout 2: the Climate chip in the gear menu closed the Climate screen; a relayout (the Media chip, say) must not bring it back
+    private var l2ClimClosed: Boolean      // Layout 2: the user closed the Climate screen; kept as a setting, so a relayout, a restart or a loaded preset leaves it closed
+        get() = prefs().getBoolean("l2ClimClosed", false)
+        set(v) { prefs().edit().putBoolean("l2ClimClosed", v).apply() }
     private var l2MediaInPlace = false; private var l2MiniNow = false      // 2/3 split: the Media button swaps the Climate panel for the media card
     private var l2BtnRowBottom = 0; private var l2BtnW = 60; private var l2ClimHidden = false   // the Media / Climate button row, and whether the Climate button hid the inline panel
     private var l2FlyOpen = false
@@ -2855,8 +2860,8 @@ class MainActivity : Activity() {
             background = chipBg(12)
             setOnClickListener {
                 if (l2MediaInPlace) { l2MediaInPlace = false; l2ClimHidden = false; relayoutDash(); return@setOnClickListener }
-                if (climateView.visibility == View.VISIBLE) { climateView.visibility = View.GONE; if (l2Applied && l2ClimInline) l2ClimHidden = true; if (!l2Applied) prefs().edit().putBoolean("l1Climate", false).apply() }
-                else { l2ClimHidden = false; if (!l2Applied) prefs().edit().putBoolean("l1Climate", true).apply(); openClimate() }
+                if (climateView.visibility == View.VISIBLE) { climateView.visibility = View.GONE; if (l2Applied && l2ClimInline) l2ClimHidden = true; if (l2Applied) l2ClimClosed = true else prefs().edit().putBoolean("l1Climate", false).apply() }
+                else { l2ClimHidden = false; if (l2Applied) l2ClimClosed = false else prefs().edit().putBoolean("l1Climate", true).apply(); openClimate() }
             }
         }
         mediaBtn = TextView(this).apply {
@@ -2984,6 +2989,11 @@ class MainActivity : Activity() {
     private val dashTick = object : Runnable {
         override fun run() {
             renderDash()
+            // a preset saved with the ADAS view on: switch it on once the screen has its size (one try; it only goes on in a window that allows it)
+            if (::carView.isInitialized && carView.width > 0 && carView.height > 0 && prefs().getBoolean("adasRestore", false)) {
+                prefs().edit().remove("adasRestore").apply()
+                ui.postDelayed({ if (dashShown && !adasMode) setAdas(true, false) }, 600)
+            }
             applyAdasGauges()
             if (adasMode) refitAdas()
             if (dashShown) ui.postDelayed(this, 200)
@@ -4550,7 +4560,7 @@ class MainActivity : Activity() {
             offerClosePulse()
             checkForUpdate(false)
             // full screen: the Climate panel comes back with the dashboard
-            if (fullOrderNow) edgeBox.post { if (dashShown && climateView.visibility != View.VISIBLE) openClimate() }
+            if (fullOrderNow && prefs().getBoolean("l1Climate", true)) edgeBox.post { if (dashShown && climateView.visibility != View.VISIBLE) openClimate() }
             if (!introDone) {
                 introDone = true
                 ui.postDelayed({ dashPowerGauge.intro(); dashSpeedGauge.intro() }, 400)
