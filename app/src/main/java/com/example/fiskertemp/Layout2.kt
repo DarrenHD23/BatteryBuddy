@@ -442,6 +442,8 @@ class CarView(ctx: Context) : View(ctx) {
  */
 class RoadView(ctx: Context) : View(ctx) {
     var car: View? = null
+    /** ADAS view, car moved down under the media player: nothing (road, lines, cars) is drawn above this y. */
+    var clipTop = 0f
     var speedKmh = 0f
         set(v) { field = v; if (v >= 1f && !animating) postInvalidateOnAnimation() }
     private var animating = false
@@ -823,6 +825,7 @@ class RoadView(ctx: Context) : View(ctx) {
         val carTop = (lb[1] - la[1]).toFloat()
         val carLeft = (lb[0] - la[0]).toFloat()
         c.save()
+        if (clipTop > 0f) c.clipRect(0f, clipTop, width.toFloat(), height.toFloat())
         mapU = u; mapLeft = carLeft + (cv.width * cv.scaleX - 302f * u) / 2f; mapTop = carTop; parNow = par; tiltNow = (car as? CarView)?.tilt ?: 1f; bendFn = { 0f }
         c.translate(carLeft + (cv.width * cv.scaleX - 302f * u) / 2f, carTop)
         c.scale(u, u)
@@ -1448,7 +1451,7 @@ class Car3dView(ctx: Context, private val viewer: Boolean = false, private val o
 /** A transparent full-size layer above everything that draws the other objects around the car, using the road view's map. Takes no touches. */
 class ObjectsView(ctx: Context, private val road: RoadView) : View(ctx) {
     init { isClickable = false; isFocusable = false; road.overlay = this }
-    override fun onDraw(c: Canvas) { road.drawObjects(c) }
+    override fun onDraw(c: Canvas) { c.save(); if (road.clipTop > 0f) c.clipRect(0f, road.clipTop, width.toFloat(), height.toFloat()); road.drawObjects(c); c.restore() }
 }
 
 

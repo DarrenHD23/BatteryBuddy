@@ -1408,6 +1408,10 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("adasCenter", on).apply() }
         }, 12)
         box.add(CheckBox(this).apply {
+            text = "ADAS view with the Media player on and Climate closed: move the car, road and objects down into the free space under the media player"; isChecked = prefs().getBoolean("adasLow", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("adasLow", on).apply() }
+        }, 12)
+        box.add(CheckBox(this).apply {
             text = "Hide the road (the shaded road surface; the road lines below, the cars and the bend are separate)"; isChecked = prefs().getBoolean("hideRoad", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideRoad", on).apply() }
         }, 12)
@@ -2245,6 +2249,7 @@ class MainActivity : Activity() {
     private var adasDy = 0f
     private var adasRestoreTries = 0
     private var adasHideWas = false
+    private var adasLowOn = false; private var adasZoneTop = 0f        // ADAS view with the car moved down under the media player (option), and the top of that space
     private var adasNoCards = false                                  // ADAS view with Climate and Media both closed (set by adasFit)
     private lateinit var adasSpdBox: LinearLayout; private lateinit var adasSpdNum: TextView; private lateinit var adasSpdTitle: TextView
     private lateinit var adasPwrBox: LinearLayout; private lateinit var adasPwrNum: TextView; private lateinit var adasPwrTitle: TextView
@@ -2668,10 +2673,13 @@ class MainActivity : Activity() {
             dashRoot.getLocationInWindow(ra); (carView.parent as View).getLocationInWindow(pa)
             val carTop = (pa[1] - ra[1] + carView.top + dp(14)).toFloat()
             var target = Float.MAX_VALUE
+            var mediaBottom = -1f; var climateUp = false
             for (v in listOfNotNull<View>(if (::mediaCard.isInitialized) mediaCard else null, if (::climateView.isInitialized) climateView else null, if (::mediaPopup.isInitialized) mediaPopup else null)) if (v.visibility == View.VISIBLE && v.height > 0 && v.isShown) {
                 val va = IntArray(2); v.getLocationInWindow(va)
                 val top = (va[1] - ra[1]).toFloat()
                 if (top > carTop + carView.height * 0.6f && top < target) target = top
+                if (v === (if (::mediaCard.isInitialized) mediaCard else null)) mediaBottom = top + v.height
+                if (::climateView.isInitialized && v === climateView) climateUp = true
             }
             var noCards = false
             if (target == Float.MAX_VALUE) {
@@ -2696,6 +2704,25 @@ class MainActivity : Activity() {
             dyTo = (target - carTop - kTo * carView.height).coerceAtLeast(0f)
             // option: with Climate and Media closed, the car sits in the middle of the screen instead of at the bottom (the road lines run up from it)
             if (noCards && prefs().getBoolean("adasCenter", false)) dyTo = minOf(dyTo, (dashRoot.height / 2f - carTop - kTo * carView.height / 2f).coerceAtLeast(0f))
+            // option: Media on, Climate closed: the car and road move down into the free space under the media player, ending just above the stat strip
+            var low = false; var zoneTop = 0f
+            if (!noCards && !climateUp && mediaBottom > 0f && prefs().getBoolean("adasLow", false)) {
+                var zb = Float.MAX_VALUE
+                for (sv in listOf<View>(dashStrip, dashRow)) if (sv.visibility == View.VISIBLE && sv.height > 0 && sv.isShown) { val sa = IntArray(2); sv.getLocationInWindow(sa); val st = (sa[1] - ra[1]).toFloat(); if (st > mediaBottom + dp(60)) { zb = st; break } }
+                if (zb == Float.MAX_VALUE) { val da = IntArray(2); dashMid.getLocationInWindow(da); zb = (da[1] - ra[1] + dashMid.height).toFloat() }
+                zb -= dp(4)
+                val zh = zb - (mediaBottom + dp(6))
+                if (zh > dp(120)) {
+                    low = true; zoneTop = mediaBottom + dp(6)
+                    // the car takes the lower part of the free space, the road runs up from it to the media player
+                    kTo = minOf(maxOf(kW, 1.4f * carView.width / (114f * u0)), 0.55f * zh / carView.height, 3.2f).coerceAtLeast(1f)
+                    val c3b = car3d
+                    if (c3b != null && c3b.live) kTo = minOf(kTo, 2600f / (2.4f * 150f * u0)).coerceAtLeast(1f)
+                    dyTo = (zb - carTop - kTo * carView.height).coerceAtLeast(0f)
+                }
+            }
+            adasLowOn = low; adasZoneTop = zoneTop
+            if (::roadView.isInitialized && roadView.clipTop != zoneTop) { roadView.clipTop = zoneTop; roadView.invalidate(); if (::objView.isInitialized) objView.invalidate() }
         return floatArrayOf(kTo, dyTo)
     }
 
@@ -2734,7 +2761,7 @@ class MainActivity : Activity() {
         for (v in adasHidden) v.isEnabled = !on
         if (::roadView.isInitialized) { roadView.adasOn = on; roadView.invalidate() }
         fun finish() {
-            if (!on) { for (v in adasHidden) { v.alpha = 1f; v.isEnabled = true }; adasHidden.clear(); carView.scaleX = 1f; carView.scaleY = 1f; adasDy = 0f; placeL1Overlays(dashRoot); syncCar3d(dashRoot) }
+            if (!on) { for (v in adasHidden) { v.alpha = 1f; v.isEnabled = true }; adasHidden.clear(); carView.scaleX = 1f; carView.scaleY = 1f; adasDy = 0f; adasLowOn = false; adasZoneTop = 0f; if (::roadView.isInitialized) { roadView.clipTop = 0f; roadView.invalidate() }; placeL1Overlays(dashRoot); syncCar3d(dashRoot) }
         }
         if (!animate) { apply(1f); finish(); return }
         adasAnim = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
@@ -2784,7 +2811,8 @@ class MainActivity : Activity() {
         // the light stays put when the car is nudged down; with the centred clock showing it is kept below the clock and date
         // ADAS view with the centred clock: the word Ready sits under the clock, so the light goes below the word as well
         val rdyBottom = if (adasClockBottom() > 0f && dashReady.visibility == View.VISIBLE && dashReady.isShown && dashReady.height > 0) { val q = IntArray(2); dashReady.getLocationInWindow(q); (q[1] - r[1] + dashReady.height + dp(4)).toFloat() } else 0f
-        val lightY = maxOf(ca[1] - r[1] - carView.translationY + 11f * u - dashLight.height, adasClockBottom().let { if (it > 0f) it + dp(6) else 0f }, rdyBottom)
+        var lightY = maxOf(ca[1] - r[1] - carView.translationY + 11f * u - dashLight.height, adasClockBottom().let { if (it > 0f) it + dp(6) else 0f }, rdyBottom)
+        if (adasMode && adasLowOn) lightY = adasZoneTop + dp(6)      // the car is down under the media player: the light goes with the road, at the top of it
         if (l2Applied && ::testBtn.isInitialized && testBtn.width > 0) {
             // Layout 2: the traffic light sits directly right of the Test button, its top edge level with the button's top edge, its distance under it
             val ta = IntArray(2); testBtn.getLocationInWindow(ta)
