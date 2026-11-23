@@ -431,6 +431,33 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun disclaimerParts(): Pair<String, String>? {
+        val raw = try { assets.open("disclaimer.txt").bufferedReader().readText() } catch (e: Exception) { return null }
+        val lines = raw.trim().lines()
+        return Pair(lines.firstOrNull()?.trim().orEmpty(), lines.drop(1).filter { it.isNotBlank() }.joinToString("\n\n"))
+    }
+
+    /** Settings, About: who made the app and who helped, with a button to read the disclaimer again. */
+    private fun showAbout() {
+        val tv = TextView(this).apply {
+            textSize = 15f; setTextColor(Color.parseColor("#E6EBF2")); setPadding(dp(22), dp(10), dp(22), dp(10)); setLineSpacing(0f, 1.12f)
+            text = "FiskerBattery Buddy (+DashBoard)\n\nDesigned by DarrenHD23\n\n" +
+                "Thank you to Majd (otherwise none of this would be possible), Ben Kay, Moistpope, and sunnypilot for writing Oceanscape for which this gave me inspiration, JoseDB for suggesting the 3D model and Layout 2 graphics and bug reports, Gabriello Gambale for technical advice and help with the main BatteryBuddy app, and several other early adopters and testers for their suggestions and bug reports.\n\n" +
+                "Please remember to KEEP your EYES on the ROAD and enjoy driving your Fisker Ocean!  Safety First!  Read the Disclaimer!  It is for your safety!"
+        }
+        darkDialog().setTitle("About").setView(ScrollView(this).apply { addView(tv) })
+            .setPositiveButton("Close", null).setNeutralButton("Read the Disclaimer") { _, _ -> showDisclaimerReadOnly() }.showDark()
+    }
+
+    private fun showDisclaimerReadOnly() {
+        val (title, body) = disclaimerParts() ?: run { toast("The disclaimer text is missing."); return }
+        val tv = TextView(this).apply { text = body; textSize = 14f; setTextColor(Color.parseColor("#E6EBF2")); setPadding(dp(20), dp(8), dp(20), dp(8)); setLineSpacing(0f, 1.1f) }
+        val at = prefs().getString("disclaimerAt", null)
+        val note = if (at != null) "\n\nAccepted on $at." else ""
+        tv.text = body + note
+        darkDialog().setTitle(title).setView(ScrollView(this).apply { addView(tv) }).setPositiveButton("Close", null).showDark()
+    }
+
     /** The legal disclaimer, shown on the very first start: it must be scrolled to the end and accepted, or the app exits. */
     private fun showDisclaimerIfNeeded() {
         if (prefs().getBoolean("disclaimerOk", false) || isFinishing) return
@@ -1115,6 +1142,10 @@ class MainActivity : Activity() {
         box.add(Button(this).apply {
             text = "Read all Release notes"; isAllCaps = false
             setOnClickListener { showAllReleaseNotes() }
+        }, 8)
+        box.add(Button(this).apply {
+            text = "About"; isAllCaps = false
+            setOnClickListener { showAbout() }
         }, 8)
         box.add(TextView(this).apply { text = "SKIN AND LAYOUT"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
         // --- Skin
