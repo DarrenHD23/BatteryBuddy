@@ -404,7 +404,9 @@ class MainActivity : Activity() {
         buildUi()
         val saved = getSharedPreferences("prefs", MODE_PRIVATE).getString("source", null)
         applySource(when (saved) { "pulse" -> true; "dongle" -> false; else -> PulseCan.available() })
-        if (getSharedPreferences("prefs", MODE_PRIVATE).getBoolean("dashDefault", false)) showDashboard(true)
+        val reopenDash = prefs().getBoolean("reopenDash", false)      // a preset was just loaded: back to the dashboard
+        if (reopenDash) prefs().edit().remove("reopenDash").apply()
+        if (reopenDash || getSharedPreferences("prefs", MODE_PRIVATE).getBoolean("dashDefault", false)) showDashboard(true)
         // optionally go into split screen right after a fresh start (not when the screen is only being rebuilt)
         val startSplit = prefs().getString("startSplit", "")
         if (savedInstanceState == null && !splitOnStartDone && (startSplit == "spotify" || startSplit == "maps")) {
@@ -1687,6 +1689,110 @@ class MainActivity : Activity() {
 
     private var layoutRecreating = false
 
+    // ------------------------------------------------------- Layout 2 presets (up to 6)
+    /** Settings that belong to the car, the install or the user's data rather than to how the screen looks: a preset leaves them alone. */
+    private val presetSkip = setOf("presetsL2", "devToken", "betaOn", "betaUnlocked", "updDeferred", "source", "legacyCan", "canSafe", "climateTx", "radioFavs", "reopenSettings", "reopenDash", "spdAdjMph", "spdAdjKmh", "packKwh")
+
+    private fun readPresets(): MutableList<Pair<String, org.json.JSONObject>> {
+        val out = ArrayList<Pair<String, org.json.JSONObject>>()
+        try {
+            val arr = org.json.JSONArray(prefs().getString("presetsL2", "[]"))
+            for (i in 0 until arr.length()) { val o = arr.getJSONObject(i); out.add(o.getString("name") to o.getJSONObject("data")) }
+        } catch (e: Exception) { }
+        return out
+    }
+
+    private fun writePresets(list: List<Pair<String, org.json.JSONObject>>) {
+        val arr = org.json.JSONArray()
+        for ((n, d) in list) arr.put(org.json.JSONObject().put("name", n).put("data", d))
+        prefs().edit().putString("presetsL2", arr.toString()).apply()
+    }
+
+    /** Every current setting (skin, layout, cards, shortcuts, options), typed, as JSON. */
+    private fun snapshotPrefs(): org.json.JSONObject {
+        val o = org.json.JSONObject()
+        for ((k, v) in prefs().all) {
+            if (k in presetSkip) continue
+            val e = org.json.JSONObject()
+            when (v) {
+                is Boolean -> e.put("t", "b").put("v", v)
+                is String -> e.put("t", "s").put("v", v)
+                is Int -> e.put("t", "i").put("v", v)
+                is Long -> e.put("t", "l").put("v", v)
+                is Float -> e.put("t", "f").put("v", v.toDouble())
+                is Set<*> -> e.put("t", "ss").put("v", org.json.JSONArray(v.map { it.toString() }))
+                else -> continue
+            }
+            o.put(k, e)
+        }
+        return o
+    }
+
+    private fun showSavePreset() {
+        val input = EditText(this).apply {
+            hint = "Preset name"; setSingleLine(); setTextColor(Color.WHITE); setHintTextColor(Color.GRAY)
+            filters = arrayOf(android.text.InputFilter.LengthFilter(24))
+        }
+        val box = FrameLayout(this).apply { setPadding(dp(20), dp(4), dp(20), 0); addView(input) }
+        val d = darkDialog().setTitle("Save Preset")
+            .setMessage("Saves the skin, layout, cards and every setting as they are now. Up to 6 presets; a name you have used is replaced.")
+            .setView(box).setNegativeButton("Cancel", null).setPositiveButton("Save", null).showDark()
+        d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val name = input.text.toString().trim()
+            if (name.isEmpty()) { Toast.makeText(this, "Type a name for the preset", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+            val list = readPresets()
+            val at = list.indexOfFirst { it.first.equals(name, true) }
+            if (at < 0 && list.size >= 6) { Toast.makeText(this, "6 presets are saved already: use a saved name to replace one, or delete one in Load Preset", Toast.LENGTH_LONG).show(); return@setOnClickListener }
+            val entry = name to snapshotPrefs()
+            if (at >= 0) list[at] = entry else list.add(entry)
+            writePresets(list)
+            EventLog.add("preset saved: $name")
+            Toast.makeText(this, "Preset \"$name\" saved", Toast.LENGTH_SHORT).show()
+            d.dismiss()
+        }
+    }
+
+    private fun showLoadPreset() {
+        val list = readPresets()
+        if (list.isEmpty()) { darkDialog().setTitle("Load Preset").setMessage("None").setPositiveButton("OK", null).showDark(); return }
+        var sel = -1
+        val d = darkDialog().setTitle("Load Preset")
+            .setSingleChoiceItems(list.map { it.first }.toTypedArray(), -1) { _, w -> sel = w }
+            .setPositiveButton("Load", null).setNeutralButton("Delete", null).setNegativeButton("Cancel", null).showDark()
+        d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            if (sel < 0) { Toast.makeText(this, "Select a preset first", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+            d.dismiss(); applyPreset(list[sel].first, list[sel].second)
+        }
+        d.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+            if (sel < 0) { Toast.makeText(this, "Select a preset first", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+            list.removeAt(sel); writePresets(list); d.dismiss(); showLoadPreset()
+        }
+    }
+
+    /** Puts every saved setting back (settings the preset does not hold go back to their defaults), then rebuilds the screen like a restart. */
+    private fun applyPreset(name: String, data: org.json.JSONObject) {
+        val ed = prefs().edit()
+        for (k in prefs().all.keys) if (k !in presetSkip) ed.remove(k)
+        for (k in data.keys()) {
+            val e = data.getJSONObject(k)
+            when (e.getString("t")) {
+                "b" -> ed.putBoolean(k, e.getBoolean("v"))
+                "s" -> ed.putString(k, e.getString("v"))
+                "i" -> ed.putInt(k, e.getInt("v"))
+                "l" -> ed.putLong(k, e.getLong("v"))
+                "f" -> ed.putFloat(k, e.getDouble("v").toFloat())
+                "ss" -> { val a = e.getJSONArray("v"); ed.putStringSet(k, (0 until a.length()).map { a.getString(it) }.toSet()) }
+            }
+        }
+        if (!data.has("layout")) ed.putInt("layout", 2)
+        ed.putBoolean("reopenDash", true)
+        ed.commit()
+        EventLog.add("preset loaded: $name")
+        layoutRecreating = true
+        recreate()
+    }
+
+
     /**
      * The two layouts are independent: changing layout rebuilds the whole screen from scratch (as when the app starts), so neither
      * can leave anything of itself behind in the other. Settings comes back up afterwards when it was opened from there.
@@ -1926,6 +2032,8 @@ class MainActivity : Activity() {
     private var car3d: Car3dView? = null
     private lateinit var l2ClimBtn: TextView
     private lateinit var l2MediaBtn: TextView
+    private lateinit var l2LoadBtn: TextView
+    private lateinit var l2SaveBtn: TextView
     private var l2ClimTop = 0; private var l2ClimH = 0; private var l2ClimInline = false; private var wasL2Clim = false
     private var l2ClimClosed = false      // Layout 2: the Climate chip in the gear menu closed the Climate screen; a relayout (the Media chip, say) must not bring it back
     private var l2MediaInPlace = false; private var l2MiniNow = false      // 2/3 split: the Media button swaps the Climate panel for the media card
@@ -2616,6 +2724,8 @@ class MainActivity : Activity() {
         l2MediaBtn = flyChip("Media") {
             l2MediaTap()
         }
+        l2LoadBtn = flyChip("Load Preset") { showLoadPreset() }
+        l2SaveBtn = flyChip("Save Preset") { showSavePreset() }
         NavState.onChange = { for (ps in pageSets) ps.nav.refresh() }
         Thread { rootRun("cmd notification allow_listener " + NavListener.component(this)) }.start()
         leftPager = PagerCardView(this)
@@ -3662,7 +3772,7 @@ class MainActivity : Activity() {
                 if (rhd) setMargins(edgeOff, 0, 0, dp(16)) else setMargins(0, 0, dp(8), dp(16))
             }
         }
-        val barKids = (if (l2) listOf(l2ClimBtn, l2MediaBtn, resBtn) else emptyList()) + (if (showSkinBtn()) listOf(skinBtn, settingsBtn, dashBtn, exitBtn) else listOf(settingsBtn, dashBtn, exitBtn))
+        val barKids = (if (l2) listOf(l2ClimBtn, l2MediaBtn, resBtn) + (if (rhd) listOf(l2SaveBtn, l2LoadBtn) else listOf(l2LoadBtn, l2SaveBtn)) else emptyList()) + (if (showSkinBtn()) listOf(skinBtn, settingsBtn, dashBtn, exitBtn) else listOf(settingsBtn, dashBtn, exitBtn))
         btnBar.removeAllViews()
         if (l2) {
             btnBar.orientation = LinearLayout.VERTICAL
@@ -4026,7 +4136,7 @@ class MainActivity : Activity() {
         if (::settingsBtn.isInitialized) settingsBtn.background = chipBg(22)
         if (::exitBtn.isInitialized) exitBtn.background = chipBg(22)
         if (::resBtn.isInitialized) resBtn.background = chipBg(12)
-        if (::l2ClimBtn.isInitialized) { l2ClimBtn.background = chipBg(12); l2MediaBtn.background = chipBg(12) }
+        if (::l2ClimBtn.isInitialized) { l2ClimBtn.background = chipBg(12); l2MediaBtn.background = chipBg(12); l2LoadBtn.background = chipBg(12); l2SaveBtn.background = chipBg(12) }
         if (::lowerAdd.isInitialized) lowerAdd.background = chipBg(18)
         if (::climateBtn.isInitialized) climateBtn.background = chipBg(12)
         if (::mediaBtn.isInitialized) mediaBtn.background = chipBg(12)
