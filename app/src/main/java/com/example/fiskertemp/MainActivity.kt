@@ -389,6 +389,15 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         EventLog.init(this)
         EventLog.add("app start")
+        // a preset ticked "Load on startup" is put in place before the screen is built, once per start of the app (not again when the screen is only rebuilt)
+        if (savedInstanceState == null && !startupPresetDone) {
+            startupPresetDone = true
+            try {
+                val sn = prefs().getString("startupPreset", null)
+                val hit = if (sn == null) null else readPresets().firstOrNull { it.first.equals(sn, true) }
+                if (hit != null) { writePresetToPrefs(hit.second); EventLog.add("startup preset loaded: ${hit.first}") }
+            } catch (e: Exception) { EventLog.add("startup preset failed: ${e.message}") }
+        }
         InApp.init(this); InApp.log = { m -> EventLog.add(m) }; InApp.onChange = { refreshMediaCards() }
         logLastExits()
         logBootInfo()
@@ -1695,10 +1704,13 @@ class MainActivity : Activity() {
     }
 
     private var layoutRecreating = false
+    private var startupPresetDone: Boolean
+        get() = StartupFlag.done
+        set(v) { StartupFlag.done = v }
 
     // ------------------------------------------------------- Layout 2 presets (up to 6)
     /** Settings that belong to the car, the install or the user's data rather than to how the screen looks: a preset leaves them alone. */
-    private val presetSkip = setOf("presets", "presetsL2", "presetsL1", "devToken", "betaOn", "betaUnlocked", "updDeferred", "source", "legacyCan", "canSafe", "climateTx", "radioFavs", "reopenSettings", "reopenDash", "adasRestore", "adasOn", "spdAdjMph", "spdAdjKmh", "packKwh")
+    private val presetSkip = setOf("startupPreset", "presets", "presetsL2", "presetsL1", "devToken", "betaOn", "betaUnlocked", "updDeferred", "source", "legacyCan", "canSafe", "climateTx", "radioFavs", "reopenSettings", "reopenDash", "adasRestore", "adasOn", "spdAdjMph", "spdAdjKmh", "packKwh")
 
     private fun curLayout() = if (prefs().getInt("layout", 1) == 2) 2 else 1
     /** One shared list of up to 6 presets, whichever layout saved them (older per-layout lists are merged in the first time). */
@@ -1759,7 +1771,13 @@ class MainActivity : Activity() {
             hint = "Preset name"; setSingleLine(); setTextColor(Color.WHITE); setHintTextColor(Color.GRAY)
             filters = arrayOf(android.text.InputFilter.LengthFilter(65))
         }
-        val box = FrameLayout(this).apply { setPadding(dp(20), dp(4), dp(20), 0); addView(input) }
+        val startCb = CheckBox(this).apply { text = "Load on startup (the app always starts with this preset)"; setTextColor(Color.WHITE) }
+        input.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(c: CharSequence?, a: Int, b: Int, d: Int) {}
+            override fun onTextChanged(c: CharSequence?, a: Int, b: Int, d: Int) {}
+            override fun afterTextChanged(e: android.text.Editable?) { if (e.toString().trim().equals(prefs().getString("startupPreset", null), true)) startCb.isChecked = true }
+        })
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(4), dp(20), 0); addView(input); addView(startCb) }
         val d = darkDialog().setTitle("Save Preset")
             .setMessage("Saves the skin, layout, cards and every setting as they are now. Up to 12 presets; a name you have used is replaced.")
             .setView(box).setNegativeButton("Cancel", null).setPositiveButton("Save", null).showDark()
@@ -1772,7 +1790,9 @@ class MainActivity : Activity() {
             val entry = name to snapshotPrefs()
             if (at >= 0) list[at] = entry else list.add(entry)
             writePresets(list)
-            EventLog.add("preset saved: $name")
+            if (startCb.isChecked) prefs().edit().putString("startupPreset", name).apply()
+            else if (name.equals(prefs().getString("startupPreset", null), true)) prefs().edit().remove("startupPreset").apply()
+            EventLog.add("preset saved: $name" + (if (startCb.isChecked) " (loads on startup)" else ""))
             Toast.makeText(this, "Preset \"$name\" saved", Toast.LENGTH_SHORT).show()
             d.dismiss()
         }
@@ -1783,7 +1803,7 @@ class MainActivity : Activity() {
         if (list.isEmpty()) { darkDialog().setTitle("Load Preset").setMessage("None").setPositiveButton("OK", null).showDark(); return }
         var sel = -1
         val d = darkDialog().setTitle("Load Preset")
-            .setSingleChoiceItems(list.map { it.first + "   (Layout " + (it.second.optJSONObject("layout")?.optInt("v", 0)?.takeIf { l -> l == 1 || l == 2 } ?: 2) + ")" }.toTypedArray(), -1) { _, w -> sel = w }
+            .setSingleChoiceItems(list.map { it.first + (if (it.first.equals(prefs().getString("startupPreset", null), true)) "  [starts the app]" else "") + "   (Layout " + (it.second.optJSONObject("layout")?.optInt("v", 0)?.takeIf { l -> l == 1 || l == 2 } ?: 2) + ")" }.toTypedArray(), -1) { _, w -> sel = w }
             .setPositiveButton("Load", null).setNeutralButton("Delete", null).setNegativeButton("Cancel", null).showDark()
         d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             if (sel < 0) { Toast.makeText(this, "Select a preset first", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
@@ -1791,12 +1811,13 @@ class MainActivity : Activity() {
         }
         d.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
             if (sel < 0) { Toast.makeText(this, "Select a preset first", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+            if (list[sel].first.equals(prefs().getString("startupPreset", null), true)) prefs().edit().remove("startupPreset").apply()
             list.removeAt(sel); writePresets(list); d.dismiss(); showLoadPreset()
         }
     }
 
     /** Puts every saved setting back (settings the preset does not hold go back to their defaults), then rebuilds the screen like a restart. */
-    private fun applyPreset(name: String, data: org.json.JSONObject) {
+    private fun writePresetToPrefs(data: org.json.JSONObject) {
         val ed = prefs().edit()
         for (k in prefs().all.keys) if (k !in presetSkip) ed.remove(k)
         for (k in data.keys()) {
@@ -1815,6 +1836,10 @@ class MainActivity : Activity() {
         ed.putBoolean("reopenDash", true)
         if (data.optJSONObject("adasOn")?.optBoolean("v", false) == true) ed.putBoolean("adasRestore", true)
         ed.commit()
+    }
+
+    private fun applyPreset(name: String, data: org.json.JSONObject) {
+        writePresetToPrefs(data)
         EventLog.add("preset loaded: $name")
         layoutRecreating = true
         recreate()
@@ -8874,3 +8899,6 @@ val CAR_PAINTS = listOf(
         "Horizon Grey" to 0xFF2F3038.toInt(), "Mariana" to 0xFF1D4F7E.toInt(), "Marine Layer" to 0xFFE0E1DA.toInt(), "Night Drive" to 0xFF1A1A1A.toInt(),
         "Red Planet" to 0xFF7F1510.toInt(), "Sea Grass" to 0xFF222B27.toInt(), "Silver Lining" to 0xFF9DB1C9.toInt(), "Solar Orange" to 0xFFC4502A.toInt(),
         "Stealth Green" to 0xFF161F1B.toInt(), "Sun Soaked" to 0xFFC9B0A3.toInt())
+
+/** Process-wide: the startup preset has been put in place for this run of the app. */
+object StartupFlag { @Volatile var done = false }
