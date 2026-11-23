@@ -1931,13 +1931,16 @@ class MainActivity : Activity() {
                     setPadding(dp(12), dp(8), dp(8), dp(8))
                     setBackgroundColor(if (position == sel) Color.parseColor("#2B4A6B") else Color.TRANSPARENT)
                     // a selection circle on the left: the preset that Load will open
-                    addView(RadioButton(this@MainActivity).apply { isChecked = position == sel; isClickable = false; isFocusable = false }, LinearLayout.LayoutParams(dp(44), -2))
+                    addView(RadioButton(this@MainActivity).apply { isChecked = position == sel; isFocusable = false; setOnClickListener { sel = position; notifyDataSetChanged() } }, LinearLayout.LayoutParams(dp(44), -2))
                     addView(LinearLayout(this@MainActivity).apply {
                         orientation = LinearLayout.VERTICAL
                         addView(TextView(this@MainActivity).apply { text = pr.first; textSize = 16f; setTextColor(Color.parseColor("#F0F3F8")) })
                         addView(TextView(this@MainActivity).apply { text = "Layout $lay"; textSize = 12f; setTextColor(Color.parseColor("#9FB3C4")) })
                     }, LinearLayout.LayoutParams(0, -2, 1f))
+                    isClickable = true; isFocusable = false
+                    setOnClickListener { sel = position; notifyDataSetChanged() }
                     addView(CheckBox(this@MainActivity).apply {
+                        isFocusable = false
                         isChecked = isStart(pr.first)
                         setOnClickListener {
                             // only one preset starts the app: ticking this one clears the tick on the others; unticking leaves the app starting as it is
@@ -1949,7 +1952,7 @@ class MainActivity : Activity() {
             }
         }
         lv.adapter = adapter
-        lv.setOnItemClickListener { _, _, pos, _ -> sel = pos; adapter.notifyDataSetChanged() }
+        lv.descendantFocusability = android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS
         val head = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; setPadding(dp(12), dp(4), dp(8), dp(4))
             addView(TextView(this@MainActivity).apply { text = "Select a preset, then Load"; textSize = 13f; setPadding(dp(44), 0, 0, 0); setTextColor(Color.parseColor("#9FB3C4")) }, LinearLayout.LayoutParams(0, -2, 1f))
