@@ -389,7 +389,7 @@ class PulseCan(
         val out = txOut ?: return "CAN reader not running"
         val (bus, d) = tpl530()        // the car screen's own last 0x530 if the app has seen one, else a built one with nothing requested
         if (d.size != 8) return "0x530 frame had an unexpected length"
-        d[2] = d[2] and 0xC7       // AUTO, SYNC, A/C requests off (bits 3-5)
+        d[2] = d[2] and 0xD7       // AUTO and A/C requests off; the SYNC bit (0x10) is left as the car screen has it, so a temperature or fan change does not switch Sync off for a moment
         d[3] = (d[3] and 0x8F) or level                            // recirculation, air clean, defrost requests off; fan = level
         d[6] = d[6] and 0x7F                                       // windshield blow button off
         val iface = if (bus == 1) ifs.first else ifs.second
@@ -449,7 +449,7 @@ class PulseCan(
         val raw = Math.round(tempC.coerceIn(18.0, 32.0) * 2).toInt()
         val (bus, d) = tpl530()
         if (d.size != 8) return "0x530 frame had an unexpected length"
-        d[2] = d[2] and 0xC7                       // AUTO, SYNC, A/C requests off
+        d[2] = d[2] and 0xD7       // AUTO and A/C requests off; the SYNC bit (0x10) is left as the car screen has it, so a temperature or fan change does not switch Sync off for a moment
         d[3] = d[3] and 0x80                       // fan request inactive; recirculation, air clean, defrost requests off
         d[6] = d[6] and 0x7F                       // windshield blow button off
         d[0] = if (driver || sync) raw else 0
@@ -498,7 +498,7 @@ class PulseCan(
         val (bus, d) = tpl530()
         if (d.size != 8) return "0x530 frame had an unexpected length"
         d[0] = 0; d[1] = 0                         // set temperatures: no change
-        d[2] = d[2] and 0xC7                       // AUTO, SYNC, A/C requests off
+        d[2] = d[2] and 0xD7       // AUTO and A/C requests off; the SYNC bit (0x10) is left as the car screen has it, so a temperature or fan change does not switch Sync off for a moment
         d[3] = d[3] and 0x80                       // fan request inactive; recirculation, air clean, defrost requests off
         d[6] = d[6] and 0x7F                       // windshield blow button off
         when (kind) {
