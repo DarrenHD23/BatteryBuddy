@@ -416,6 +416,7 @@ class MainActivity : Activity() {
         val reopenDash = prefs().getBoolean("reopenDash", false)      // a preset was just loaded: back to the dashboard
         if (reopenDash) prefs().edit().remove("reopenDash").apply()
         if (reopenDash || getSharedPreferences("prefs", MODE_PRIVATE).getBoolean("dashDefault", false)) showDashboard(true)
+        ui.post { showDisclaimerIfNeeded() }
         // optionally go into split screen right after a fresh start (not when the screen is only being rebuilt)
         val startSplit = prefs().getString("startSplit", "")
         if (savedInstanceState == null && !splitOnStartDone && (startSplit == "spotify" || startSplit == "maps" || (startSplit == "custom" && !prefs().getString("startSplitPkg", "").isNullOrEmpty()))) {
@@ -427,6 +428,44 @@ class MainActivity : Activity() {
                     else openLower(if (startSplit == "spotify") 1 else 0)
                 }
             }, 2500)
+        }
+    }
+
+    /** The legal disclaimer, shown on the very first start: it must be scrolled to the end and accepted, or the app exits. */
+    private fun showDisclaimerIfNeeded() {
+        if (prefs().getBoolean("disclaimerOk", false) || isFinishing) return
+        val raw = try { assets.open("disclaimer.txt").bufferedReader().readText() } catch (e: Exception) { EventLog.add("disclaimer text missing: ${e.message}"); return }
+        val lines = raw.trim().lines()
+        val title = lines.firstOrNull()?.trim().orEmpty()
+        val body = lines.drop(1).filter { it.isNotBlank() }.joinToString("\n\n")
+        val tv = TextView(this).apply { text = body; textSize = 14f; setTextColor(Color.parseColor("#E6EBF2")); setPadding(dp(20), dp(8), dp(20), dp(8)); setLineSpacing(0f, 1.1f) }
+        val sv = ScrollView(this).apply { addView(tv) }
+        val cb = CheckBox(this).apply { text = "I understand and accept."; isEnabled = false; setPadding(dp(8), dp(8), dp(8), dp(8)) }
+        val hint = TextView(this).apply { text = "Scroll to the end to continue."; textSize = 12f; setTextColor(Color.parseColor("#9FB3C4")); setPadding(dp(24), dp(4), dp(20), 0) }
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(sv, LinearLayout.LayoutParams(-1, 0, 1f)); addView(hint); addView(cb, LinearLayout.LayoutParams(-1, -2).apply { leftMargin = dp(16) })
+        }
+        val d = darkDialog().setTitle(title).setView(col).setCancelable(false)
+            .setPositiveButton("Continue", null).setNegativeButton("Do Not Accept", null).showDark()
+        d.setCanceledOnTouchOutside(false)
+        val ok = d.getButton(AlertDialog.BUTTON_POSITIVE); ok.isEnabled = false
+        d.window?.setLayout(-1, (resources.displayMetrics.heightPixels * 0.86f).toInt())
+        fun atEnd() { if (!sv.canScrollVertically(1)) { cb.isEnabled = true; hint.visibility = View.GONE } }
+        sv.setOnScrollChangeListener { _, _, _, _, _ -> atEnd() }
+        sv.viewTreeObserver.addOnGlobalLayoutListener { atEnd() }      // short text that fits without scrolling
+        cb.setOnCheckedChangeListener { _, on -> ok.isEnabled = on }
+        ok.setOnClickListener {
+            val at = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", java.util.Locale.US).format(java.util.Date())
+            prefs().edit().putBoolean("disclaimerOk", true).putString("disclaimerAt", at).putInt("disclaimerVer", 1).commit()
+            try { java.io.File(filesDir, "disclaimer_accepted.txt").writeText("Legal disclaimer (version 1) accepted on $at\n") } catch (_: Exception) {}
+            EventLog.add("legal disclaimer accepted by the user ($at)")
+            d.dismiss()
+        }
+        d.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
+            EventLog.add("legal disclaimer declined by the user: app exits")
+            d.dismiss(); finishAffinity()
+            ui.postDelayed({ android.os.Process.killProcess(android.os.Process.myPid()) }, 400)
         }
     }
 
@@ -1719,7 +1758,7 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------- Layout 2 presets (up to 6)
     /** Settings that belong to the car, the install or the user's data rather than to how the screen looks: a preset leaves them alone. */
-    private val presetSkip = setOf("currentPreset", "startupPreset", "presets", "presetsL2", "presetsL1", "devToken", "betaOn", "betaUnlocked", "updDeferred", "source", "legacyCan", "canSafe", "climateTx", "radioFavs", "reopenSettings", "reopenDash", "adasRestore", "adasOn", "spdAdjMph", "spdAdjKmh", "packKwh")
+    private val presetSkip = setOf("currentPreset", "startupPreset", "presets", "presetsL2", "presetsL1", "devToken", "betaOn", "betaUnlocked", "updDeferred", "source", "legacyCan", "canSafe", "climateTx", "radioFavs", "reopenSettings", "reopenDash", "adasRestore", "adasOn", "spdAdjMph", "spdAdjKmh", "packKwh", "disclaimerOk", "disclaimerAt", "disclaimerVer")
 
     private fun curLayout() = if (prefs().getInt("layout", 1) == 2) 2 else 1
     /** One shared list of up to 6 presets, whichever layout saved them (older per-layout lists are merged in the first time). */
