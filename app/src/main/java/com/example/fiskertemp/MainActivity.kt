@@ -445,8 +445,20 @@ class MainActivity : Activity() {
                 "Thank you to Majd (otherwise none of this would be possible), Ben Kay, Moistpope, and sunnypilot for writing Oceanscape for which this gave me inspiration, JoseDB for suggesting the 3D model and Layout 2 graphics and bug reports, Gabriello Gambale for technical advice and help with the main BatteryBuddy app, and several other early adopters and testers for their suggestions and bug reports.\n\n" +
                 "Please remember to KEEP your EYES on the ROAD and enjoy driving your Fisker Ocean!  Safety First!  Read the Disclaimer!  It is for your safety!"
         }
-        darkDialog().setTitle("About").setView(ScrollView(this).apply { addView(tv) })
-            .setPositiveButton("Close", null).setNeutralButton("Read the Disclaimer") { _, _ -> showDisclaimerReadOnly() }.showDark()
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(tv) }
+        fun btn(label: String, onTap: () -> Unit) = col.addView(Button(this).apply { text = label; isAllCaps = false; setOnClickListener { onTap() } }, LinearLayout.LayoutParams(-1, -2).apply { leftMargin = dp(20); rightMargin = dp(20); topMargin = dp(6) })
+        btn("Read the Disclaimer") { showDisclaimerReadOnly() }
+        btn("Read the License") { showAssetText("License", "LICENSE.txt") }
+        btn("Read the README") { showAssetText("README", "README.txt") }
+        btn("Read the Third-party notice") { showAssetText("Third-party notice", "THIRD_PARTY_NOTICE.txt") }
+        darkDialog().setTitle("About").setView(ScrollView(this).apply { addView(col) }).setPositiveButton("Close", null).showDark()
+    }
+
+    /** Shows one of the project's text files (bundled in the app) in a scrolling window. */
+    private fun showAssetText(title: String, asset: String) {
+        val txt = try { assets.open(asset).bufferedReader().readText().trim() } catch (e: Exception) { toast("$title is missing from this build."); return }
+        val tv = TextView(this).apply { text = txt; textSize = 14f; setTextColor(Color.parseColor("#E6EBF2")); setPadding(dp(20), dp(8), dp(20), dp(8)); setLineSpacing(0f, 1.1f); setTextIsSelectable(true) }
+        darkDialog().setTitle(title).setView(ScrollView(this).apply { addView(tv) }).setPositiveButton("Close", null).showDark()
     }
 
     private fun showDisclaimerReadOnly() {
