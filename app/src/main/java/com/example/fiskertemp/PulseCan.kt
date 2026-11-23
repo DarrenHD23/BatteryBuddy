@@ -452,8 +452,10 @@ class PulseCan(
         d[2] = d[2] and 0xD7       // AUTO and A/C requests off; the SYNC bit (0x10) is left as the car screen has it, so a temperature or fan change does not switch Sync off for a moment
         d[3] = d[3] and 0x80                       // fan request inactive; recirculation, air clean, defrost requests off
         d[6] = d[6] and 0x7F                       // windshield blow button off
+        // SYNC on: the driver's setting is the master, so only it is sent (from either side's buttons) and the passenger side stays 0 = no change.
+        // Sending a passenger temperature of its own makes the car switch Sync off, as it does when the passenger changes theirs on the car's screen.
         d[0] = if (driver || sync) raw else 0
-        d[1] = if (!driver || sync) raw else 0
+        d[1] = if (!driver && !sync) raw else 0
         val iface = if (bus == 1) ifs.first else ifs.second
         val line = "tx $iface 530 " + d.joinToString("") { String.format("%02X", it and 0xFF) } + "\n"
         Thread {
@@ -461,7 +463,7 @@ class PulseCan(
                 try { out.write(line.toByteArray()); out.flush() } catch (e: Exception) { onStatus("Climate TX failed: ${e.message}") }
             }
         }.start()
-        return "${if (driver) "Driver" else "Passenger"}${if (sync) " + sync" else ""} temperature ${raw / 2.0} sent on IBUS$bus"
+        return "${if (driver) "Driver" else "Passenger"}${if (sync) " (sync on: sent as the driver setting)" else ""} temperature ${raw / 2.0} sent on IBUS$bus"
     }
 
     /**
