@@ -2592,7 +2592,8 @@ class MainActivity : Activity() {
 
     /** True when our window is the full screen (not a half or third split). The ADAS view is only offered then. */
     private fun isFullWindow(): Boolean = try {
-        if (android.os.Build.VERSION.SDK_INT >= 30) windowManager.currentWindowMetrics.bounds.height() >= windowManager.maximumWindowMetrics.bounds.height() * 0.8 else true
+        // the ADAS view is offered in the full screen and in the split windows down to a third of the height
+        if (android.os.Build.VERSION.SDK_INT >= 30) windowManager.currentWindowMetrics.bounds.height() >= windowManager.maximumWindowMetrics.bounds.height() * 0.28 else true
     } catch (e: Exception) { true }
 
     /** ADAS view + the "hide gauges" option: the two gauges fade out and compact Speed / Power numbers (title underneath) fade in at the top corners, on the side each gauge was. */
@@ -3129,6 +3130,7 @@ class MainActivity : Activity() {
         l2LoadBtn = flyChip("Load Preset") { showLoadPreset() }
         l2SaveBtn = flyChip("Save Preset") { showSavePreset() }
         NavState.onChange = { for (ps in pageSets) ps.nav.refresh() }
+        NavState.onDiag = { d -> try { log(d) } catch (e: Throwable) { } }
         Thread { rootRun("cmd notification allow_listener " + NavListener.component(this)) }.start()
         leftPager = PagerCardView(this)
         rightPager = PagerCardView(this)
@@ -4246,8 +4248,9 @@ class MainActivity : Activity() {
         run { var pv: android.view.ViewParent? = carView.parent; while (pv is ViewGroup) { pv.clipChildren = false; pv.clipToPadding = false; if (pv === dashRoot) break; pv = pv.parent } }
         if (l2) {
             // middle column: the car and the road lines fill the top 162 dp (the car is drawn 114 x 104 dp inside it); the two cards 145 dp tall at the bottom of the row
-            (carView.layoutParams as LinearLayout.LayoutParams).apply { width = -1; height = dp(162); weight = 0f; topMargin = 0 }
-            (l2Mid.getChildAt(1).layoutParams as LinearLayout.LayoutParams).apply { width = -1; height = dp(l2CardsH); weight = 0f; topMargin = dp(if (l2Third) l2RowH - 162 - l2CardsH else maxOf(l2RowH - 162 - 145, 0)); bottomMargin = 0 }
+            val carHdp = if (l2Third) (l2RowH - l2CardsH).coerceIn(110, 162) else 162      // third-height window: the car view stops where the cards start
+            (carView.layoutParams as LinearLayout.LayoutParams).apply { width = -1; height = dp(carHdp); weight = 0f; topMargin = 0 }
+            (l2Mid.getChildAt(1).layoutParams as LinearLayout.LayoutParams).apply { width = -1; height = dp(l2CardsH); weight = 0f; topMargin = dp(if (l2Third) maxOf(l2RowH - carHdp - l2CardsH, 0) else maxOf(l2RowH - 162 - 145, 0)); bottomMargin = 0 }
             carView.requestLayout(); l2Mid.getChildAt(1).requestLayout()
         }
         dashGaugeRow.requestLayout()
@@ -4360,6 +4363,23 @@ class MainActivity : Activity() {
                 mediaBtn.requestLayout(); climateBtn.requestLayout()
                 }
             }
+            if (l2Third && climateBtn.visibility == View.VISIBLE) {
+                // third-height window: Media / Climate under the battery bar, on its side, the same as in the 50/50 split
+                val barEnd3 = prefs().getBoolean("speedLeft", false)
+                val bw3 = l2BtnW; val edge3 = dp(12); val gv3 = Gravity.TOP or (if (barEnd3) Gravity.END else Gravity.START)
+                val top3 = dp(l2BtnRowBottom - 2)
+                (mediaBtn.layoutParams as FrameLayout.LayoutParams).apply {
+                    width = dp(bw3); height = dp(26); gravity = gv3; topMargin = top3
+                    if (barEnd3) { rightMargin = edge3 + dp(bw3) + dp(6); leftMargin = 0 } else { leftMargin = edge3; rightMargin = 0 }
+                }
+                (climateBtn.layoutParams as FrameLayout.LayoutParams).apply {
+                    width = dp(bw3); height = dp(26); gravity = gv3; topMargin = top3
+                    if (barEnd3) { rightMargin = edge3; leftMargin = 0 } else { leftMargin = edge3 + dp(bw3) + dp(6); rightMargin = 0 }
+                }
+                mediaBtn.textSize = 12f; climateBtn.textSize = 12f
+                mediaBtn.setPadding(0, 0, 0, 0); climateBtn.setPadding(0, 0, 0, 0)
+                mediaBtn.requestLayout(); climateBtn.requestLayout()
+            }
             l2MiniNow = mini && !l2Third
             if (l2MediaInPlace && !l2MiniNow) l2MediaInPlace = false
             if (l2MediaInPlace) {
@@ -4374,6 +4394,12 @@ class MainActivity : Activity() {
             wasL2Clim = inline
         }
         if (!l2) { mediaBtn.textSize = 12f; climateBtn.textSize = 12f }
+        if (l2) {
+            // the two buttons always use exactly the same type
+            climateBtn.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, mediaBtn.textSize)
+            climateBtn.typeface = mediaBtn.typeface; climateBtn.letterSpacing = mediaBtn.letterSpacing; climateBtn.setIncludeFontPadding(mediaBtn.includeFontPadding)
+            if (mediaBtn.visibility == View.VISIBLE || climateBtn.visibility == View.VISIBLE) log("l2 buttons: media ${mediaBtn.textSize}px climate ${climateBtn.textSize}px")
+        }
         if (!l1c && !l2) (dashLight.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 22 else if (short) 26 else 42); height = dp(if (midLevel == 2) 46 else if (short) 56 else 88) }
         dashReady.textSize = if (midLevel == 2 || (midLevel == 1 && brakeUnder)) 11f else if (midLevel == 1) 12f else 15f
         dashReady.letterSpacing = if (midLevel == 1 && brakeUnder && !readyUnderPanel) 0.06f else 0.18f
