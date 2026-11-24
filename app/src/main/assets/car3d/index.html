@@ -88,6 +88,9 @@ new GLTFLoader().parse(u8.buffer,'',g=>{
   model=g.scene;scene.add(model);
   if(VIEWER)model.traverse(o=>{if(o.isMesh&&o.name==='Body_Main_1'){try{smoothArches(o.geometry)}catch(e){}}});
   if(VIEWER)model.traverse(o=>{if(o.isMesh&&!/^Beam_/.test(o.name)){try{o.geometry=toCreasedNormals(o.geometry,Math.PI/5)}catch(e){}}});      // viewer only: smooth shading across the flat segments of the low-poly body (edges sharper than 36 degrees stay crisp)
+  if(VIEWER){const lm=new THREE.MeshBasicMaterial({color:0x05080c,side:THREE.DoubleSide});      // viewer only: a dark liner behind each wheel arch, so a gap in the body edge shows dark instead of the background
+    for(const sx of[1,-1])for(const cz of[1.37,-1.37]){const cy=new THREE.CylinderGeometry(.57,.57,.29,48,1,true,-.1,Math.PI+.2);cy.rotateZ(Math.PI/2);const t=new THREE.Mesh(cy,lm);t.position.set(sx*.695,.39,cz);model.add(t);
+      const cap=new THREE.Mesh(new THREE.CircleGeometry(.57,48,-.1,Math.PI+.2),lm);cap.rotation.y=Math.PI/2;cap.position.set(sx*.55,.39,cz);model.add(cap)}}
   model.traverse(o=>{if(o.isMesh){for(const m of Array.isArray(o.material)?o.material:[o.material]){if(!mats.has(m.name))mats.set(m.name,[]);mats.get(m.name).push(m)}}const mn=o.isMesh?(Array.isArray(o.material)?o.material:[o.material]).map(m=>m.name).join(' '):'';
     if(/Spot|Anchor/.test(o.name)||o.isLight)o.visible=false;
     const bm=/^Beam_(Dipped|High)_[LR]$/.exec(o.name);if(bm){beams[bm[1]].push(o);o.visible=false;o.scale.setScalar(0)}});
