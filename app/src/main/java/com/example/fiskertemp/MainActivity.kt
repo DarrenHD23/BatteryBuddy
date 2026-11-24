@@ -2585,7 +2585,7 @@ class MainActivity : Activity() {
         val cx = ma[0] - r[0] + dashMid.width / 2f
         val half = 86f * carView.height / 162f
         // just left of the road; right-hand drive: just right of it
-        val x = if (prefs().getBoolean("rhd", false)) cx + half + dp(14) else cx - half - dp(14) - dp(120)
+        val x = if (prefs().getBoolean("rhd", false)) cx + half + dp(2) else cx - half - dp(2) - dp(120)     // 12 dp closer to the road than before, away from the clock
         b.translationX = x.coerceIn(dp(8).toFloat(), (root.width - dp(128)).toFloat().coerceAtLeast(dp(8).toFloat()))
         b.bringToFront()
     }
