@@ -649,7 +649,7 @@ class PulseCan(
                 val code = p.waitFor()
                 onStatus("CAN reader stopped (code $code)")
             } catch (e: Exception) {
-                onStatus("CAN reader failed: ${e.message}")
+                if (!running || generation != my) onStatus("CAN reader stopped (app paused or closed)") else onStatus("CAN reader failed: ${e.message}")      // a deliberate stop closes the stream: not a fault
             }
             txOut = null
             proc?.destroy()
