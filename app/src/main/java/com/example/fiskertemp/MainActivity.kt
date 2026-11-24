@@ -4563,6 +4563,22 @@ class MainActivity : Activity() {
         val lp = updateBtn.layoutParams as FrameLayout.LayoutParams
         val par = updateBtn.parent as? View
         val rhd = prefs().getBoolean("rhd", false)
+        // under the kW gauge, centred on it (the gauge sits on the other side on right-hand drive, so the button follows it)
+        if (par != null && ::dashPowerGauge.isInitialized && dashPowerGauge.isShown && dashPowerGauge.width > 0 && par.width > 0) {
+            val gp = IntArray(2); val pp = IntArray(2)
+            dashPowerGauge.getLocationInWindow(gp); par.getLocationInWindow(pp)
+            val bw = if (updateBtn.width > 0) updateBtn.width else dp(130)
+            val gcx = gp[0] - pp[0] + dashPowerGauge.width / 2f
+            val gcy = gp[1] - pp[1] + dashPowerGauge.height / 2f
+            val gr = minOf(dashPowerGauge.width, dashPowerGauge.height) / 2f
+            val x = (gcx - bw / 2f).toInt().coerceIn(dp(4), (par.width - bw - dp(4)).coerceAtLeast(dp(4)))
+            val y = (gcy + gr + dp(4)).toInt().coerceIn(dp(2), (par.height - dp(34)).coerceAtLeast(dp(2)))
+            if (lp.gravity != (Gravity.TOP or Gravity.START) || lp.leftMargin != x || lp.topMargin != y || lp.rightMargin != 0) {
+                lp.gravity = Gravity.TOP or Gravity.START; lp.leftMargin = x; lp.topMargin = y; lp.rightMargin = 0
+                updateBtn.layoutParams = lp
+            }
+            return
+        }
         // beside the word Ready, on the side away from the ADAS View button (which sits to the left of the road; right of it on right-hand drive)
         if (par != null && ::dashReady.isInitialized && dashReady.isShown && dashReady.width > 0 && par.width > 0) {
             val rp = IntArray(2); val pp = IntArray(2)
@@ -8385,19 +8401,24 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         seatRects.clear(); seatWho.clear()
         val drvRight = rhdSide
         val frontL = if (drvRight) 1 else 0; val frontR = if (drvRight) 0 else 1
-        p.typeface = Typeface.DEFAULT_BOLD; p.textSize = dp(13f)
+        p.typeface = Typeface.DEFAULT_BOLD
+        val sp = dp(14f); val lg = dp(6f)
+        // one label size for both sides: the largest (13 down to 9) at which the longest name still fits beside the buttons, so the right side is never left without labels
+        val allNames = listOf(seatName(frontL), seatName(frontR), seatName(2))
+        var ts = 13f
+        fun labW(t: Float): Float { p.textSize = dp(t); return allNames.maxOf { p.measureText(it) } }
+        while (ts > 9f && 2 * (isz + lg + labW(ts)) + sp > dialW - dp(8f)) ts -= 0.5f
+        val withLab = 2 * (isz + lg + labW(ts)) + sp <= dialW - dp(8f)
+        val lw = labW(ts)
         fun row(colX: Float, front: Int, rear: Int) {
             val names = listOf(seatName(front), seatName(rear))
-            val lw = names.maxOf { p.measureText(it) }
-            val sp = dp(14f); val lg = dp(6f)
-            val withLab = 2 * (isz + lg + lw) + sp <= dialW - dp(8f)
             val total = if (withLab) 2 * (isz + lg + lw) + sp else 2 * isz + sp
             var x = colX + dialW / 2f - total / 2f
             val y = rowTop + (rowH - isz) / 2f
             for ((i, who) in listOf(front, rear).withIndex()) {
                 drawSeat(RectF(x, y, x + isz, y + isz), who, s)
                 x += isz
-                if (withLab) { text(names[i], x + lg, y + isz / 2f, 13f, Color.argb(220, 255, 255, 255), true, Paint.Align.LEFT); x += lg + lw }
+                if (withLab) { text(names[i], x + lg, y + isz / 2f, ts, Color.argb(220, 255, 255, 255), true, Paint.Align.LEFT); x += lg + lw }
                 x += sp
             }
         }
@@ -8405,7 +8426,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         return true
     }
 
-    private fun seatName(who: Int) = when (who) { 0 -> "Driver"; 1 -> "Passenger"; else -> "Rear" }
+    private fun seatName(who: Int) = when (who) { 0 -> "Driver"; 1 -> "Front Pass"; else -> "Rear" }
 
     /** The full climate screen: the seat buttons go in the empty space under each dial, beside the car. False when that space is too small. */
     private fun seatBesideCar(dialLeft: Float, dialW: Float, dialRight: Float, dialTop: Float, dialH: Float, s: CanSnapshot): Boolean {
