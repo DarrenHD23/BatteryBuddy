@@ -3131,6 +3131,7 @@ class MainActivity : Activity() {
         l2SaveBtn = flyChip("Save Preset") { showSavePreset() }
         NavState.onChange = { for (ps in pageSets) ps.nav.refresh() }
         NavState.onDiag = { d -> try { log(d) } catch (e: Throwable) { } }
+        NavState.flushDiag()
         Thread { rootRun("cmd notification allow_listener " + NavListener.component(this)) }.start()
         leftPager = PagerCardView(this)
         rightPager = PagerCardView(this)
