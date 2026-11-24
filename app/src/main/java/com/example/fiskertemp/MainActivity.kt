@@ -2608,6 +2608,28 @@ class MainActivity : Activity() {
         // Layouts 1 and 2: with the clock in the middle, "Ready" (and the brake-light note under it) moves down to clear the clock and date
         val readyShift = if (hide && (l2Applied || l1cApplied) && adasClockBox.height > 0) (adasClockBox.height + dp(10)).toFloat() else 0f
         for (v in listOf<View>(dashReady, dashBrake)) if (v.translationY != readyShift) v.translationY = readyShift
+        // Layout 1: the trip information (and the battery bar under it) move down until the road lines and sensor arcs, which run to the bottom of the car view, are clear of it;
+        // never lower than the media player allows (with room kept for the word Ready when it sits under the panel)
+        if (::tripPanel.isInitialized && ::carView.isInitialized) {
+            var dy = 0f
+            if (l1cApplied && !adasMode && tripPanel.isShown && tripPanel.height > 0 && carView.isShown && carView.height > 0) {
+                val cp = IntArray(2); carView.getLocationInWindow(cp)
+                val carBottom = cp[1] + carView.height * carView.scaleY
+                val tp = IntArray(2); tripPanel.getLocationInWindow(tp)
+                val top0 = tp[1] - tripPanel.translationY
+                var bot0 = top0 + tripPanel.height
+                val barOn = ::chargeBar.isInitialized && chargeBar.isShown && chargeBar.height > 0
+                if (barOn) { val bp = IntArray(2); chargeBar.getLocationInWindow(bp); bot0 = maxOf(bot0, bp[1] - chargeBar.translationY + chargeBar.height) }
+                val rp0 = IntArray(2); dashRoot.getLocationInWindow(rp0)
+                var floor = (rp0[1] + dashRoot.height).toFloat()
+                if (::mediaCard.isInitialized && mediaCard.isShown && mediaCard.height > 0) { val mp = IntArray(2); mediaCard.getLocationInWindow(mp); floor = mp[1].toFloat() }
+                val readyRoom = if (dashReady.visibility == View.VISIBLE && dashLight.isShown && dashLight.alpha > 0.1f) dashReady.height + dp(4) else 0
+                val room = (floor - bot0 - dp(4) - readyRoom).coerceAtLeast(0f)
+                dy = (carBottom - top0 + dp(4)).coerceAtLeast(0f).coerceAtMost(room)
+            }
+            if (Math.abs(tripPanel.translationY - dy) > 1f) tripPanel.translationY = dy
+            if (::chargeBar.isInitialized && Math.abs(chargeBar.translationY - dy) > 1f) chargeBar.translationY = dy
+        }
         // Layout 1, traffic light showing (it would sit on top of the word): Ready moves to just under the trip information, above the media player
         if (l1cApplied && !adasMode && dashReady.visibility == View.VISIBLE && dashLight.isShown && dashLight.alpha > 0.1f && ::tripPanel.isInitialized && tripPanel.height > 0) {
             val tp = IntArray(2); tripPanel.getLocationInWindow(tp)
