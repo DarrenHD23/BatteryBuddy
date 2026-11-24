@@ -706,35 +706,9 @@ class PulseCan(
             lastChangeAt = now
         }
 
-        if (bus == 1 && id == 0x234) log234(bytes)
         val next = decode(snap, bus, id, bytes) ?: return
         snap = next
         onUpdate(next)
-    }
-
-    // ---- drive-mode diagnosis: log the raw 0x234 frame whenever a byte that is not just a rolling counter changes
-    private var l234Prev: IntArray? = null
-    private val l234Chg = IntArray(8)
-    private var l234WinAt = 0L
-    private var l234Noisy = BooleanArray(8)
-    private var l234LogAt = 0L
-
-    private fun log234(b: IntArray) {
-        if (b.size < 8) return
-        val now = System.currentTimeMillis()
-        val p = l234Prev
-        if (now - l234WinAt > 3000L) { for (i in 0 until 8) l234Noisy[i] = l234Chg[i] > 15; java.util.Arrays.fill(l234Chg, 0); l234WinAt = now }
-        var real = false
-        if (p == null) real = true else for (i in 0 until 8) if (b[i] != p[i]) { l234Chg[i]++; if (!l234Noisy[i]) real = true }
-        l234Prev = b.copyOf(8)
-        if (real && now - l234LogAt >= 150L) {
-            l234LogAt = now
-            val hexs = b.take(8).joinToString(" ") { String.format("%02X", it and 0xFF) }
-            val bits = b.take(8).joinToString(" ") { Integer.toBinaryString((it and 0xFF) or 0x100).substring(1) }
-            val mode = (b[7] shr 3) and 7
-            val noisy = (0 until 8).filter { l234Noisy[it] }.joinToString(",")
-            EventLog.add("0x234 $hexs | $bits | mode(b7 bits5-3)=$mode ready=${((b[1] shr 4) and 1)} counterBytes=[$noisy]")
-        }
     }
 
     private fun decode(s: CanSnapshot, bus: Int, id: Int, b: IntArray): CanSnapshot? {

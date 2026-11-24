@@ -5318,9 +5318,10 @@ class MainActivity : Activity() {
     @Volatile private var uiPong = 0L
 
     /** Every 30 s, from its own thread (so it keeps going if the screen thread hangs): load, memory, and whether the screen thread answers. */
+    private var heartbeat: Thread? = null
     private fun startHeartbeat() {
-        Thread {
-            while (true) {
+        heartbeat = Thread {
+            while (!Thread.currentThread().isInterrupted) {
                 try { Thread.sleep(30_000) } catch (e: InterruptedException) { return@Thread }
                 val sent = System.currentTimeMillis()
                 ui.post { uiPong = System.currentTimeMillis() }
@@ -5329,7 +5330,7 @@ class MainActivity : Activity() {
                 val n = pulse?.frames ?: 0L
                 EventLog.add("alive up=" + uptimeSecs() + "s " + EventLog.system() + " frames=$n ui=" + (if (answered) "ok" else "NOT ANSWERING") + " " + CanDiag.quick())
             }
-        }.also { it.isDaemon = true }.start()
+        }.also { it.isDaemon = true; it.start() }
     }
 
     private fun uptimeSecs(): String = try { java.io.File("/proc/uptime").readText().trim().split(" ")[0].toDouble().toInt().toString() } catch (e: Exception) { "?" }
@@ -5653,7 +5654,7 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onDestroy() { EventLog.add("app stopped"); try { gpsListener?.let { (getSystemService(LOCATION_SERVICE) as android.location.LocationManager).removeUpdates(it) } } catch (e: Exception) { }; InApp.useExternal(); if (layoutRecreating) pulse?.saveTrip(); mediaWatcher?.stop(); try { btReceiver?.let { unregisterReceiver(it) } } catch (e: Exception) { }; pulse?.stop(); ui.removeCallbacksAndMessages(null); close(); super.onDestroy() }
+    override fun onDestroy() { EventLog.add("app stopped"); heartbeat?.interrupt(); try { gpsListener?.let { (getSystemService(LOCATION_SERVICE) as android.location.LocationManager).removeUpdates(it) } } catch (e: Exception) { }; InApp.useExternal(); if (layoutRecreating) pulse?.saveTrip(); mediaWatcher?.stop(); try { btReceiver?.let { unregisterReceiver(it) } } catch (e: Exception) { }; pulse?.stop(); ui.removeCallbacksAndMessages(null); close(); super.onDestroy() }
 
     /** Send an AT or OBD command; read until the ELM '>' prompt (3 s timeout). */
     @Synchronized
