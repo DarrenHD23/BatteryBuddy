@@ -63,7 +63,9 @@ echo "D $(df -k /data 2>/dev/null | tail -1 | tr -s ' ')"
                     "M" -> { var i = 1; while (i + 1 < w.size) { val k = w[i]; val v = w[i + 1].toLongOrNull() ?: 0L
                         when (k) { "MemTotal:" -> mt = v; "MemAvailable:" -> ma = v; "SwapTotal:" -> st = v; "SwapFree:" -> sf = v }; i += 3 } }
                     "U" -> up = w[1].substringBefore('.').toLong()
-                    "FAN" -> fans.add(t.removePrefix("FAN").trim())
+                    "FAN" -> fans.add(t.removePrefix("FAN").trim().let { f ->      // a PWM drive value also gets its percentage
+                        val m = Regex("pwm (\\d+)/255").find(f)
+                        if (m != null) f + " (" + Math.round(m.groupValues[1].toInt() * 100f / 255f) + "%)" else f })
                     "G" -> if (w.size >= 3) gpu = "${w[1].toLong() / 1000000} MHz" + (if (w.size >= 4) " (${w[3].substringBefore('@')})" else "") + " of ${w[2].toLong() / 1000000}"
                     "D" -> { val p = w.drop(1); if (p.size >= 4) { dt = p[1].toLongOrNull() ?: 0L; du = p[2].toLongOrNull() ?: 0L } }
                 }
