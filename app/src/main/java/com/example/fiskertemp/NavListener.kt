@@ -93,6 +93,12 @@ class NavListener : NotificationListenerService() {
             }
             val dump = "nav: ${n.packageName} cat=${n.notification.category} flags=${n.notification.flags} title='$title' text='$text' sub='$sub' remoteTexts=$rvTexts extras=${ex.keySet().joinToString(",")}"
             if (dump != lastDiag) { lastDiag = dump; NavState.diag(dump) }
+            if (title.isBlank() && text.isBlank()) {
+                // a placeholder (CoastPlay posts one with no words in it): there is no guidance to show
+                NavState.active = false; NavState.arrow = null
+                ui.post { NavState.onChange?.invoke() }
+                return
+            }
             NavState.distance = title
             NavState.instruction = text
             NavState.eta = sub
