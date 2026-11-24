@@ -2945,12 +2945,18 @@ class MainActivity : Activity() {
         dashRoot.addView(layer, FrameLayout.LayoutParams(-1, -1))
         viewerLayer = layer
         car3d?.visibility = View.INVISIBLE
+        // the climate screen and the media card step out of the way while the viewer is up; closing it puts back whatever was showing
+        viewerHidden = listOfNotNull<View>(if (::climateView.isInitialized) climateView else null, if (::mediaCard.isInitialized) mediaCard else null, if (::mediaPopup.isInitialized) mediaPopup else null)
+            .filter { it.visibility == View.VISIBLE }.onEach { it.visibility = View.INVISIBLE }
     }
+    private var viewerHidden: List<View> = emptyList()
     private fun closeCarViewer() {
         val l = viewerLayer ?: return
         viewerLayer = null
         dashRoot.removeView(l); viewer3d?.destroy(); viewer3d = null
         car3d?.let { if (it.live) it.visibility = View.VISIBLE }
+        for (v in viewerHidden) if (v.visibility == View.INVISIBLE) v.visibility = View.VISIBLE
+        viewerHidden = emptyList()
     }
 
     private fun buildDashboard(): FrameLayout {
