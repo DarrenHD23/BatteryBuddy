@@ -9118,7 +9118,7 @@ class MediaCardView(ctx: Context) : View(ctx) {
             val bs = dp(26f)
             val compact = l2 && h < dp(130f)       // Layout 2, short card (50/50 window): two columns of buttons, so none is cut off
             val clear = if (compact) dp(92f) else if (l2) dp(60f) else 0f
-            if (rhd) vizRect.set(dp(12f), dp(12f), colX - dp(14f) - clear, h - dp(12f)) else vizRect.set(colX + colW + dp(14f) + clear, dp(12f), w - dp(12f), h - dp(12f))
+            if (rhd) vizRect.set(dp(12f), dp(12f), colX - dp(14f) - maxOf(clear, dp(72f)), h - dp(12f)) else vizRect.set(colX + colW + dp(14f) + clear, dp(12f), w - dp(12f), h - dp(12f))
             // the on / off button sits outside the visualizer window, just beside its top corner (and stays there when the visualizer is off)
             val bcx = if (rhd) vizRect.right + dp(23f) else vizRect.left - dp(23f); val bcy = vizRect.top + dp(15f)
             vizBtn.set(bcx - bs / 2, bcy - bs / 2, bcx + bs / 2, bcy + bs / 2)
