@@ -776,13 +776,11 @@ class PulseCan(
         }
         // 0x554 VCU_0x554 (IBUS1, every 100 ms): VCU_HVBattActPwr, actual HV battery power, 14 bits (byte 4 low 6 bits, byte 5) x 0.1 kW - 600.
         // The Pulse's newer CAN filters no longer let 0xE9 through, so this is the power source when 0xE9 is silent.
-        if (id == 0x2F4 && seenFirst.add("raw/2F4")) onStatus("0x2F4 raw " + b.joinToString("") { String.format("%02X", it and 0xFF) })
         if (bus == 1 && id == 0x554) {
             val raw = ((b[4] and 0x3F) shl 8) or b[5]
             // older Pulse builds (2821 and earlier) pass 0xE9, so the option keeps the original source
             if (context.getSharedPreferences("prefs", Context.MODE_PRIVATE).getBoolean("legacyCan", false)) return null
             val kw = 600.0 - raw * 0.1                  // this signal counts charging as positive, the app counts drawing as positive
-            if (seenFirst.add("raw/554")) onStatus("0x554 raw " + b.joinToString("") { String.format("%02X", it and 0xFF) } + " = " + String.format("%.1f", kw) + " kW (drawing positive)")
             val nowN = System.nanoTime()
             val dt = if (lastP2F4Nanos == 0L) 0.0 else (nowN - lastP2F4Nanos) / 1e9
             lastP2F4Nanos = nowN

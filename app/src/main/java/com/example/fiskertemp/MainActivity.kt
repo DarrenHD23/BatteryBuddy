@@ -834,7 +834,6 @@ class MainActivity : Activity() {
             visibility = View.GONE; onClose = { visibility = View.GONE; if (l2Applied) l2ClimClosed = true else prefs().edit().putBoolean("l1Climate", false).apply() }      // Layout 1: remember that Climate was closed (presets and restarts keep it closed)
             onPower = { turnOn ->
                 val msg = pulse?.sendClimatePower(turnOn) ?: "CAN reader is not running"
-                EventLog.add("Climate power test (" + (if (turnOn) "on" else "off") + "): $msg")
                 toast(msg)
             }
             onTempTap = { toast("This control is off: tick the test box in Settings and restart") }
@@ -846,17 +845,14 @@ class MainActivity : Activity() {
                 val target = (Math.round(base * 2) / 2.0 + dir * 0.5).coerceIn(18.0, 32.0)
                 tempPending = target; tempPendingAt = now
                 val msg = pulse?.sendTemp(driver, target, sn.climSync) ?: "CAN reader is not running"
-                EventLog.add("Climate temperature test: ${if (driver) "driver" else "passenger"} $target (was $base): $msg")
                 toast(msg)
             }
             onButton = { kind ->
                 val msg = pulse?.sendButton(kind) ?: "CAN reader is not running"
-                EventLog.add("Climate button test (${listOf("A/C", "defrost", "recirculation", "sync", "auto")[kind]}): $msg")
                 toast(msg)
             }
             onMode = { mode ->
                 val msg = pulse?.sendAirMode(mode) ?: "CAN reader is not running"
-                EventLog.add("Climate air direction test: $mode: $msg")
                 toast(msg)
             }
             onRearDefrost = { on ->
@@ -865,12 +861,10 @@ class MainActivity : Activity() {
             }
             onWheel = {
                 val msg = pulse?.sendWheelHeat() ?: "CAN reader is not running"
-                EventLog.add("Heated wheel test: $msg")
                 toast(msg)
             }
             onSeat = { who, lvl ->
                 val msg = pulse?.sendSeatHeat(who, lvl) ?: "CAN reader is not running"
-                EventLog.add("Seat heat test: $msg")
                 toast(msg)
             }
             hideSeatIcons = prefs().getBoolean("hideSeatIcons", false)
@@ -1631,7 +1625,6 @@ class MainActivity : Activity() {
             isChecked = prefs().getBoolean("climateTx", true)
             setOnCheckedChangeListener { _, on ->
                 prefs().edit().putBoolean("climateTx", on).apply()
-                EventLog.add("Setting: climate fan test control " + (if (on) "ON" else "off"))
                 toast("Takes effect the next time the app starts")
             }
         }, 4)
@@ -1673,7 +1666,6 @@ class MainActivity : Activity() {
         Skins.current = id
         applySkinChrome()
         if (::dashRoot.isInitialized) applyDashTheme(dashDay)
-        EventLog.add("skin: ${Skins.name(id)}")
     }
 
     /** A preview of a skin: the real power and speed gauges drawn with it, on its background, with its strip line. */
@@ -1878,7 +1870,7 @@ class MainActivity : Activity() {
             .setMessage("Update current preset or Save as a new preset?\n\nCurrent preset loaded: \"$name\". Updating replaces it with the screen and settings as they are now.")
             .setPositiveButton("Update current") { _, _ ->
                 val l2 = readPresets(); val i = l2.indexOfFirst { it.first.equals(name, true) }
-                if (i >= 0) { l2[i] = l2[i].first to snapshotPrefs(); writePresets(l2); EventLog.add("preset updated: $name"); Toast.makeText(this, "Current preset \"$name\" updated", Toast.LENGTH_SHORT).show() }
+                if (i >= 0) { l2[i] = l2[i].first to snapshotPrefs(); writePresets(l2); Toast.makeText(this, "Current preset \"$name\" updated", Toast.LENGTH_SHORT).show() }
             }
             .setNeutralButton("Save as new") { _, _ -> showSaveNewPreset() }
             .setNegativeButton("Cancel", null).showDark()
@@ -1911,7 +1903,6 @@ class MainActivity : Activity() {
             prefs().edit().putString("currentPreset", name).apply()
             if (startCb.isChecked) prefs().edit().putString("startupPreset", name).apply()
             else if (name.equals(prefs().getString("startupPreset", null), true)) prefs().edit().remove("startupPreset").apply()
-            EventLog.add("preset saved: $name" + (if (startCb.isChecked) " (loads on startup)" else ""))
             Toast.makeText(this, "Preset \"$name\" saved", Toast.LENGTH_SHORT).show()
             d.dismiss()
         }
@@ -2009,13 +2000,12 @@ class MainActivity : Activity() {
             val want: Any? = when (e.getString("t")) { "b" -> e.getBoolean("v"); "s" -> e.getString("v"); "i" -> e.getInt("v"); "l" -> e.getLong("v"); "f" -> e.getDouble("v").toFloat(); else -> null }
             if (want != null && now[k] != want) { bad++; EventLog.add("preset: $k is ${now[k]}, wanted $want") }
         }
-        EventLog.add("preset: ${data.length()} settings written, $bad differ")
+        if (bad > 0) EventLog.add("preset: ${data.length()} settings written, $bad differ")
     }
 
     private fun applyPreset(name: String, data: org.json.JSONObject) {
         writePresetToPrefs(data)
         prefs().edit().putString("currentPreset", name).apply()
-        EventLog.add("preset loaded: $name")
         layoutRecreating = true
         recreate()
     }
@@ -2028,7 +2018,6 @@ class MainActivity : Activity() {
     private fun chooseLayout(id: Int, backToSettings: Boolean = false) {
         if (prefs().getInt("layout", 1) == id) return
         prefs().edit().putInt("layout", id).putBoolean("reopenSettings", backToSettings).apply()
-        EventLog.add("layout style: " + (if (id == 2) "Layout 2" else "Original"))
         layoutRecreating = true
         recreate()
     }
@@ -3130,8 +3119,6 @@ class MainActivity : Activity() {
         l2LoadBtn = flyChip("Load Preset") { showLoadPreset() }
         l2SaveBtn = flyChip("Save Preset") { showSavePreset() }
         NavState.onChange = { for (ps in pageSets) ps.nav.refresh() }
-        NavState.onDiag = { d -> try { log(d) } catch (e: Throwable) { } }
-        NavState.flushDiag()
         Thread { rootRun("cmd notification allow_listener " + NavListener.component(this)) }.start()
         leftPager = PagerCardView(this)
         rightPager = PagerCardView(this)
@@ -3988,7 +3975,6 @@ class MainActivity : Activity() {
         val key = "$l1c/$hDp/$narrow/$ti/$midLevel/$third/$half/$tall/$midRows/$clockH/${gaugeWdp.toInt()}/$ovL/$ovR/$edgeL/$edgeR/$up/$rhd/$hideBar/$hideTrip/${prefs().getBoolean("fullMedia", true)}/${prefs().getBoolean("iconBtns", false)}/${prefs().getBoolean("moreBtns", false)}/${showSkinBtn()}/$l2/${prefs().getBoolean("l2Climate", true)}"
         if (key == layoutKey) return
         layoutKey = key
-        EventLog.add("layout ${wDp}x${hDp}dp tier=$ti trip=$midRows third=$third half=$half tall=$tall l2=$l2")
         if (l2 != l2Applied || l1c != l1cApplied) { l2Applied = l2; l1cApplied = l1c; fillMid(l2); statusMode = null }
         compact = ti > 0 || third
         val short = midLevel > 0
@@ -4399,7 +4385,6 @@ class MainActivity : Activity() {
             // the two buttons always use exactly the same type
             climateBtn.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, mediaBtn.textSize)
             climateBtn.typeface = mediaBtn.typeface; climateBtn.letterSpacing = mediaBtn.letterSpacing; climateBtn.setIncludeFontPadding(mediaBtn.includeFontPadding)
-            if (mediaBtn.visibility == View.VISIBLE || climateBtn.visibility == View.VISIBLE) log("l2 buttons: media ${mediaBtn.textSize}px climate ${climateBtn.textSize}px")
         }
         if (!l1c && !l2) (dashLight.layoutParams as FrameLayout.LayoutParams).apply { width = dp(if (midLevel == 2) 22 else if (short) 26 else 42); height = dp(if (midLevel == 2) 46 else if (short) 56 else 88) }
         dashReady.textSize = if (midLevel == 2 || (midLevel == 1 && brakeUnder)) 11f else if (midLevel == 1) 12f else 15f
@@ -5094,7 +5079,6 @@ class MainActivity : Activity() {
             val tm = if (signTest) 2 else (s.tsrMode ?: 0)
             dashSignSrc.text = when (tm) { 2 -> "Camera + Map"; 3 -> "Camera"; 4 -> "Map"; 5 -> "sign data error"; else -> "" }
             dashSignSrc.setTextColor(if (dashDay) Color.argb(200, 20, 32, 46) else Color.argb(200, 255, 255, 255))
-            if (tm != lastTsrMode) { lastTsrMode = tm; EventLog.add("speed limit source: " + (dashSignSrc.text.ifEmpty { "unknown" })) }
         }
         val lc = if (signTest) 1 + ((nowMs / 3000L) % 3L).toInt() else if (prefs().getBoolean("hideLight", false)) null else s.lightColor
         if (lc != null) { lightColor = lc; lightSeenAt = nowMs; dashLight.setColor(lc) }
@@ -5439,7 +5423,7 @@ class MainActivity : Activity() {
             try { Root.exec("pm grant $packageName $perm") } catch (e: Exception) { }
             ui.post {
                 if (checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED) startGps()
-                else { EventLog.add("gps heading: asking for the location permission"); requestPermissions(arrayOf(perm), 2) }
+                else { requestPermissions(arrayOf(perm), 2) }
             }
         }.start()
     }
@@ -5450,7 +5434,6 @@ class MainActivity : Activity() {
             val l = object : android.location.LocationListener {
                 override fun onLocationChanged(loc: android.location.Location) {
                     if (loc.hasBearing() && loc.hasSpeed() && loc.speed >= 1.5f) {
-                        if (gpsHeading < 0) EventLog.add("gps heading: first bearing " + loc.bearing.toInt() + " deg from " + loc.provider)
                         gpsHeading = loc.bearing.toDouble(); gpsHeadingAt = android.os.SystemClock.uptimeMillis()
                     }
                 }
@@ -5460,16 +5443,15 @@ class MainActivity : Activity() {
             }
             val got = ArrayList<String>()
             for (p in listOf(android.location.LocationManager.GPS_PROVIDER, android.location.LocationManager.PASSIVE_PROVIDER)) {
-                try { if (lm.allProviders.contains(p)) { lm.requestLocationUpdates(p, 1000L, 0f, l, Looper.getMainLooper()); got.add(p) } } catch (e: Exception) { EventLog.add("gps heading: $p failed: ${e.message}") }
+                try { if (lm.allProviders.contains(p)) { lm.requestLocationUpdates(p, 1000L, 0f, l, Looper.getMainLooper()); got.add(p) } } catch (e: Exception) { }
             }
             gpsListener = l
-            EventLog.add("gps heading: listening to " + (if (got.isEmpty()) "nothing (no location provider on this device)" else got.joinToString()))
-        } catch (e: Exception) { EventLog.add("gps heading: could not start: ${e.message}") }
+        } catch (e: Exception) { }
     }
 
     override fun onRequestPermissionsResult(code: Int, perms: Array<out String>, results: IntArray) {
         if (code == 2) {
-            if (results.isNotEmpty() && results.all { it == PackageManager.PERMISSION_GRANTED }) startGps() else EventLog.add("gps heading: location permission denied")
+            if (results.isNotEmpty() && results.all { it == PackageManager.PERMISSION_GRANTED }) startGps()
             return
         }
         if (results.isNotEmpty() && results.all { it == PackageManager.PERMISSION_GRANTED }) loadPairedDevices()
@@ -8897,7 +8879,6 @@ class MediaWatcher(private val ctx: Context, private val ui: Handler, private va
             started = true
             refresh()
             ui.removeCallbacks(ticker); ui.postDelayed(ticker, 3000)
-            log("media: following the active media session")
         } catch (e: SecurityException) {
             if (!grantTried) {
                 grantTried = true
@@ -8937,8 +8918,6 @@ class MediaWatcher(private val ctx: Context, private val ui: Handler, private va
     private var lastSig = ""
 
     private fun pick(list: List<MediaController>) {
-        val sig = list.joinToString(" | ") { c -> "${c.packageName} state=${c.playbackState?.state} title=${c.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)}" }
-        if (sig != lastSig) { lastSig = sig; log("media sessions: " + sig.ifEmpty { "none" }) }
         var c: MediaController? = null
         var best = Int.MIN_VALUE
         for (x in list) { val sc = score(x); if (sc > best) { best = sc; c = x } }
@@ -8946,7 +8925,6 @@ class MediaWatcher(private val ctx: Context, private val ui: Handler, private va
             try { ctl?.unregisterCallback(cb) } catch (e: Exception) {}
             ctl = c
             c?.registerCallback(cb, ui)
-            if (c != null) log("media: showing ${c.packageName}")
         }
         hasSession = c != null
         val was = playing

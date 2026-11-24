@@ -16,11 +16,6 @@ object NavState {
     @Volatile var eta = ""             // e.g. "12 min · 3.1 mi"
     @Volatile var arrow: Bitmap? = null
     @Volatile var onChange: (() -> Unit)? = null
-    @Volatile var onDiag: ((String) -> Unit)? = null     // one line for the event log when what a navigation app posts changes shape
-    private val pending = ArrayList<String>()
-    /** Log a line; if the app screen is not up yet (the listener starts at boot, before it), keep it until it is. */
-    @Synchronized fun diag(s: String) { val f = onDiag; if (f != null) f(s) else { if (pending.size >= 20) pending.removeAt(0); pending.add(s) } }
-    @Synchronized fun flushDiag() { val f = onDiag ?: return; for (x in pending) f(x); pending.clear() }
     val MAPS = "com.google.android.apps.maps"
     val NAV_APPS = setOf(MAPS, "com.coastplay")
     @Volatile var pkg = MAPS          // which of them the current guidance comes from (the card opens that one when tapped)
@@ -30,12 +25,11 @@ object NavState {
 class NavListener : NotificationListenerService() {
     private val ui = Handler(Looper.getMainLooper())
 
-    override fun onListenerConnected() { NavState.diag("nav: listener connected"); scan() }
+    override fun onListenerConnected() { scan() }
     override fun onNotificationPosted(sbn: StatusBarNotification?) { if (sbn?.packageName in NavState.NAV_APPS) scan() }
     override fun onNotificationRemoved(sbn: StatusBarNotification?) { if (sbn?.packageName in NavState.NAV_APPS) scan() }
 
     private fun scan() { ui.post { try { scanNow() } catch (e: Throwable) { } } }
-    private var lastDiag = ""
 
     /** Every text (and the first picture) inside a notification built from custom RemoteViews, which is how some apps (CoastPlay) draw their guidance. */
     private fun remoteParts(n: StatusBarNotification): Pair<List<String>, Bitmap?> {
@@ -70,12 +64,6 @@ class NavListener : NotificationListenerService() {
         } catch (e: Exception) { }
         val n = found
         if (n == null) {
-            // nothing matched: list what the listener can see, so the right app and notification can be picked out
-            try {
-                val all = activeNotifications ?: emptyArray()
-                val d = "nav: no match among ${all.size} notifications: " + all.joinToString(" | ") { x -> val e = x.notification.extras; "${x.packageName} cat=${x.notification.category} flags=${x.notification.flags} title='${e.getCharSequence(android.app.Notification.EXTRA_TITLE) ?: ""}' text='${e.getCharSequence(android.app.Notification.EXTRA_TEXT) ?: ""}'" }
-                if (d != lastDiag) { lastDiag = d; NavState.diag(d.take(1500)) }
-            } catch (e: Throwable) { if (lastDiag != "err") { lastDiag = "err"; NavState.diag("nav: cannot read notifications (${e.javaClass.simpleName}) - is notification access on?") } }
             NavState.active = false; NavState.arrow = null
         } else {
             val ex = n.notification.extras
@@ -89,8 +77,6 @@ class NavListener : NotificationListenerService() {
                 val (t, pic) = remoteParts(n); rvTexts = t; rvPic = pic
                 if (t.isNotEmpty()) { title = t[0]; text = t.getOrElse(1) { "" }; if (sub.isBlank() && t.size > 2) sub = t.drop(2).joinToString(" \u00B7 ") }
             }
-            val dump = "nav: ${n.packageName} cat=${n.notification.category} flags=${n.notification.flags} title='$title' text='$text' sub='$sub' remoteTexts=$rvTexts extras=${ex.keySet().joinToString(",")}"
-            if (dump != lastDiag) { lastDiag = dump; NavState.diag(dump) }
             if (title.isBlank() && text.isBlank()) {
                 // a placeholder (CoastPlay posts one with no words in it): there is no guidance to show
                 NavState.active = false; NavState.arrow = null
