@@ -26,7 +26,7 @@ object NavState {
 class NavListener : NotificationListenerService() {
     private val ui = Handler(Looper.getMainLooper())
 
-    override fun onListenerConnected() { scan() }
+    override fun onListenerConnected() { NavState.onDiag?.invoke("nav: listener connected"); scan() }
     override fun onNotificationPosted(sbn: StatusBarNotification?) { if (sbn?.packageName in NavState.NAV_APPS) scan() }
     override fun onNotificationRemoved(sbn: StatusBarNotification?) { if (sbn?.packageName in NavState.NAV_APPS) scan() }
 
@@ -68,6 +68,12 @@ class NavListener : NotificationListenerService() {
         } catch (e: Exception) { }
         val n = found
         if (n == null) {
+            // nothing matched: list what the listener can see, so the right app and notification can be picked out
+            try {
+                val all = activeNotifications ?: emptyArray()
+                val d = "nav: no match among ${all.size} notifications: " + all.joinToString(" | ") { x -> val e = x.notification.extras; "${x.packageName} cat=${x.notification.category} flags=${x.notification.flags} title='${e.getCharSequence(android.app.Notification.EXTRA_TITLE) ?: ""}' text='${e.getCharSequence(android.app.Notification.EXTRA_TEXT) ?: ""}'" }
+                if (d != lastDiag) { lastDiag = d; NavState.onDiag?.invoke(d.take(1500)) }
+            } catch (e: Throwable) { if (lastDiag != "err") { lastDiag = "err"; NavState.onDiag?.invoke("nav: cannot read notifications (${e.javaClass.simpleName}) - is notification access on?") } }
             NavState.active = false; NavState.arrow = null
         } else {
             val ex = n.notification.extras
