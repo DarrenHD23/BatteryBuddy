@@ -1581,9 +1581,13 @@ class MainActivity : Activity() {
                 val light = Color.parseColor("#F0F3F8")
                 val tv = TextView(this@MainActivity).apply { textSize = 11f; setTextColor(light); typeface = Typeface.MONOSPACE; setPadding(dp(12), dp(8), dp(12), dp(8)) }
                 val sv = ScrollView(this@MainActivity).apply { addView(tv) }
+                // the newest part of the log only (about 150,000 characters, cut at a line): a long text gets cut off at the END by the clipboard and by
+                // whatever it is pasted into, which dropped exactly the newest lines; the screen also stays quick to refresh
                 fun shownText(): String {
-                    val lines = EventLog.text().lines().let { it.drop(cleared.coerceAtMost(it.size)) }
-                    return (if (query.isBlank()) lines else lines.filter { it.contains(query, ignoreCase = true) }).joinToString("\n")
+                    val all = EventLog.allLines()
+                    val lines = all.drop(cleared.coerceAtMost(all.size))
+                    val joined = (if (query.isBlank()) lines else lines.filter { it.contains(query, ignoreCase = true) }).joinToString("\n")
+                    return if (joined.length > 150_000) joined.takeLast(150_000).substringAfter('\n') else joined
                 }
                 fun refresh(toEnd: Boolean) {
                     val atEnd = toEnd || sv.getChildAt(0).bottom - (sv.scrollY + sv.height) < dp(40)
@@ -1607,11 +1611,15 @@ class MainActivity : Activity() {
                 refresh(true)
                 val dlg = darkDialog().setTitle("Event log (newest at the bottom)").setView(col)
                     .setNeutralButton("Copy") { _, _ ->
-                        (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(ClipData.newPlainText("log", shownText()))
-                        toast("Copied")
+                        val txt = shownText()
+                        try {
+                            (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(ClipData.newPlainText("log", txt))
+                            val last = txt.substringAfterLast("\n", txt).take(19)      // the time stamp on the newest line copied
+                            toast("Copied ${txt.lines().size} lines, newest: $last")
+                        } catch (e: Throwable) { toast("Could not copy: ${e.message}") }
                     }.setNegativeButton("Clear", null).setPositiveButton("Close", null).showDark()
                 // Clear empties the screen only and stays open; new lines then appear under it (the window also keeps up with the log while it is open)
-                dlg.getButton(AlertDialog.BUTTON_NEGATIVE)?.setOnClickListener { cleared = EventLog.text().lines().size; refresh(true) }
+                dlg.getButton(AlertDialog.BUTTON_NEGATIVE)?.setOnClickListener { cleared = EventLog.allLines().size; refresh(true) }
                 val tick = object : Runnable { override fun run() { if (dlg.isShowing) { refresh(false); ui.postDelayed(this, 2000) } } }
                 ui.postDelayed(tick, 2000)
             }

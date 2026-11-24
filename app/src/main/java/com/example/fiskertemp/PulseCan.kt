@@ -1008,6 +1008,8 @@ object EventLog {
         try { java.io.FileOutputStream(f, true).use { o -> o.write(line.toByteArray()) } } catch (e: Exception) { /* ignore */ }
     }
 
+    @Synchronized fun allLines(): List<String> = try { file?.readLines() ?: emptyList() } catch (e: Exception) { emptyList() }
+
     @Synchronized fun text(maxLines: Int = 4000): String = try {
         file?.readLines()?.takeLast(maxLines)?.joinToString("\n") ?: ""
     } catch (e: Exception) { "" }
