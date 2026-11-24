@@ -2219,7 +2219,7 @@ class MainActivity : Activity() {
         }
         val compass = CompassCardView(this@MainActivity)
         val nav = NavCardView(this@MainActivity).apply {
-            onTap = { try { packageManager.getLaunchIntentForPackage(NavState.MAPS)?.let { startActivity(it) } } catch (e: Exception) { } }
+            onTap = { try { packageManager.getLaunchIntentForPackage(NavState.pkg)?.let { startActivity(it) } } catch (e: Exception) { } }
         }
         val media = MediaCardView(this@MainActivity).apply {
             fullBleed = true
