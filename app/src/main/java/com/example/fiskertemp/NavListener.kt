@@ -63,12 +63,10 @@ class NavListener : NotificationListenerService() {
     private fun scanNow() {
         var found: StatusBarNotification? = null
         try {
-            for (n in activeNotifications ?: emptyArray()) {
-                if (n.packageName !in NavState.NAV_APPS) continue
-                val cat = n.notification.category
-                val ongoing = (n.notification.flags and android.app.Notification.FLAG_ONGOING_EVENT) != 0
-                if (cat == android.app.Notification.CATEGORY_NAVIGATION || ongoing) { found = n; break }
-            }
+            val all = (activeNotifications ?: emptyArray()).filter { it.packageName in NavState.NAV_APPS && (it.notification.flags and android.app.Notification.FLAG_GROUP_SUMMARY) == 0 }     // Android's empty automatic group summaries never count
+            // a real navigation notification (category navigation) first; Google Maps' older ongoing one as a fallback (CoastPlay only ever uses the category)
+            found = all.firstOrNull { it.notification.category == android.app.Notification.CATEGORY_NAVIGATION }
+                ?: all.firstOrNull { it.packageName == NavState.MAPS && (it.notification.flags and android.app.Notification.FLAG_ONGOING_EVENT) != 0 }
         } catch (e: Exception) { }
         val n = found
         if (n == null) {
