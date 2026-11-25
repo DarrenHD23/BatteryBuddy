@@ -1429,6 +1429,15 @@ class Car3dView(ctx: Context, private val viewer: Boolean = false, private val o
         evaluateJavascript("window.car3d&&car3d.set({turn:$d})", null)
     }
 
+    /** Changes the paint (by the paint's name) and / or the wheel design at once, without waiting for the next state update. */
+    fun setLook(paintName: String?, wheelId: String?) {
+        if (!live) return
+        if (wheelId != null) wheel = wheelId
+        val parts = ArrayList<String>()
+        if (paintName != null) parts.add("paint:'$paintName'")
+        if (wheelId != null) parts.add("wheel:'$wheelId'")
+        if (parts.isNotEmpty()) evaluateJavascript("window.car3d&&car3d.set({" + parts.joinToString(",") + "})", null)
+    }
     var red = false         // USA / Canada: red turn signals
     var follow = true       // Settings: turn the car body toward the road bend
     var wheel = "F3A_22"    // Settings: wheel design (the model's six presets)

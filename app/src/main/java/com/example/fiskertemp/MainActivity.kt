@@ -1461,16 +1461,6 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("l1CarFollow", on).apply() }
         }, 4)
         box.add(Button(this).apply {
-            fun label() = "3D car wheels: " + (CAR_WHEELS.firstOrNull { it.first == prefs().getString("carWheel", "F3A_22") }?.second ?: CAR_WHEELS[0].second)
-            text = label(); isAllCaps = false
-            setOnClickListener {
-                val cur = CAR_WHEELS.indexOfFirst { it.first == prefs().getString("carWheel", "F3A_22") }.coerceAtLeast(0)
-                darkDialog().setTitle("3D car wheels").setSingleChoiceItems(CAR_WHEELS.map { it.second }.toTypedArray(), cur) { dlg, i ->
-                    prefs().edit().putString("carWheel", CAR_WHEELS[i].first).apply(); text = label(); dlg.dismiss()
-                }.setNegativeButton("Close", null).showDark()
-            }
-        }, 4)
-        box.add(Button(this).apply {
             fun label() = "Solar roof: full colour at ${prefs().getInt("solarMaxW", 250)} W"
             text = label(); isAllCaps = false
             setOnClickListener {
@@ -3048,6 +3038,65 @@ class MainActivity : Activity() {
         }
         circle("\u2715", "Close", dp(28)) { closeCarViewer() }
         circle("\u21BA", "Reset view", dp(98)) { viewer3d?.viewReset() }
+        // Colour and Wheels: the only places the car's paint and wheel design are chosen
+        fun picker(title: String, build: (LinearLayout, () -> Unit) -> Unit) {
+            val scrim = FrameLayout(this); scrim.isClickable = true; scrim.setBackgroundColor(Color.argb(190, 0, 0, 0))
+            val close = { layer.removeView(scrim) }
+            scrim.setOnClickListener { close() }
+            val panel = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(14), dp(18), dp(14)); isClickable = true
+                background = GradientDrawable().apply { setColor(Color.parseColor("#18203A")); cornerRadius = dp(22).toFloat(); setStroke(dp(1), Color.argb(90, 255, 255, 255)) }
+            }
+            val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            head.addView(TextView(this).apply { text = title; setTextColor(Color.WHITE); setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f); typeface = Typeface.DEFAULT_BOLD }, LinearLayout.LayoutParams(0, -2, 1f))
+            head.addView(TextView(this).apply { text = "Done"; setTextColor(Color.parseColor("#7FB4E5")); setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f); setPadding(dp(14), dp(8), dp(4), dp(8)); setOnClickListener { close() } })
+            panel.addView(head)
+            val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            build(grid, close)
+            val sv = ScrollView(this); sv.addView(grid)
+            panel.addView(sv, LinearLayout.LayoutParams(-1, -2))
+            val w = minOf(resources.displayMetrics.widthPixels - dp(40), dp(620))
+            scrim.addView(panel, FrameLayout.LayoutParams(w, -2, Gravity.CENTER))
+            layer.addView(scrim, FrameLayout.LayoutParams(-1, -1))
+        }
+        /** A grid of tiles, `cols` to a row; a tile is a picture (or colour), a name, and a ring when it is the current one. */
+        fun tiles(grid: LinearLayout, cols: Int, n: Int, size: Int, current: () -> Int, name: (Int) -> String, art: (Int, ImageView) -> Unit, pick: (Int) -> Unit) {
+            val cells = ArrayList<Pair<View, GradientDrawable>>()
+            fun ring() { for ((i, c) in cells.withIndex()) c.second.setStroke(dp(if (i == current()) 3 else 1), Color.parseColor(if (i == current()) "#7FB4E5" else "#33445A")) }
+            var row: LinearLayout? = null
+            for (i in 0 until n) {
+                if (i % cols == 0) { row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }; grid.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) }) }
+                val cell = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; setPadding(dp(4), dp(8), dp(4), dp(8)) }
+                val bg = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(Color.parseColor("#1F2A44")) }
+                cell.background = bg
+                val img = ImageView(this); art(i, img)
+                cell.addView(img, LinearLayout.LayoutParams(size, size))
+                cell.addView(TextView(this).apply { text = name(i); setTextColor(Color.argb(225, 255, 255, 255)); setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f); gravity = Gravity.CENTER; maxLines = 2 }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+                cell.setOnClickListener { pick(i); ring() }
+                cells.add(Pair(cell, bg))
+                row!!.addView(cell, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(4); rightMargin = dp(4) })
+            }
+            // a last short row is padded so its tiles keep the same width
+            if (n % cols != 0) for (k in n % cols until cols) row!!.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f).apply { leftMargin = dp(4); rightMargin = dp(4) })
+            ring()
+        }
+        circle("\u25D0", "Colour", dp(238)) {
+            picker("Car colour") { grid, _ ->
+                tiles(grid, 5, CAR_PAINTS.size, dp(46), { prefs().getInt("carPaint", 3).coerceIn(0, CAR_PAINTS.size - 1) }, { CAR_PAINTS[it].first },
+                    { i, img -> img.setImageDrawable(GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(CAR_PAINT_SWATCH[i]); setStroke(dp(1), Color.argb(90, 255, 255, 255)) }) },
+                    { i -> setCarPaint(i); viewer3d?.setLook(CAR_PAINTS[i].first, null) })
+            }
+        }
+        circle("\u25CE", "Wheels", dp(308)) {
+            picker("Wheels") { grid, _ ->
+                tiles(grid, 3, CAR_WHEELS.size, dp(92), { CAR_WHEELS.indexOfFirst { it.first == prefs().getString("carWheel", "F3A_22") }.coerceAtLeast(0) }, { CAR_WHEELS[it].second },
+                    { i, img ->
+                        try { assets.open("wheels/${CAR_WHEELS[i].first}.png").use { img.setImageBitmap(android.graphics.BitmapFactory.decodeStream(it)) } } catch (e: Throwable) { }
+                        img.scaleType = ImageView.ScaleType.FIT_CENTER
+                    },
+                    { i -> prefs().edit().putString("carWheel", CAR_WHEELS[i].first).apply(); viewer3d?.setLook(null, CAR_WHEELS[i].first) })
+            }
+        }
         var spin = false
         circle("\u27F3", "Auto spin", dp(168)) { b -> spin = !spin; viewer3d?.viewAuto(spin); (b.background as GradientDrawable).setColor(Color.parseColor(if (spin) "#2E6FA6" else "#223242")) }
         val hint = TextView(this).apply { text = "Drag to rotate  \u00B7  Pinch to zoom"; setTextColor(Color.parseColor("#9FB3C4")); setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f); gravity = Gravity.CENTER }
@@ -3175,13 +3224,7 @@ class MainActivity : Activity() {
         dashMid = mid
         carView = CarView(this).apply {
             paintIdx = prefs().getInt("carPaint", 3)
-            setOnClickListener {
-                if (carClickBlock) { carClickBlock = false; return@setOnClickListener }
-                val cur = prefs().getInt("carPaint", 3).coerceIn(0, CAR_PAINTS.size - 1)
-                darkDialog().setTitle("Car colour").setSingleChoiceItems(CAR_PAINTS.map { it.first }.toTypedArray(), cur) { dlg, i ->
-                    setCarPaint(i); dlg.dismiss()
-                }.setNegativeButton("Close", null).showDark()
-            }
+            isClickable = true      // the colour is no longer picked by tapping the car: touch the car for a second to open the 3D view, where Colour and Wheels live
         }
         pageSets = listOf(PageSet(), PageSet())
         l2FlyBtn = TextView(this).apply {
@@ -8944,12 +8987,6 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         }
         val cz = carZones.indexOfFirst { it.first.contains(e.x, e.y) }
         if (cz >= 0) { carZoneTap(carZones[cz].second); invalidate(); return true }
-        if (!carRect.isEmpty()) {
-            // the paint colour is picked by touching the hood (the seats, windows and wheel have their own touches)
-            val hk = carRect.width() / 300f
-            val hood = RectF(carRect.left + 60f * hk, carRect.top + 6f * hk * 0.88f, carRect.left + 240f * hk, carRect.top + 138f * hk * 0.88f)
-            if (hood.contains(e.x, e.y)) { paintOpen = true; invalidate(); return true }
-        }
         return true
     }
 }
@@ -9432,6 +9469,9 @@ private val SEAT_WAVES = arrayOf(
 )
 
 /** Fisker's 14 paint colours: name and the colour the car drawings use. */
+/** Swatch colours for the 14 paints, as the 3D car shows them (same order as CAR_PAINTS). */
+val CAR_PAINT_SWATCH = listOf("#4b627b","#121a25","#245c99","#e7e8e3","#69747d","#202e40","#d7e0e9","#10151b","#a51e2c","#4d5c50","#a5adb6","#d36529","#485247","#a28368").map { Color.parseColor(it) }
+
 /** The 3D car's wheel designs (ids as in the model): id and name. */
 val CAR_WHEELS = listOf("F3A_22" to "22 in F3a SlipStream", "F3B_22" to "22 in F3b SlipStream Black", "F5A_22" to "22 in F5a AirGlider", "F5B_22" to "22 in F5b AirGlider Black", "F6_22" to "22 in F6 Vortex", "F7_20" to "20 in F7 AeroStealth")
 
