@@ -1597,6 +1597,7 @@ class MainActivity : Activity() {
                 val search = EditText(this@MainActivity).apply {
                     hint = "Search the log (text)"; setHintTextColor(Color.parseColor("#8E99A8")); setTextColor(light)
                     isSingleLine = true; textSize = 14f; imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+                    setOnEditorActionListener { v, _, _ -> (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(v.windowToken, 0); v.clearFocus(); true }      // the keyboard's own Search / Done key also puts it away
                     addTextChangedListener(object : android.text.TextWatcher {
                         override fun afterTextChanged(s: android.text.Editable?) { query = s?.toString() ?: ""; refresh(true) }
                         override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
@@ -1605,7 +1606,15 @@ class MainActivity : Activity() {
                 }
                 val col = LinearLayout(this@MainActivity).apply {
                     orientation = LinearLayout.VERTICAL
-                    addView(search, LinearLayout.LayoutParams(-1, -2).apply { setMargins(dp(12), 0, dp(12), 0) })
+                    // the search box with a Cancel beside it: Cancel empties the search, drops the cursor and puts the keyboard away so the buttons below are reachable again
+                    addView(LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                        addView(search, LinearLayout.LayoutParams(0, -2, 1f))
+                        addView(Button(this@MainActivity).apply {
+                            text = "Cancel search"; isAllCaps = false; textSize = 13f
+                            setOnClickListener { search.setText(""); search.clearFocus(); (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(search.windowToken, 0) }
+                        }, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(6) })
+                    }, LinearLayout.LayoutParams(-1, -2).apply { setMargins(dp(12), 0, dp(12), 0) })
                     addView(sv, LinearLayout.LayoutParams(-1, (resources.displayMetrics.heightPixels * 0.6f).toInt()))
                 }
                 // Delete log: removes the saved log for good, so it asks for a second tap first
