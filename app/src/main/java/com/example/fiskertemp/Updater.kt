@@ -134,25 +134,27 @@ object Updater {
      * back and fix their owner. It runs detached, because installing kills this app, and starts the new one when done.
      */
     // after the install: just start the app again, or reboot the Pulse trying one way after another (each result goes into the script log, which the app copies into its event log at the next start)
-    private const val START_TAIL = "am start -n §PKG/.MainActivity\nrm -f §A\n"
+    private const val START_TAIL = "say \"starting the app\"\nam start -n §PKG/.MainActivity\nrm -f §A\n"
     private const val REBOOT_TAIL = """rm -f §A
-echo "rebooting: sync"; sync; sleep 3
-echo "try: reboot"; reboot 2>&1; sleep 12
-echo "try: /system/bin/reboot"; /system/bin/reboot 2>&1; sleep 12
-echo "try: svc power reboot"; svc power reboot 2>&1; sleep 12
-echo "try: setprop sys.powerctl reboot"; setprop sys.powerctl reboot 2>&1; sleep 12
-echo "the Pulse did not reboot: starting the app instead"
+say "rebooting: sync"; sync; sleep 3
+say "try: reboot"; reboot >> §LOG 2>&1; sleep 12
+say "try: /system/bin/reboot"; /system/bin/reboot >> §LOG 2>&1; sleep 12
+say "try: svc power reboot"; svc power reboot >> §LOG 2>&1; sleep 12
+say "try: setprop sys.powerctl reboot"; setprop sys.powerctl reboot >> §LOG 2>&1; sleep 12
+say "the Pulse did not reboot: starting the app instead"
 am start -n §PKG/.MainActivity
 """
 
     fun installRoot(ctx: Context, apk: File, reboot: Boolean = false): Boolean {
         val pkg = ctx.packageName
         val sh = """
-PKG=@PKG; A=/data/local/tmp/bb_update.apk; B=/data/local/tmp/bb_backup
+PKG=@PKG; A=/data/local/tmp/bb_update.apk; B=/data/local/tmp/bb_backup; LOG=@LOG
+say() { echo "§1"; echo "§1" >> §LOG; chmod 666 §LOG; }
+say "update script started"
 cp @SRC §A && chmod 644 §A
 sleep 1
 R=§(pm install -r §A 2>&1)
-echo "install -r: §R"
+say "install -r: §R"
 case "§R" in
 *Success*) ;;
 *INCOMPATIBLE*)
@@ -160,7 +162,7 @@ case "§R" in
   for d in shared_prefs files databases; do [ -d /data/data/§PKG/§d ] && cp -a /data/data/§PKG/§d §B/; done
   pm uninstall §PKG
   R=§(pm install §A 2>&1)
-  echo "install after uninstall: §R"
+  say "install after uninstall: §R"
   case "§R" in
   *Success*)
     U=§(stat -c %u /data/data/§PKG)
@@ -170,7 +172,7 @@ case "§R" in
     restorecon -R /data/data/§PKG ;;
   esac ;;
 esac
-@TAIL""".trim().replace("§", "$").replace("@PKG", pkg).replace("@SRC", apk.absolutePath).replace("@TAIL", (if (reboot) REBOOT_TAIL else START_TAIL).replace("§", "$"))
+@TAIL""".trim().replace("§", "$").replace("@PKG", pkg).replace("@LOG", File(ctx.cacheDir, "bb_update_log.txt").absolutePath).replace("@SRC", apk.absolutePath).replace("@TAIL", (if (reboot) REBOOT_TAIL else START_TAIL).replace("§", "$"))
         val f = File(ctx.cacheDir, "bb_update.sh")
         f.writeText(sh)
         f.setReadable(true, false)
