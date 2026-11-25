@@ -32,14 +32,18 @@ if(VIEWER){{const q=new URLSearchParams(location.search);for(const k of['th','ph
   cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up)}
 
 // ---- state sent by the app (all optional; -1 = no signal)
-const st={speed:0,head:0,tail:false,turn:0,brake:false,left:false,right:false,rev:false,follow:true,red:false,paint:'silver-lining',wheel:'F3A_22',
+const st={bglow:true,speed:0,head:0,tail:false,turn:0,brake:false,left:false,right:false,rev:false,follow:true,red:false,paint:'silver-lining',wheel:'F3A_22',
   open:{fl:0,fr:0,rl:0,rr:0,tg:0,sr:-1,hd:-1},solar:-1,solarStart:'#205a80',solarEnd:'#42c8a0'};
 let tilt=0,spin=0,last=performance.now(),lastDraw=0,dirty=true,loaded=false,size=0,yaw=0,steer=0,firstOpen=true;
 const smooth=x=>x*x*(3-2*x);
 // how the app's own picture is tuned (kept from the previous model): driving beam length, daytime-lamp strengths, yaw follow
 const BEAM_LEN=2.94,DRL_BRIGHT=.35,DRL_LEN=.8,DRL_LAMP=.4,YAW_K=.5,YAW_MAX=14,IND_GLOW=.4,IND_GLOW_SIZE=.85;
 // contract 2.3.3 lighting strengths and linear colours
-const L={tail:.4,brake:7,centre:10,dip:2,high:5,ind:4,rev:4};
+const L={tail:1,brake:3,centre:3,dip:2,high:5,ind:4,rev:4};
+const L_MODEL={tail:.4,brake:7,centre:10},L_APP={tail:1,brake:3,centre:3};let glowMode=null;     // brake lights: the app's own look (wider centre light, softer glow over the body) or the model's own
+function applyGlowMode(){glowMode=st.bglow;const app=st.bglow!==false;Object.assign(L,app?L_APP:L_MODEL);
+  const lb=node('Lamp_Brake_Centre');if(lb){if(lb.userData.sx===undefined)lb.userData.sx=lb.scale.x;lb.scale.x=lb.userData.sx*(app?1.76:1)}
+  for(const k of['brakeC','tailL','tailR']){const g=glows[k];if(g){g.material.depthTest=!app;g.material.needsUpdate=true}}dirty=true}
 const C={head:[.90,.96,1],tail:[1,.007,.012],rev:[.85,.95,1],ind:[1,.025,.001],indRed:[1,.007,.012]};
 const TWIN_RADIUS=.39415;
 
@@ -165,7 +169,7 @@ function setupSolar(){
 
 // ---- lamps: contract emission values per material; the car's own indicator flash is used as is (no second blink)
 const beams={Dipped:[],High:[]},glows={};
-function lamps(){
+function lamps(){if(st.bglow!==glowMode)applyGlowMode();
   const head=st.head,dip=head===1||head===2,high=head===2,drl=head===3;
   const front=dip?L.dip+(high?L.high:0):(drl?L.dip*DRL_LAMP:0);
   for(const s of['L','R']){em('Mat_Head_'+s,C.head,front);em('Mat_Tail_'+s,C.tail,st.brake?L.brake:(st.tail?L.tail:0));em('Mat_Reverse_'+s,C.rev,st.rev?L.rev:0)}

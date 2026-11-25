@@ -1444,12 +1444,13 @@ class Car3dView(ctx: Context, private val viewer: Boolean = false, private val o
     var tail = false        // rear lamps on (inferred from the headlight / position-lamp state: the car has no separate signal we read)
     /** Opening fractions 0..1 for the four doors, hatch and handles; -1 = no signal (the part stays closed). Sunroof: no decoder, so -1. */
     var fl = 0f; var fr = 0f; var rl = 0f; var rr = 0f; var tg = 0f; var sr = -1f; var hd = -1f
+    var brakeGlow = true    // Settings: the app's own brake light glow (true) or the model's own (false)
     var solar = -1f         // roof power as a 0..1 fraction of the configured expected maximum; -1 = no signal
     fun push(speedKmh: Float, head: Int, brake: Boolean, left: Boolean, right: Boolean, reverse: Boolean, paint: String) {
         if (!live) return
         val sp = Math.round(speedKmh * 2f) / 2f
         fun q(x: Float) = if (x < 0f) "-1" else (Math.round(x * 100f) / 100f).toString()
-        val json = "{speed:$sp,head:$head,tail:$tail,brake:$brake,left:$left,right:$right,rev:$reverse,follow:$follow,red:$red,paint:'$paint',wheel:'$wheel'," +
+        val json = "{speed:$sp,head:$head,tail:$tail,brake:$brake,left:$left,right:$right,rev:$reverse,follow:$follow,bglow:$brakeGlow,red:$red,paint:'$paint',wheel:'$wheel'," +
             "open:{fl:${q(fl)},fr:${q(fr)},rl:${q(rl)},rr:${q(rr)},tg:${q(tg)},sr:${q(sr)},hd:${q(hd)}},solar:${q(solar)}}"
         if (json == lastJson) return
         val now = SystemClock.uptimeMillis()

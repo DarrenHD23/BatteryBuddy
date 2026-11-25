@@ -1438,6 +1438,10 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideLight", on).apply() }
         }, 4)
         box.add(CheckBox(this).apply {
+            text = "3D car: use the app's own brake light glow (wider centre light, soft glow). Untick to use the model's own glow"; isChecked = prefs().getBoolean("brakeGlowApp", true)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("brakeGlowApp", on).apply() }
+        }, 4)
+        box.add(CheckBox(this).apply {
             text = "Show a speed test slider on the dashboard (to see the 3D car move into its driving position)"; isChecked = prefs().getBoolean("simSlider", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("simSlider", on).apply(); if (!on) simSpeed = -1f; updateSimBar() }
         }, 4)
@@ -2985,6 +2989,7 @@ class MainActivity : Activity() {
         v.sr = -1f; v.hd = -1f          // no sunroof position or door-lock signal is decoded yet
         v.solar = if (s.solarW != null && now - s.solarAt < 5000) (s.solarW.coerceAtLeast(0) / prefs().getInt("solarMaxW", 250).toFloat()).coerceIn(0f, 1f) else -1f
         v.wheel = prefs().getString("carWheel", "F3A_22") ?: "F3A_22"
+        v.brakeGlow = prefs().getBoolean("brakeGlowApp", true)
         v.tail = carView.headlights || carView.beamsOn || carView.highBeam
         v.push(if (simSpeed > 0f) simSpeed else carView.speedKmh, if (carView.highBeam) 2 else if (carView.beamsOn) 1 else if (carView.headlights) 3 else 0, carView.braking, carView.leftInd, carView.rightInd, carView.reverse, CAR_PAINTS[carView.paintIdx].first)
     }
