@@ -5396,6 +5396,11 @@ class MainActivity : Activity() {
         Thread {
             try {
                 EventLog.add("boot: Pulse up for " + uptimeSecs() + " s")
+                // what the last update script did (install result and every reboot attempt): copied into the event log once, then removed
+                try {
+                    val ul = Root.exec("cat /data/local/tmp/bb_update.log 2>/dev/null; rm -f /data/local/tmp/bb_update.log")
+                    if (ul.ok && ul.out.isNotBlank()) EventLog.add("update script log:\n" + ul.out.trim().take(1500))
+                } catch (e: Throwable) { }
                 val r = Root.exec("getprop sys.boot.reason; getprop ro.boot.bootreason; echo '--pstore'; ls -l /sys/fs/pstore 2>&1 | head -n 8; echo '--dropbox'; ls -l /data/system/dropbox 2>&1 | tail -n 14; echo '--crash log'; logcat -b crash -d -t 25 2>&1 | cut -c1-200")
                 if (r.timedOut) EventLog.add("boot info: root shell timed out")
                 else EventLog.add("boot info:\n" + r.out.trim().take(3000))
