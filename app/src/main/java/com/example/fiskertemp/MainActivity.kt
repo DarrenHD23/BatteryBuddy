@@ -1158,7 +1158,7 @@ class MainActivity : Activity() {
             text = "Restart Pulse"; isAllCaps = false
             setOnClickListener {
                 darkDialog().setTitle("Restart now?")
-                    .setMessage("Your Pulse restarts about a minute after you press Yes.")
+                    .setMessage("Your Pulse restarts a few seconds after you press Yes.")
                     .setPositiveButton("Yes") { _, _ ->
                         dialog.dismiss()
                         Thread {
