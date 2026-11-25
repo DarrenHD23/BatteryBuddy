@@ -1862,7 +1862,7 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------- Layout 2 presets (up to 6)
     /** Settings that belong to the car, the install or the user's data rather than to how the screen looks: a preset leaves them alone. */
-    private val presetSkip = setOf("currentPreset", "startupPreset", "presets", "presetsL2", "presetsL1", "devToken", "betaOn", "betaUnlocked", "updDeferred", "source", "legacyCan", "canSafe", "climateTx", "radioFavs", "reopenSettings", "reopenDash", "adasRestore", "adasOn", "spdAdjMph", "spdAdjKmh", "packKwh", "disclaimerOk", "disclaimerAt", "disclaimerVer")
+    private val presetSkip = setOf("currentPreset", "startupPreset", "presets", "presetsL2", "presetsL1", "devToken", "betaOn", "betaUnlocked", "updDeferred", "source", "legacyCan", "canSafe", "climateTx", "radioFavs", "reopenSettings", "reopenDash", "adasRestore", "adasOn", "spdAdjMph", "spdAdjKmh", "packKwh", "disclaimerOk", "disclaimerAt", "disclaimerVer", "carName", "solarDay", "solarDayMin", "solarDayMax", "lastDriveMode")
 
     private fun curLayout() = if (prefs().getInt("layout", 1) == 2) 2 else 1
     /** One shared list of up to 6 presets, whichever layout saved them (older per-layout lists are merged in the first time). */
