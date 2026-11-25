@@ -681,8 +681,8 @@ class RoadView(ctx: Context) : View(ctx) {
         // (72% of the lane) from 22 m on
         val t = ((gap - 3f) / 19f).coerceIn(0f, 1f)
         val k = 1.49f + (0.72f - 1.49f) * (t * t * (3f - 2f * t))
-        // close in front (about 4 m) the driving view looked a little big: up to 15% narrower there, easing back to the old size by 14 m
-        val tn = ((gap - 3f) / 11f).coerceIn(0f, 1f)
+        // in front of us up to about 12 m the driving view looked a little big: 15% narrower all the way to 12 m, easing back to the old size by 18 m
+        val tn = ((gap - 12f) / 6f).coerceIn(0f, 1f)
         val nearTrim = 1f - 0.15f * (1f - tn * tn * (3f - 2f * tn)) * tilt.coerceIn(0f, 1f)      // only in the driving (rear) view; the overhead view keeps its size
         val wPersp = Math.min(172f * sA * k * rel, 114f * rel) * nearTrim
         val wU = wPersp + (52f * rel - wPersp) * par
