@@ -177,7 +177,7 @@ function lamps(){
   // the road-light cards (low beam: wide soft fan; high beam adds a longer, narrower one); driving stretches them forward from the lamp. They are blended, depth-tested and never write depth.
   for(const k of['Dipped','High']){const on=k==='Dipped'?(dip||drl):high;
     for(const b of beams[k]){b.visible=on;
-      if(on){const sz=(1+(BEAM_LEN-1)*tilt)*(drl&&k==='Dipped'?DRL_LEN:1),pz=b.userData.pz;b.scale.set(1,1,sz);b.position.z=b.userData.z0+pz*(1-sz)}
+      if(on){const sz=(1+(BEAM_LEN-1)*tilt)*(drl&&k==='Dipped'?DRL_LEN:1),pz=b.userData.pz;b.scale.set(1,1,sz);b.position.z=b.userData.z0+pz*(1-sz);if(b.userData.fx!==undefined)b.position.x=b.userData.fx}
       else b.scale.setScalar(0)}
     eachMat('Beam_'+k,m=>{m.transparent=true;m.depthTest=true;m.depthWrite=false;m.color.set('#e8f5ff');
       m.opacity=on?(k==='High'?.8:(drl?.7*DRL_BRIGHT:.7)):0;if(m.emissive){m.emissive.setRGB(.65,.75,1);m.emissiveIntensity=on?(k==='High'?2.2:(drl?1.4*DRL_BRIGHT:1.4)):0}})}
@@ -214,7 +214,7 @@ new GLTFLoader().parse(buf,'',g=>{
   model.updateMatrixWorld(true);
   // beam cards: rest scale 0 in the file -> unit scale, hidden until used; remember the lamp end of each so driving can stretch it forward
   for(const k of['Dipped','High'])for(const s of['L','R']){const b=node('Beam_'+k+'_'+s);if(!b)continue;b.visible=false;b.scale.set(0,0,0);
-    const bx=new THREE.Box3();b.scale.set(1,1,1);b.updateMatrixWorld(true);bx.setFromObject(b);b.userData.pz=bx.max.z-b.position.z;b.userData.z0=b.position.z;b.scale.set(0,0,0);beams[k].push(b)}
+    const bx=new THREE.Box3();b.scale.set(1,1,1);b.updateMatrixWorld(true);bx.setFromObject(b);b.userData.pz=bx.max.z-b.position.z;{const c=bx.getCenter(new THREE.Vector3());b.userData.cx=c.x;b.userData.cz=c.z}b.userData.z0=b.position.z;b.scale.set(0,0,0);beams[k].push(b)}
   const glowTex=(()=>{const c=document.createElement('canvas');c.width=c.height=64;const x=c.getContext('2d'),gr=x.createRadialGradient(32,32,0,32,32,32);gr.addColorStop(0,'rgba(255,255,255,1)');gr.addColorStop(.25,'rgba(255,255,255,.55)');gr.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=gr;x.fillRect(0,0,64,64);return new THREE.CanvasTexture(gr&&c)})();
   // soft glows on the lamps (the page has no bloom pass: the view must stay transparent over the dashboard): a sprite on the lamp part, parented to what carries it
   const spr=(parent,world,color,sz,sy,side)=>{const s=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color,transparent:true,blending:THREE.AdditiveBlending,depthTest:true,depthWrite:false,opacity:0}));
@@ -228,10 +228,27 @@ new GLTFLoader().parse(buf,'',g=>{
     for(let i=0;i<P.count;i++){v.fromBufferAttribute(P,i).applyMatrix4(o.matrixWorld);if(v.z>1)bx.expandByPoint(v)}if(bx.isEmpty())return;
     glows['ind'+(n++)]=spr(node('VehicleYaw'),bx.getCenter(new THREE.Vector3()),0xff7a10,IND_GLOW_SIZE,IND_GLOW_SIZE,mm[1])})}
   redrawFrontTraces();if(!VIEWER)thickenLines(5);setupSolar();paint();wheels();
+  if(!VIEWER){const bb=new THREE.Box3().setFromObject(model);Z0=bb.min.z;Z1=bb.max.z;model.updateMatrixWorld(true);
+    model.traverse(o=>{if(!o.isMesh)return;let p=o,skip=false;while(p){if(/^(Roll_|Steer_|Beam_)/.test(p.name)){skip=true;break}p=p.parent}
+      if(skip||Math.abs(o.matrixWorld.determinant())<1e-9)return;o.geometry=o.geometry.clone();{const P=o.geometry.attributes.position,B=new Float32Array(P.count*3);for(let i=0;i<P.count;i++){B[i*3]=P.getX(i);B[i*3+1]=P.getY(i);B[i*3+2]=P.getZ(i)}o.userData.base=B;if(P.isInterleavedBufferAttribute||P.normalized||!(P.array instanceof Float32Array)){o.geometry.setAttribute('position',new THREE.BufferAttribute(B.slice(),3))}}deform.push(o)});
+    for(const n of['FL','FR']){const o=node('Steer_'+n);o.userData.bx=o.position.x;o.userData.wx=o.position.x;o.userData.bz=new THREE.Vector3().setFromMatrixPosition(o.matrixWorld).z;bodyNodes.push(o)}
+    for(const k of['Dipped','High'])for(const b of beams[k]){b.userData.bx=b.position.x;b.userData.wx=b.userData.cx;b.userData.bz=b.userData.cz;bodyNodes.push(b)}
+    bodyOn=true}
+
   loaded=true;bridge.ready();requestAnimationFrame(loop);
   }catch(e){bridge.fail('bind: '+e.message)}
 },e=>bridge.fail('model: '+(e&&e.message)))}).catch(e=>bridge.fail('load: '+e.message));
 
+// driving (small view only): the body narrows from partway along toward the nose, as on the previous model (BODY_K at the nose, starting BODY_S of the way from the rear); the front wheels and beams follow it in
+const BODY_K=.18,BODY_S=.35;let Z0=0,Z1=1,lastK=-1,bodyOn=false;const deform=[],bodyNodes=[],_bv=new THREE.Vector3(),_bm=new THREE.Matrix4();
+const bramp=z=>{const t=(Z1-z)/(Z1-Z0),u=Math.min(1,Math.max(0,(t-BODY_S)/(1-BODY_S)));return u*u*(3-2*u)};
+function applyBody(){
+  if(!bodyOn)return;const k=BODY_K*tilt;if(Math.abs(k-lastK)<1e-4)return;lastK=k;
+  for(const o of deform){const base=o.userData.base,pos=o.geometry.attributes.position,M=o.matrixWorld;_bm.copy(M).invert();
+    for(let i=0;i<pos.count;i++){_bv.set(base[i*3],base[i*3+1],base[i*3+2]).applyMatrix4(M);_bv.x*=1-k*bramp(_bv.z);_bv.applyMatrix4(_bm);pos.setXYZ(i,_bv.x,_bv.y,_bv.z)}
+    pos.needsUpdate=true;o.geometry.computeVertexNormals();o.geometry.computeBoundingSphere();o.geometry.computeBoundingBox()}
+  for(const n of bodyNodes){n.userData.fx=n.userData.bx-k*bramp(n.userData.bz)*n.userData.wx;if(n.name.startsWith('Steer_'))n.position.x=n.userData.fx}
+  dirty=true}
 function loop(now){
   requestAnimationFrame(loop);
   if(now-lastDraw<33)return;                          // about 30 fps
@@ -250,7 +267,7 @@ function loop(now){
   for(const c of['FL','FR'])rot('Steer_'+c,AY,-steer*Math.PI/180);                // positive turn = right = a negative (clockwise) yaw
   yaw+=(wantYaw-yaw)*Math.min(1,dt*(Math.abs(wantYaw)<Math.abs(yaw)?9:5));if(Math.abs(yaw-wantYaw)<.02)yaw=wantYaw;
   rot('VehicleYaw',AY,-yaw*Math.PI/180*tilt);{const o=node('VehicleYaw'),r=rest.get(o);o.position.y=r.p.y+(w-TWIN_RADIUS)}
-  openings(dt,false);lamps();
+  applyBody();openings(dt,false);lamps();
   if(VIEWER){if(orb.auto)orb.th+=dt*.6;const sp=Math.sin(orb.ph);pcam.aspect=cv.clientWidth/Math.max(1,cv.clientHeight);pcam.updateProjectionMatrix();
     pcam.position.set(vt.x+orb.d*sp*Math.sin(orb.th),vt.y+orb.d*Math.cos(orb.ph),vt.z+orb.d*sp*Math.cos(orb.th));pcam.lookAt(vt);renderer.render(scene,pcam);dirty=false;return}
   const pitch=90+(24-90)*tilt,H=(7.4+(5.0-7.4)*tilt)*150/162/1.2,rad=pitch*Math.PI/180;
