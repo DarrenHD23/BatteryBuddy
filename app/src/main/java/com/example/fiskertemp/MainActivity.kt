@@ -4458,7 +4458,7 @@ class MainActivity : Activity() {
                 val hasBar = if (rhdB) slB else !slB          // the battery bar sits under the power gauge: then the buttons go in the gap under it
                 if (l2Half) {
                     // 50/50: both buttons under the battery bar, on its side, same size and font
-                    val barEnd = slB      // the bar is at the end (right) when the speed gauge is on the left
+                    val barEnd = slB != rhdB      // the bar is at the end (right) when the speed gauge is on the left; right-hand drive puts the buttons on the other side
                     val bwH = l2BtnW; val edgeH = dp(12); val hH = dp(28)
                     val gvH = Gravity.TOP or (if (barEnd) Gravity.END else Gravity.START)
                     val topH = dp(l2BtnRowBottom - 2)
@@ -4494,7 +4494,7 @@ class MainActivity : Activity() {
             }
             if (l2Third && climateBtn.visibility == View.VISIBLE) {
                 // third-height window: Media / Climate under the battery bar, on its side, the same as in the 50/50 split
-                val barEnd3 = prefs().getBoolean("speedLeft", false)
+                val barEnd3 = prefs().getBoolean("speedLeft", false) != prefs().getBoolean("rhd", false)
                 val bw3 = l2BtnW; val edge3 = dp(12); val gv3 = Gravity.TOP or (if (barEnd3) Gravity.END else Gravity.START)
                 val top3 = dp(l2BtnRowBottom - 2)
                 (mediaBtn.layoutParams as FrameLayout.LayoutParams).apply {
