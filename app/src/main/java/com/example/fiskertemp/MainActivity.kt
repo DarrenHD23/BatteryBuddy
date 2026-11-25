@@ -5313,13 +5313,13 @@ class MainActivity : Activity() {
             dashSignSrc.text = when (tm) { 2 -> "Camera + Map"; 3 -> "Camera"; 4 -> "Map"; 5 -> "sign data error"; else -> "" }
             dashSignSrc.setTextColor(if (dashDay) Color.argb(200, 20, 32, 46) else Color.argb(200, 255, 255, 255))
         }
-        // over the posted limit: the speed number goes from its normal colour to a strong red, fully red about 20 km/h (12 mph) over; a 1 km/h (1 mph) margin first
+        // over the posted limit: the speed number goes from its normal colour to a strong red, fully red at 13 mph (21 km/h) over; a 1 km/h (1 mph) margin first
         run {
             var t = 0f
             val limNow = if (signTest) null else s.limit
             if (limNow != null && spd != null && prefs().getBoolean("overSpeedRed", true)) {
                 val lm = if (s.limitMph == mph) limNow.toDouble() else if (mph) limNow * 0.621371 else limNow * 1.609344
-                val tol = 1.0; val full = if (mph) 12.0 else 20.0
+                val tol = 1.0; val full = if (mph) 13.0 else 21.0
                 t = ((spd - lm - tol) / (full - tol)).coerceIn(0.0, 1.0).toFloat()
             }
             dashSpeedGauge.overT = t
