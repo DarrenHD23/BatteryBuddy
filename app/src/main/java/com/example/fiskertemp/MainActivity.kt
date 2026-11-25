@@ -3131,7 +3131,7 @@ class MainActivity : Activity() {
                 val v = TextView(this).apply { setTextColor(Color.WHITE); setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER }
                 c.addView(v); rowL.addView(c); return v
             }
-            val vNow = cell("Now"); val vMin = cell("Lowest today"); val vMax = cell("Highest today"); val vLife = cell("Lifetime")
+            val vNow = cell("Now"); val vMin = cell("Lowest today"); val vMax = cell("Highest today"); val vLife = cell("Lifetime"); val vRange = cell("Generated range")
             solarUpdate = { s ->
                 val fresh = s.solarW != null && System.currentTimeMillis() - s.solarAt < 5000
                 val day = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date())
@@ -3141,6 +3141,11 @@ class MainActivity : Activity() {
                 vMin.text = if (mn >= 0) "$mn W" else "--"
                 vMax.text = if (mx >= 0) "$mx W" else "--"
                 vLife.text = s.solarLifeKwh?.let { "${(it + 500) / 1000} kWh" } ?: "--"      // the car counts this in Wh
+                // the range that energy would give at the EPA rating (360 mi on 106.5 kWh usable), in the unit chosen in Settings
+                vRange.text = s.solarLifeKwh?.let { wh ->
+                    val mi = wh / 1000.0 * 360.0 / 106.5
+                    if (speedMph()) String.format(java.util.Locale.US, "%,.0f mi", mi) else String.format(java.util.Locale.US, "%,.0f km", mi * 1.609344)
+                } ?: "--"
             }
             val lp = FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL); lp.topMargin = dp(92)
             layer.addView(box, lp)
