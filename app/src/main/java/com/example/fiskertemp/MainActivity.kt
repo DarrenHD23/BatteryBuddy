@@ -4756,14 +4756,14 @@ class MainActivity : Activity() {
         d.show(); styleDark(d)
         updPos = d.getButton(AlertDialog.BUTTON_POSITIVE); updNeg = d.getButton(AlertDialog.BUTTON_NEGATIVE)
         updPos?.setOnClickListener {
-            // with root the update ends with a restart of the Pulse: ask first (without root the app cannot restart it, so it just updates)
+            // with root the update ends with a reboot of the Pulse: ask first (without root the app cannot reboot it, so it just updates)
             Thread {
                 val canReboot = Updater.rootAvailable()
                 ui.post {
                     if (!canReboot) startUpdate(r, d, pt, bar, false)
-                    else darkDialog().setTitle("Update and restart the Pulse?")
-                        .setMessage("${r.title} installs first, then the Pulse restarts by itself (about a minute). Anything running on it will close.\n\nUpdate and restart now?")
-                        .setPositiveButton("Update and restart now") { _, _ -> showRebootCountdown(r, d, pt, bar) }
+                    else darkDialog().setTitle("Update and reboot your Pulse now?")
+                        .setMessage("${r.title} installs first, then your Pulse reboots by itself (about a minute). Anything running on it will close.\n\nUpdate and reboot your Pulse now?")
+                        .setPositiveButton("Update and reboot now") { _, _ -> showRebootCountdown(r, d, pt, bar) }
                         .setNegativeButton("Not now", null).showDark()
                 }
             }.start()
@@ -4778,12 +4778,12 @@ class MainActivity : Activity() {
         val num = TextView(this).apply { text = "10"; textSize = 96f; setTextColor(light); gravity = Gravity.CENTER; typeface = Typeface.DEFAULT_BOLD }
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(30), dp(16), dp(30), dp(8)); gravity = Gravity.CENTER_HORIZONTAL
-            addView(TextView(this@MainActivity).apply { text = "${r.title} installs, then the Pulse restarts in"; textSize = 20f; setTextColor(light); gravity = Gravity.CENTER })
+            addView(TextView(this@MainActivity).apply { text = "${r.title} installs, then your Pulse reboots in"; textSize = 20f; setTextColor(light); gravity = Gravity.CENTER })
             addView(num, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10); bottomMargin = dp(4) })
             addView(TextView(this@MainActivity).apply { text = "seconds. Press Cancel to stop: nothing is installed and the update stays available."; textSize = 16f; setTextColor(Color.parseColor("#C5CEDA")); gravity = Gravity.CENTER })
         }
         var left = 10; var over = false
-        val cd = darkDialog().setTitle("Restarting the Pulse after the update").setView(col).setCancelable(false)
+        val cd = darkDialog().setTitle("Update and reboot your Pulse now").setView(col).setCancelable(false)
             .setNegativeButton("Cancel", null).create()
         val tick = object : Runnable {
             override fun run() {
@@ -4812,7 +4812,7 @@ class MainActivity : Activity() {
                 val dir = File(cacheDir, "update"); dir.deleteRecursively()
                 val apk = File(dir, "FiskerBattery-build${r.build}.apk")
                 Updater.download(r, apk) { p -> ui.post { bar.progress = p; pt.text = "Downloading\u2026 $p%" } }
-                ui.post { pt.text = if (reboot) "Installing\u2026 then the Pulse restarts; your settings are kept" else "Installing\u2026 the app restarts by itself and keeps your settings"; bar.isIndeterminate = true }
+                ui.post { pt.text = if (reboot) "Installing\u2026 then your Pulse reboots; your settings are kept" else "Installing\u2026 the app restarts by itself and keeps your settings"; bar.isIndeterminate = true }
                 if (Updater.rootAvailable()) {
                     prefs().edit().commit()
                     if (!Updater.installRoot(this, apk, reboot)) throw RuntimeException("could not start the installer")
