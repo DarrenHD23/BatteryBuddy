@@ -174,7 +174,12 @@ say "restart requested from Settings (§(id))"
         val sh = """
 PKG=@PKG; A=/data/local/tmp/bb_update.apk; B=/data/local/tmp/bb_backup; LOG=@LOG
 say() { echo "§1"; echo "§1" >> §LOG; chmod 666 §LOG; }
-say "update script started"
+say "update script started (§(id))"
+say "process group before: §(cat /proc/self/cgroup 2>&1 | tr '\n' ' ')"
+for c in /sys/fs/cgroup/cgroup.procs /dev/cg2_bpf/cgroup.procs /acct/cgroup.procs /sys/fs/cgroup/uid_0/cgroup.procs; do
+  if [ -w §c ] && echo §§ > §c 2>/dev/null; then say "moved out of the app's process group via §c"; break; fi
+done
+say "process group after: §(cat /proc/self/cgroup 2>&1 | tr '\n' ' ')"
 cp @SRC §A && chmod 644 §A
 sleep 1
 R=§(pm install -r §A 2>&1)

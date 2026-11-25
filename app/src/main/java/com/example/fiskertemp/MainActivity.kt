@@ -401,6 +401,7 @@ class MainActivity : Activity() {
         InApp.init(this); InApp.log = { m -> EventLog.add(m) }; InApp.onChange = { refreshMediaCards() }
         logLastExits()
         logBootInfo()
+        rebootIfUpdateScriptDied()
         // a crash writes its stack trace to the event log before the app goes down
         val prevHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { th, ex ->
@@ -4724,6 +4725,7 @@ class MainActivity : Activity() {
     private fun updateFailed(msg: String) {
         updateBusy = false
         EventLog.add("update failed: $msg")
+        prefs().edit().remove("rebootAfter").apply()
         updPt?.text = "Update failed: $msg"
         updBar?.visibility = View.GONE
         updPos?.apply { isEnabled = true; text = "Try again" }
@@ -4840,6 +4842,7 @@ class MainActivity : Activity() {
                 ui.post { pt.text = if (reboot) "Installing\u2026 then your Pulse reboots; your settings are kept" else "Installing\u2026 the app restarts by itself and keeps your settings"; bar.isIndeterminate = true }
                 if (Updater.rootAvailable()) {
                     prefs().edit().commit()
+                    if (reboot) prefs().edit().putInt("rebootAfter", r.build).putLong("rebootAfterAt", System.currentTimeMillis()).putInt("rebootAfterBoot", bootCount()).commit()
                     if (!Updater.installRoot(this, apk, reboot)) throw RuntimeException("could not start the installer")
                 } else {
                     ui.post {
@@ -5417,6 +5420,31 @@ class MainActivity : Activity() {
     private fun uptimeSecs(): String = try { java.io.File("/proc/uptime").readText().trim().split(" ")[0].toDouble().toInt().toString() } catch (e: Exception) { "?" }
 
     /** At start: how long the Pulse has been up and what Android and the kernel kept about the last crash or restart (needs root). */
+    private fun bootCount(): Int = try { android.provider.Settings.Global.getInt(contentResolver, "boot_count", -1) } catch (e: Throwable) { -1 }
+
+    /**
+     * Safety net for "Update and reboot": the install stops the old app, and on the Pulse the update script may be stopped with it
+     * before it reaches its reboot. If the new version starts on the same boot, soon after the touch, it does the reboot itself.
+     * The flag is cleared on the first read, and a restart in between (different boot count) cancels it, so it can never loop.
+     */
+    private fun rebootIfUpdateScriptDied() {
+        val want = prefs().getInt("rebootAfter", 0)
+        if (want == 0) return
+        val at = prefs().getLong("rebootAfterAt", 0L); val boot = prefs().getInt("rebootAfterBoot", -1)
+        prefs().edit().remove("rebootAfter").commit()
+        val fresh = System.currentTimeMillis() - at in 0..15 * 60_000L
+        val sameBoot = boot == -1 || boot == bootCount()
+        val up = Updater.installedBuild(this) >= want
+        if (!(fresh && sameBoot && up)) { EventLog.add("reboot after update: not needed (fresh=$fresh same boot=$sameBoot installed=$up)"); return }
+        EventLog.add("reboot after update: the update script did not reboot the Pulse, so the app does it now")
+        ui.post { Toast.makeText(this, "Update installed. Restarting the Pulse...", Toast.LENGTH_LONG).show() }
+        Thread {
+            val ok = try { Updater.rebootRoot(this@MainActivity) } catch (e: Throwable) { false }
+            EventLog.add("restart Pulse: " + (if (ok) "script started" else "could not start (no root?)"))
+            if (ok) { try { Thread.sleep(90_000) } catch (e: InterruptedException) { }; Updater.collectScriptLog(this@MainActivity) }
+        }.also { it.isDaemon = true }.start()
+    }
+
     private fun logBootInfo() {
         Thread {
             try {
