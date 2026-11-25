@@ -3136,10 +3136,33 @@ class MainActivity : Activity() {
                 vNow.text = if (fresh) "${s.solarW} W" else "--"
                 vMin.text = if (mn >= 0) "$mn W" else "--"
                 vMax.text = if (mx >= 0) "$mx W" else "--"
-                vLife.text = s.solarLifeKwh?.let { "$it kWh" } ?: "--"
+                vLife.text = s.solarLifeKwh?.let { "${(it + 500) / 1000} kWh" } ?: "--"      // the car counts this in Wh
             }
             val lp = FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START); lp.topMargin = dp(28); lp.leftMargin = dp(28)
             layer.addView(box, lp)
+        }
+        // the car's name, top centre: touch it to type a new one ("Name your car" until one is saved)
+        run {
+            val nameBtn = TextView(this).apply {
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f); gravity = Gravity.CENTER; setPadding(dp(22), dp(10), dp(22), dp(10)); maxLines = 1
+                background = GradientDrawable().apply { cornerRadius = dp(26).toFloat(); setColor(Color.parseColor("#223242")); setStroke(dp(1), Color.parseColor("#4B6277")) }
+            }
+            fun show() { val n = prefs().getString("carName", "").orEmpty().trim(); nameBtn.text = if (n.isEmpty()) "Name your car" else n; nameBtn.setTextColor(Color.parseColor(if (n.isEmpty()) "#9FB3C4" else "#FFFFFF")); nameBtn.typeface = if (n.isEmpty()) Typeface.DEFAULT else Typeface.DEFAULT_BOLD }
+            show()
+            nameBtn.setOnClickListener {
+                val edit = EditText(this).apply {
+                    setText(prefs().getString("carName", "").orEmpty()); setSelection(text.length); hint = "Your car's name"
+                    setSingleLine(true); filters = arrayOf(android.text.InputFilter.LengthFilter(24))
+                    inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS
+                    setTextColor(Color.WHITE); setHintTextColor(Color.parseColor("#7C8DA0")); setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+                }
+                val wrap = FrameLayout(this).apply { setPadding(dp(20), dp(8), dp(20), 0); addView(edit, FrameLayout.LayoutParams(-1, -2)) }
+                darkDialog().setTitle("Name your car").setView(wrap)
+                    .setPositiveButton("Save") { _, _ -> prefs().edit().putString("carName", edit.text.toString().trim()).apply(); show() }
+                    .setNegativeButton("Cancel", null).showDark()
+            }
+            val lp = FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL); lp.topMargin = dp(28)
+            layer.addView(nameBtn, lp)
         }
         dashRoot.addView(layer, FrameLayout.LayoutParams(-1, -1))
         viewerLayer = layer

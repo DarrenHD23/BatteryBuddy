@@ -116,6 +116,37 @@ function solar(now){
   solarTex.needsUpdate=true;dirty=true}
 function mkTex(){const t=new THREE.DataTexture(new Uint8Array(256*2*4),256,2,THREE.RGBAFormat);t.colorSpace=THREE.SRGBColorSpace;
   t.magFilter=t.minFilter=THREE.LinearFilter;t.wrapS=t.wrapT=THREE.ClampToEdgeWrapping;t.generateMipmaps=false;return t}
+// ---- front roof circuit lines: redrawn to the car's own SolarSky picture (the supplied front pattern differs from the car's: eight evenly spaced lines, nested U links and a notch).
+// Drawn on the same surface and with the same UV mapping as the supplied overlay (u runs front to back along z), as thin ribbons the width of the supplied lines.
+function redrawFrontTraces(){
+  const o=node('SolarOverlay_Front');if(!o||!o.isMesh)return;
+  const W=.0023,Y=(x,z)=>1.60752+.07945*z-.24922*z*z+.2028*z*z*z-.01072*x*x+.06852*x*x*z-.00298*Math.abs(x)+.0014;
+  const zOf=px=>-.28007+(px-120)/370*.83416,xOf=py=>.4256-(py-95)/367*.8462;
+  const R=[];for(let k=0;k<8;k++)R.push(95+52.43*k);
+  const segs=[];        // [x0,x1,z0,z1] as ribbons
+  const Hs=(p0,p1,r)=>{const x=xOf(R[r]);segs.push([x-W,x+W,zOf(p0)-W,zOf(p1)+W])};         // runs along the car (windshield -> back)
+  const Vs=(p,r0,r1)=>{const z=zOf(p),a=xOf(typeof r0==='number'&&r0<8?R[r0]:r0),b=xOf(typeof r1==='number'&&r1<8?R[r1]:r1);segs.push([Math.min(a,b)-W,Math.max(a,b)+W,z-W,z+W])};
+  const stub=45;
+  Hs(185,487,0);Vs(487,0,R[0]+stub);
+  Hs(218,432,1);Vs(432,1,2);Hs(432,487,2);Vs(487,2,5);Hs(432,487,5);Vs(432,5,6);Hs(218,432,6);
+  Hs(165,380,2);Vs(380,2,3);Hs(380,432,3);Vs(432,3,4);Hs(380,432,4);Vs(380,4,5);Hs(165,380,5);
+  Hs(218,325,3);Vs(325,3,4);Hs(218,325,4);
+  Hs(185,487,7);Vs(487,7,R[7]-stub);
+  const starts=[185,218,165,218,218,165,218,185];
+  for(let k=0;k<8;k++)for(let px=122;px<starts[k]-9;px+=17){const x=xOf(R[k]),z=zOf(px);segs.push([x-W,x+W,z-W,z+W])}
+  const P=[],U=[],Ix=[];let n=0;
+  const uOf=z=>.0082812+(z+.28007447)*.5083,vOf=x=>.8825966-(x+.4228861)*.8985;
+  const vert=(x,z)=>{P.push(x,Y(x,z),z);U.push(uOf(z),vOf(x));return n++};
+  for(const [x0,x1,z0,z1] of segs){
+    const nz=Math.max(1,Math.ceil((z1-z0)/.08)),nx=Math.max(1,Math.ceil((x1-x0)/.12));
+    for(let i=0;i<nx;i++)for(let j=0;j<nz;j++){
+      const xa=x0+(x1-x0)*i/nx,xb=x0+(x1-x0)*(i+1)/nx,za=z0+(z1-z0)*j/nz,zb=z0+(z1-z0)*(j+1)/nz;
+      const a=vert(xa,za),b=vert(xa,zb),c=vert(xb,zb),d=vert(xb,za);Ix.push(a,b,c,a,c,d)}}
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(P,3));g.setAttribute('uv',new THREE.Float32BufferAttribute(U,2));
+  const N=[];for(let i=0;i<n;i++)N.push(0,1,0);g.setAttribute('normal',new THREE.Float32BufferAttribute(N,3));g.setIndex(Ix);
+  o.geometry.dispose();o.geometry=g}
+
 function setupSolar(){
   solarTex=mkTex();cellTex=mkTex();
   const old=new Set();
@@ -187,7 +218,7 @@ new GLTFLoader().parse(buf,'',g=>{
     const P=o.geometry.attributes.position,bx=new THREE.Box3(),v=new THREE.Vector3();o.updateWorldMatrix(true,false);
     for(let i=0;i<P.count;i++){v.fromBufferAttribute(P,i).applyMatrix4(o.matrixWorld);if(v.z>1)bx.expandByPoint(v)}if(bx.isEmpty())return;
     glows['ind'+(n++)]=spr(node('VehicleYaw'),bx.getCenter(new THREE.Vector3()),0xff7a10,IND_GLOW_SIZE,IND_GLOW_SIZE,mm[1])})}
-  setupSolar();paint();wheels();
+  redrawFrontTraces();setupSolar();paint();wheels();
   loaded=true;bridge.ready();requestAnimationFrame(loop);
   }catch(e){bridge.fail('bind: '+e.message)}
 },e=>bridge.fail('model: '+(e&&e.message)))}).catch(e=>bridge.fail('load: '+e.message));
