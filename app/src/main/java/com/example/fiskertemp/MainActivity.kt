@@ -401,6 +401,7 @@ class MainActivity : Activity() {
         InApp.init(this); InApp.log = { m -> EventLog.add(m) }; InApp.onChange = { refreshMediaCards() }
         logLastExits()
         logBootInfo()
+        offerRebootAfterUpdate()
         // a crash writes its stack trace to the event log before the app goes down
         val prevHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { th, ex ->
@@ -1153,23 +1154,6 @@ class MainActivity : Activity() {
         box.add(Button(this).apply {
             text = "About"; isAllCaps = false
             setOnClickListener { showAbout() }
-        }, 8)
-        box.add(Button(this).apply {
-            text = "Restart Pulse"; isAllCaps = false
-            setOnClickListener {
-                darkDialog().setTitle("Restart your Pulse now?")
-                    .setMessage("The Pulse restarts a few seconds after you press Restart. Nothing is installed. If it does not restart, the app opens again and the event log shows what each attempt said.")
-                    .setPositiveButton("Restart") { _, _ ->
-                        dialog.dismiss()
-                        Thread {
-                            val ok = try { Updater.rebootRoot(this@MainActivity) } catch (e: Throwable) { false }
-                            EventLog.add("restart Pulse requested from Settings: " + (if (ok) "script started" else "could not start (no root?)"))
-                            ui.post { Toast.makeText(this@MainActivity, if (ok) "Restarting the Pulse..." else "Could not restart: root access is not available", Toast.LENGTH_LONG).show() }
-                            if (ok) { try { Thread.sleep(90_000) } catch (e: InterruptedException) { }; Updater.collectScriptLog(this@MainActivity) }
-                        }.also { it.isDaemon = true }.start()
-                    }
-                    .setNegativeButton("Cancel", null).showDark()
-            }
         }, 8)
         box.add(TextView(this).apply { text = "SKIN AND LAYOUT"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
         // --- Skin
@@ -4741,6 +4725,7 @@ class MainActivity : Activity() {
     private fun updateFailed(msg: String) {
         updateBusy = false
         EventLog.add("update failed: $msg")
+        prefs().edit().remove("rebootAfter").apply()
         updPt?.text = "Update failed: $msg"
         updBar?.visibility = View.GONE
         updPos?.apply { isEnabled = true; text = "Try again" }
@@ -4811,9 +4796,9 @@ class MainActivity : Activity() {
         val num = TextView(this).apply { text = "10"; textSize = 96f; setTextColor(light); gravity = Gravity.CENTER; typeface = Typeface.DEFAULT_BOLD }
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(30), dp(16), dp(30), dp(8)); gravity = Gravity.CENTER_HORIZONTAL
-            addView(TextView(this@MainActivity).apply { text = "${r.title} installs, then your Pulse reboots in"; textSize = 20f; setTextColor(light); gravity = Gravity.CENTER })
+            addView(TextView(this@MainActivity).apply { text = "${r.title} installs in"; textSize = 20f; setTextColor(light); gravity = Gravity.CENTER })
             addView(num, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10); bottomMargin = dp(4) })
-            addView(TextView(this@MainActivity).apply { text = "seconds. Press Cancel to stop: nothing is installed and the update stays available."; textSize = 16f; setTextColor(Color.parseColor("#C5CEDA")); gravity = Gravity.CENTER })
+            addView(TextView(this@MainActivity).apply { text = "seconds. Afterwards you touch a button to reboot your Pulse. Press Cancel to stop: nothing is installed and the update stays available."; textSize = 16f; setTextColor(Color.parseColor("#C5CEDA")); gravity = Gravity.CENTER })
         }
         var left = 10; var over = false
         val cd = darkDialog().setTitle("Update and reboot your Pulse now").setView(col).setCancelable(false)
@@ -4822,7 +4807,7 @@ class MainActivity : Activity() {
             override fun run() {
                 if (over) return
                 left--
-                if (left <= 0) { over = true; cd.dismiss(); startUpdate(r, d, pt, bar, true); return }
+                if (left <= 0) { over = true; cd.dismiss(); prefs().edit().putInt("rebootAfter", r.build).commit(); startUpdate(r, d, pt, bar, false); return }
                 num.text = left.toString(); ui.postDelayed(this, 1000)
             }
         }
@@ -5425,6 +5410,38 @@ class MainActivity : Activity() {
     private fun uptimeSecs(): String = try { java.io.File("/proc/uptime").readText().trim().split(" ")[0].toDouble().toInt().toString() } catch (e: Exception) { "?" }
 
     /** At start: how long the Pulse has been up and what Android and the kernel kept about the last crash or restart (needs root). */
+    /** After an update from the countdown: the new version starts, then this window offers the reboot with one big touch button. */
+    private fun offerRebootAfterUpdate() {
+        val want = prefs().getInt("rebootAfter", 0)
+        if (want == 0) return
+        prefs().edit().remove("rebootAfter").apply()
+        if (Updater.installedBuild(this) < want) { EventLog.add("update to build $want was not installed: no reboot offered"); return }
+        ui.postDelayed({
+            if (isFinishing) return@postDelayed
+            val light = Color.parseColor("#F0F3F8")
+            lateinit var rd: AlertDialog
+            val col = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; setPadding(dp(30), dp(16), dp(30), dp(8)); gravity = Gravity.CENTER_HORIZONTAL
+                addView(TextView(this@MainActivity).apply { text = "Build $want is installed. Reboot your Pulse to finish."; textSize = 20f; setTextColor(light); gravity = Gravity.CENTER })
+                addView(Button(this@MainActivity).apply {
+                    text = "Touch here to reboot your Pulse now"; isAllCaps = false; textSize = 26f
+                    setOnClickListener { rd.dismiss(); restartPulseNow() }
+                }, LinearLayout.LayoutParams(-1, dp(120)).apply { topMargin = dp(18) })
+            }
+            rd = darkDialog().setTitle("Update installed").setView(col).setNegativeButton("Not now", null).create()
+            rd.show(); styleDark(rd)
+        }, 3000)
+    }
+
+    private fun restartPulseNow() {
+        Thread {
+            val ok = try { Updater.rebootRoot(this@MainActivity) } catch (e: Throwable) { false }
+            EventLog.add("restart Pulse requested: " + (if (ok) "script started" else "could not start (no root?)"))
+            ui.post { Toast.makeText(this@MainActivity, if (ok) "Restarting the Pulse..." else "Could not restart: root access is not available", Toast.LENGTH_LONG).show() }
+            if (ok) { try { Thread.sleep(90_000) } catch (e: InterruptedException) { }; Updater.collectScriptLog(this@MainActivity) }
+        }.also { it.isDaemon = true }.start()
+    }
+
     private fun logBootInfo() {
         Thread {
             try {
