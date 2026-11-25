@@ -133,6 +133,23 @@ object Updater {
      * app was signed with a different key does the script copy the settings aside, uninstall, install, put the settings
      * back and fix their owner. It runs detached, because installing kills this app, and starts the new one when done.
      */
+    /** Restarts the Pulse as root (Settings > Restart Pulse): the usual reboot commands one after another, the last one is an immediate restart. Runs detached. */
+    fun rebootRoot(ctx: Context): Boolean {
+        val sh = """
+sync; sleep 3
+reboot; sleep 12
+/system/bin/reboot; sleep 12
+svc power reboot; sleep 12
+setprop sys.powerctl reboot; sleep 12
+reboot -f; sleep 12
+echo 1 > /proc/sys/kernel/sysrq; echo b > /proc/sysrq-trigger
+""".trim()
+        val f = File(ctx.cacheDir, "bb_reboot.sh")
+        f.writeText(sh)
+        f.setReadable(true, false)
+        return Root.exec("nohup setsid sh ${f.absolutePath} >/dev/null 2>&1 &").ok
+    }
+
     fun installRoot(ctx: Context, apk: File): Boolean {
         val pkg = ctx.packageName
         val sh = """

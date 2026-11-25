@@ -1154,6 +1154,21 @@ class MainActivity : Activity() {
             text = "About"; isAllCaps = false
             setOnClickListener { showAbout() }
         }, 8)
+        box.add(Button(this).apply {
+            text = "Restart Pulse"; isAllCaps = false
+            setOnClickListener {
+                darkDialog().setTitle("Restart now?")
+                    .setMessage("Your Pulse restarts about a minute after you press Yes.")
+                    .setPositiveButton("Yes") { _, _ ->
+                        dialog.dismiss()
+                        Thread {
+                            val ok = try { Updater.rebootRoot(this@MainActivity) } catch (e: Throwable) { false }
+                            ui.post { Toast.makeText(this@MainActivity, if (ok) "Restarting the Pulse..." else "Could not restart: root access is not available", Toast.LENGTH_LONG).show() }
+                        }.also { it.isDaemon = true }.start()
+                    }
+                    .setNegativeButton("No", null).showDark()
+            }
+        }, 8)
         box.add(TextView(this).apply { text = "SKIN AND LAYOUT"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
         // --- Skin
         box.add(TextView(this).apply { text = "Skin"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
