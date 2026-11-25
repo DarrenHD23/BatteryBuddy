@@ -86,20 +86,33 @@ function openings(dt,snap){
   const lift=Math.min(1,open.sr/.18),slide=Math.max(0,Math.min(1,(open.sr-.18)/.82));
   move('Slide_Sunroof_Front',0,.06*lift,.922*slide)}
 
-// ---- solar roof: ONE small texture shared by every instance of both solar materials (and so by both roof halves); the colour field never restarts at the seam
-const NEUTRAL=new THREE.Color('#293b48'),_a=new THREE.Color(),_b=new THREE.Color(),_t=new THREE.Color();let solarKey='';
-function solar(){
+// ---- solar roof: ONE small texture shared by every instance of both solar materials (so by both roof halves); the colour field never restarts at the seam.
+// Power colour scale (as the car's own SolarSky screen): 0 W green -> cyan -> orange / red at the configured full-scale power (250 W). While the roof makes power, a pulse of that colour
+// runs along the circuit traces from the two outer ends of the roof toward the middle (u is continuous along the roof, so "distance from the nearest end" is the same on both halves).
+const NEUTRAL=new THREE.Color('#293b48'),_t=new THREE.Color(),_s=new THREE.Color();let solarKey='',solarOn=false,lastSolar=0;
+const SCALE=[[0,'#3ad82a'],[.30,'#3ad82a'],[.40,'#28c8f0'],[.62,'#28c8f0'],[.70,'#ff9a40'],[1,'#ff4818']].map(a=>[a[0],new THREE.Color(a[1])]);
+function scaleColor(f,out){let i=1;while(i<SCALE.length-1&&f>SCALE[i][0])i++;const a=SCALE[i-1],b=SCALE[i];return out.copy(a[1]).lerp(b[1],Math.max(0,Math.min(1,(f-a[0])/(b[0]-a[0]))))}
+const sm=(a,b,x)=>{x=Math.max(0,Math.min(1,(x-a)/(b-a)));return x*x*(3-2*x)};
+function solar(now){
   if(!solarTex)return;
-  const p=st.solar,k=p+'|'+st.solarStart+'|'+st.solarEnd;if(k===solarKey)return;solarKey=k;
-  const ok=Number.isFinite(p)&&p>=0,f=ok?Math.min(1,p):0,d=solarTex.image.data;_a.set(st.solarStart);_b.set(st.solarEnd);
-  for(let x=0;x<256;x++){_t.copy(_a).lerp(_b,x/255);if(!ok)_t.copy(NEUTRAL);else _t.lerp(NEUTRAL,1-f);_t.convertLinearToSRGB();
+  const p=st.solar,ok=Number.isFinite(p)&&p>=0,f=ok?Math.min(1,p):0;solarOn=ok&&f>.004;
+  const T=2.6-1.1*f,ph=((now||0)/1000/T%1)*1.3;                   // faster pulses at higher power; a short rest between sweeps
+  const k=ok?(solarOn?f.toFixed(3)+'|'+(ph*60|0):'z'+f):'n';
+  if(k===solarKey)return;solarKey=k;
+  const d=solarTex.image.data;scaleColor(f,_s);
+  for(let x=0;x<256;x++){
+    if(!ok)_t.copy(NEUTRAL);
+    else if(!solarOn)_t.copy(_s).multiplyScalar(.35);
+    else{const u=x/255,dd=Math.min(u,1-u)*2,e=(dd-ph)/.13,I=Math.exp(-e*e)*(1-sm(.95,1.3,ph)),m=.28+.72*I;
+      _t.copy(_s).multiplyScalar(m);_t.lerp(_s.clone().lerp(new THREE.Color(1,1,1),.35),I*.5)}
+    _t.convertLinearToSRGB();
     for(let y=0;y<2;y++){const i=(y*256+x)*4;d[i]=Math.round(_t.r*255);d[i+1]=Math.round(_t.g*255);d[i+2]=Math.round(_t.b*255);d[i+3]=255}}
   solarTex.needsUpdate=true;dirty=true}
 function setupSolar(){
   solarTex=new THREE.DataTexture(new Uint8Array(256*2*4),256,2,THREE.RGBAFormat);solarTex.colorSpace=THREE.SRGBColorSpace;
   solarTex.magFilter=solarTex.minFilter=THREE.LinearFilter;solarTex.wrapS=solarTex.wrapT=THREE.ClampToEdgeWrapping;solarTex.generateMipmaps=false;
   const old=new Set();for(const n of['Mat_SolarCells','Mat_SolarPower'])eachMat(n,m=>{if(m.map&&m.map!==solarTex)old.add(m.map);m.map=solarTex;m.needsUpdate=true});
-  for(const t of old)t.dispose();solarKey='';solar()}
+  for(const t of old)t.dispose();solarKey='';solar(performance.now())}
 
 // ---- lamps: contract emission values per material; the car's own indicator flash is used as is (no second blink)
 const beams={Dipped:[],High:[]},glows={};
@@ -130,7 +143,7 @@ function settled(){clearTimeout(qT);qT=setTimeout(()=>{if(!orb.auto)setQ(true)},
 function resize(){const w=cv.clientWidth,h=cv.clientHeight;if(!w||!h)return;const r=pxr();if(size!==w*1000+h){size=w*1000+h;renderer.setPixelRatio(r);renderer.setSize(w,h,false);dirty=true}}
 window.car3d={set(o){
   for(const k in o){if(k==='open'){Object.assign(st.open,o.open)}else st[k]=o[k]}
-  if(loaded){paint();wheels();solar();if(firstOpen&&o.open){firstOpen=false;openings(0,true)}}dirty=true},
+  if(loaded){paint();wheels();solar(performance.now());if(firstOpen&&o.open){firstOpen=false;openings(0,true)}}dirty=true},
   reset(){Object.assign(orb,ORB0,{auto:false});dirty=true},auto(b){orb.auto=!!b;if(orb.auto)moving();else settled();dirty=true},
   info(){return{loaded,wheel:wheelPre&&wheelPre.id,open:{...open},yaw,steer,tilt,calls:renderer.info.render.calls,tris:renderer.info.render.triangles,tex:renderer.info.memory.textures,geo:renderer.info.memory.geometries}}};
 
@@ -179,6 +192,7 @@ function loop(now){
   const wantYaw=!st.follow?0:Math.max(-YAW_MAX,Math.min(YAW_MAX,st.turn*YAW_K));       // the car body turns toward the road bend (positive = right here)
   const moving=st.speed>.5,settling=Math.abs(tilt-g)>.003||Math.abs(yaw-wantYaw)>.02||Math.abs(steer-st.turn)>.05,blinking=false;
   resize();     // a bigger or smaller view must be redrawn even when idle, or the old small picture is stretched
+  if(solarOn&&now-lastSolar>50){lastSolar=now;solar(now)}
   if(!(moving||settling||openMoving||dirty||(VIEWER&&orb.auto)))return;     // idle: draw nothing
   tilt+=(g-tilt)*Math.min(1,dt*1.1);if(Math.abs(tilt-g)<.004)tilt=g;
   if(moving){spin=(spin-st.speed/3.6*dt/w)%(2*Math.PI)}
