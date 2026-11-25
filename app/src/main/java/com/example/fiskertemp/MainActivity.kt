@@ -1586,7 +1586,14 @@ class MainActivity : Activity() {
                 fun shownText(): String {
                     val all = EventLog.allLines()
                     val lines = all.drop(cleared.coerceAtMost(all.size))
-                    val joined = (if (query.isBlank()) lines else lines.filter { it.contains(query, ignoreCase = true) }).joinToString("\n")
+                    // a search keeps whole entries: a line without a time stamp belongs to the entry above it (the update script log, the boot info, the crash text...)
+                    val stamped = Regex("^\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d ")
+                    val kept: List<String> = if (query.isBlank()) lines else {
+                        val entries = ArrayList<MutableList<String>>()
+                        for (ln in lines) { if (entries.isEmpty() || stamped.containsMatchIn(ln)) entries.add(mutableListOf(ln)) else entries.last().add(ln) }
+                        entries.filter { e -> e.any { it.contains(query, ignoreCase = true) } }.flatten()
+                    }
+                    val joined = kept.joinToString("\n")
                     return if (joined.length > 150_000) joined.takeLast(150_000).substringAfter('\n') else joined
                 }
                 fun refresh(toEnd: Boolean) {
