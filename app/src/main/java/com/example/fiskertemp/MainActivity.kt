@@ -3119,15 +3119,19 @@ class MainActivity : Activity() {
         val hint = TextView(this).apply { text = "Drag to rotate  \u00B7  Pinch to zoom"; setTextColor(Color.parseColor("#9FB3C4")); setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f); gravity = Gravity.CENTER }
         val hlp = FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM); hlp.bottomMargin = dp(24)
         layer.addView(hint, hlp)
-        // solar roof figures, top left: now, today's lowest (while producing) and highest, and the roof's lifetime total
+        // SolarSky figures along the bottom, above the hint: now, today's lowest (while producing) and highest, and the roof's lifetime total
         run {
-            val box = LinearLayout(this); box.orientation = LinearLayout.VERTICAL
-            box.addView(TextView(this).apply { text = "SOLAR ROOF"; setTextColor(Color.parseColor("#6AA8FF")); setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f); typeface = Typeface.DEFAULT_BOLD })
-            fun row(label: String): TextView {
-                box.addView(TextView(this).apply { text = label; setTextColor(Color.parseColor("#9FB3C4")); setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f); setPadding(0, dp(10), 0, 0) })
-                return TextView(this).apply { setTextColor(Color.WHITE); setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f); typeface = Typeface.DEFAULT_BOLD; box.addView(this) }
+            val box = LinearLayout(this); box.orientation = LinearLayout.VERTICAL; box.gravity = Gravity.CENTER_HORIZONTAL
+            box.addView(TextView(this).apply { text = "SOLAR SKY"; setTextColor(Color.parseColor("#6AA8FF")); setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; letterSpacing = 0.1f })
+            val rowL = LinearLayout(this); rowL.orientation = LinearLayout.HORIZONTAL; rowL.gravity = Gravity.CENTER
+            box.addView(rowL, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) })
+            fun cell(label: String): TextView {
+                val c = LinearLayout(this); c.orientation = LinearLayout.VERTICAL; c.gravity = Gravity.CENTER_HORIZONTAL; c.setPadding(dp(22), 0, dp(22), 0)
+                c.addView(TextView(this).apply { text = label; setTextColor(Color.parseColor("#9FB3C4")); setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f); gravity = Gravity.CENTER })
+                val v = TextView(this).apply { setTextColor(Color.WHITE); setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER }
+                c.addView(v); rowL.addView(c); return v
             }
-            val vNow = row("Now"); val vMin = row("Lowest today (while producing)"); val vMax = row("Highest today"); val vLife = row("Total over the car's life")
+            val vNow = cell("Now"); val vMin = cell("Lowest today"); val vMax = cell("Highest today"); val vLife = cell("Total over the car's life")
             solarUpdate = { s ->
                 val fresh = s.solarW != null && System.currentTimeMillis() - s.solarAt < 5000
                 val day = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date())
@@ -3138,7 +3142,7 @@ class MainActivity : Activity() {
                 vMax.text = if (mx >= 0) "$mx W" else "--"
                 vLife.text = s.solarLifeKwh?.let { "${(it + 500) / 1000} kWh" } ?: "--"      // the car counts this in Wh
             }
-            val lp = FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START); lp.topMargin = dp(28); lp.leftMargin = dp(28)
+            val lp = FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL); lp.bottomMargin = dp(60)
             layer.addView(box, lp)
         }
         // the car's name, top centre: touch it to type a new one ("Name your car" until one is saved)
@@ -3151,7 +3155,7 @@ class MainActivity : Activity() {
             show()
             nameBtn.setOnClickListener {
                 val edit = EditText(this).apply {
-                    setText(prefs().getString("carName", "").orEmpty()); setSelection(text.length); hint = "Your car's name"
+                    setText(prefs().getString("carName", "").orEmpty()); setSelection(text.length); setHint("Your car's name")
                     setSingleLine(true); filters = arrayOf(android.text.InputFilter.LengthFilter(24))
                     inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS
                     setTextColor(Color.WHITE); setHintTextColor(Color.parseColor("#7C8DA0")); setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
