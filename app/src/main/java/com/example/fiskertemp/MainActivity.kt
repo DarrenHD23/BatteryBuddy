@@ -8573,7 +8573,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     }
 
     /** The cabin from above with the airflow lit by the driver's air direction, and the fan speed bars under it. */
-    private fun cabin(cx: Float, top: Float, areaW: Float, areaH: Float, s: CanSnapshot, small: Boolean) {
+    private fun cabin(cx: Float, top: Float, areaW: Float, areaH: Float, s: CanSnapshot, small: Boolean, btnRef: Float = areaH) {
         val barsH = (areaH * 0.15f).coerceIn(dp(20f), dp(40f))
         val labH = dp(if (small) 16f else 20f)
         val carH = areaH - barsH - labH - dp(10f)
@@ -8598,18 +8598,21 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val tw0 = p.measureText(label)
         val ly = bt + barsH + labH * 0.55f
         fanRect.set(x0 - dp(24f), bt - dp(6f), x0 + 7 * bw + 6 * bg + dp(24f), ly + dp(16f))
-        // - and + for the fan speed, either side of the bars
+        // - and + for the fan speed, either side of the bars: the same size and look as the temperature - / + buttons, kept inside the cabin column
         run {
-            val br = dp(if (small) 17f else 20f); val fy = bt + barsH * 0.5f + dp(5f)
-            val mx = x0 - dp(14f) - br; val px = x0 + 7 * bw + 6 * bg + dp(14f) + br
-            for ((fx, sym) in listOf(mx to "\u2212", px to "+")) {
-                val sq = RectF(fx - br, fy - br, fx + br, fy + br); val cr = br * 0.38f
-                p.style = Paint.Style.FILL; p.color = Color.argb(40, 255, 255, 255); canvas.drawRoundRect(sq, cr, cr, p)
-                p.style = Paint.Style.STROKE; p.strokeWidth = dp(1.3f); p.color = Color.argb(110, 255, 255, 255); canvas.drawRoundRect(sq, cr, cr, p)
-                text(sym, fx, fy, if (small) 22f else 26f, ink(), true)
-            }
-            val hr = br + dp(6f)
-            fanMinus.set(mx - hr, fy - hr, mx + hr, fy + hr); fanPlus.set(px - hr, fy - hr, px + hr, fy + hr)
+            val bsT = (btnRef * 0.20f).coerceIn(dp(34f), dp(52f))
+            val barsW = 7 * bw + 6 * bg
+            val gapB = dp(6f)
+            val roomH = (areaW - barsW) / 2f + dp(8f) - gapB            // sideways: the column's edge plus a little of the margin before the dial
+            val roomV = barsH + labH + dp(8f)                           // up and down: from just under the car to the bottom of the column
+            val bs = minOf(bsT, roomH, roomV)
+            val fy = minOf(bt + barsH * 0.5f + dp(5f), top + areaH - bs / 2f - dp(1f))
+            val mx = x0 - gapB - bs / 2f; val px = x0 + barsW + gapB + bs / 2f
+            val rm = RectF(mx - bs / 2f, fy - bs / 2f, mx + bs / 2f, fy + bs / 2f)
+            val rp = RectF(px - bs / 2f, fy - bs / 2f, px + bs / 2f, fy + bs / 2f)
+            glassBtn(rm, 0); glassBtn(rp, 1)
+            val pad = dp(3f)
+            fanMinus.set(rm.left - pad, rm.top - pad, rm.right + pad, rm.bottom + pad); fanPlus.set(rp.left - pad, rp.top - pad, rp.right + pad, rp.bottom + pad)
         }
         fan(cx - tw0 / 2 - dp(14f), ly, dp(if (small) 7f else 9f), ink(if (dayBg) 230 else 190))
         text(label, cx + dp(8f), ly, if (small) 13f else 15f, ink(), true)
@@ -8847,7 +8850,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         }
         dial(m, dialW, dialTop, dialH2, if (drvRight) "PASSENGER" else "DRIVER", if (drvRight) s.climPassT else s.climDrvT, !drvRight)
         dial(w - m - dialW, dialW, dialTop, dialH2, if (drvRight) "DRIVER" else "PASSENGER", if (drvRight) s.climDrvT else s.climPassT, drvRight)
-        cabin(w / 2f, dialTop, cabinW, dialH, s, small)
+        cabin(w / 2f, dialTop, cabinW, dialH, s, small, dialH2)
 
         // ---- air direction (the driver's; the car has no separate passenger airflow)
         run {
