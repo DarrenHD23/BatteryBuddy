@@ -4466,6 +4466,15 @@ class MainActivity : Activity() {
                 mediaBtn.setPadding(0, 0, 0, 0); climateBtn.setPadding(0, 0, 0, 0)
                 mediaBtn.requestLayout(); climateBtn.requestLayout()
             }
+            // right-hand drive: the Media / Climate pair is mirrored too (Climate on the outside), after every placement above has been worked out
+            if (prefs().getBoolean("rhd", false)) {
+                val mp = mediaBtn.layoutParams as? FrameLayout.LayoutParams; val cp = climateBtn.layoutParams as? FrameLayout.LayoutParams
+                if (mp != null && cp != null) {
+                    val ml = mp.leftMargin; val mr = mp.rightMargin
+                    mp.leftMargin = cp.leftMargin; mp.rightMargin = cp.rightMargin; cp.leftMargin = ml; cp.rightMargin = mr
+                    mediaBtn.requestLayout(); climateBtn.requestLayout()
+                }
+            }
             l2MiniNow = mini && !l2Third
             if (l2MediaInPlace && !l2MiniNow) l2MediaInPlace = false
             if (l2MediaInPlace) {
