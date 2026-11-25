@@ -2919,6 +2919,23 @@ class MainActivity : Activity() {
         dashLightDist.translationY = lightY + dashLight.height / 2f - dashLightDist.height / 2f
     }
 
+    /** Today's lowest (while producing) and highest solar roof power, kept across restarts; a new day starts afresh. */
+    private var solarSeenAt = 0L
+    private var solarUpdate: ((CanSnapshot) -> Unit)? = null
+    private fun trackSolar(s: CanSnapshot) {
+        val w = s.solarW ?: return
+        if (s.solarAt == solarSeenAt) return
+        solarSeenAt = s.solarAt
+        val day = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date())
+        val p = prefs()
+        val fresh = p.getString("solarDay", "") != day
+        var mn = if (fresh) -1 else p.getInt("solarDayMin", -1); var mx = if (fresh) -1 else p.getInt("solarDayMax", -1)
+        var ch = fresh
+        if (mx < 0 || w > mx) { mx = w; ch = true }
+        if (w > 0 && (mn < 0 || w < mn)) { mn = w; ch = true }
+        if (ch) p.edit().putString("solarDay", day).putInt("solarDayMin", mn).putInt("solarDayMax", mx).apply()
+    }
+
     /** Sends the car's state to a 3D car: lamps, paint, wheels, doors, hatch and the solar roof. A part with no fresh signal stays closed / neutral. */
     private fun feed3d(v: Car3dView, s: CanSnapshot) {
         val now = System.currentTimeMillis()
@@ -3102,6 +3119,28 @@ class MainActivity : Activity() {
         val hint = TextView(this).apply { text = "Drag to rotate  \u00B7  Pinch to zoom"; setTextColor(Color.parseColor("#9FB3C4")); setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f); gravity = Gravity.CENTER }
         val hlp = FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM); hlp.bottomMargin = dp(24)
         layer.addView(hint, hlp)
+        // solar roof figures, top left: now, today's lowest (while producing) and highest, and the roof's lifetime total
+        run {
+            val box = LinearLayout(this); box.orientation = LinearLayout.VERTICAL
+            box.addView(TextView(this).apply { text = "SOLAR ROOF"; setTextColor(Color.parseColor("#6AA8FF")); setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f); typeface = Typeface.DEFAULT_BOLD })
+            fun row(label: String): TextView {
+                box.addView(TextView(this).apply { text = label; setTextColor(Color.parseColor("#9FB3C4")); setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f); setPadding(0, dp(10), 0, 0) })
+                return TextView(this).apply { setTextColor(Color.WHITE); setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f); typeface = Typeface.DEFAULT_BOLD; box.addView(this) }
+            }
+            val vNow = row("Now"); val vMin = row("Lowest today (while producing)"); val vMax = row("Highest today"); val vLife = row("Total over the car's life")
+            solarUpdate = { s ->
+                val fresh = s.solarW != null && System.currentTimeMillis() - s.solarAt < 5000
+                val day = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date())
+                val pr = prefs(); val today = pr.getString("solarDay", "") == day
+                val mn = if (today) pr.getInt("solarDayMin", -1) else -1; val mx = if (today) pr.getInt("solarDayMax", -1) else -1
+                vNow.text = if (fresh) "${s.solarW} W" else "--"
+                vMin.text = if (mn >= 0) "$mn W" else "--"
+                vMax.text = if (mx >= 0) "$mx W" else "--"
+                vLife.text = s.solarLifeKwh?.let { "$it kWh" } ?: "--"
+            }
+            val lp = FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START); lp.topMargin = dp(28); lp.leftMargin = dp(28)
+            layer.addView(box, lp)
+        }
         dashRoot.addView(layer, FrameLayout.LayoutParams(-1, -1))
         viewerLayer = layer
         car3d?.visibility = View.INVISIBLE
@@ -3113,7 +3152,7 @@ class MainActivity : Activity() {
     private fun closeCarViewer() {
         val l = viewerLayer ?: return
         viewerLayer = null
-        dashRoot.removeView(l); viewer3d?.destroy(); viewer3d = null
+        dashRoot.removeView(l); viewer3d?.destroy(); viewer3d = null; solarUpdate = null
         car3d?.let { if (it.live) it.visibility = View.VISIBLE }
         for (v in viewerHidden) if (v.visibility == View.INVISIBLE) v.visibility = View.VISIBLE
         viewerHidden = emptyList()
@@ -5308,6 +5347,7 @@ class MainActivity : Activity() {
             car3d?.red = carView.redInd       // USA / Canada: the turn signals glow red, as the rear lamps do on those cars
             car3d?.follow = prefs().getBoolean(if (l2Applied) "l2CarFollow" else "l1CarFollow", true)
             if (viewerLayer != null && carView.speedKmh > 3f) closeCarViewer()      // driving off closes the viewer
+            trackSolar(s); solarUpdate?.invoke(s)
             viewer3d?.let { it.red = carView.redInd; feed3d(it, s) }
             car3d?.let { feed3d(it, s) }
             if (l2Applied) {
