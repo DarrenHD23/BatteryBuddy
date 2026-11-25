@@ -240,7 +240,7 @@ new GLTFLoader().parse(buf,'',g=>{
 },e=>bridge.fail('model: '+(e&&e.message)))}).catch(e=>bridge.fail('load: '+e.message));
 
 // driving (small view only): the body narrows from partway along toward the nose, as on the previous model (BODY_K at the nose, starting BODY_S of the way from the rear); the front wheels and beams follow it in
-const BODY_K=.18,BODY_S=.35;let Z0=0,Z1=1,lastK=-1,bodyOn=false;const deform=[],bodyNodes=[],_bv=new THREE.Vector3(),_bm=new THREE.Matrix4();
+const BODY_K=.38,BODY_S=.25;let Z0=0,Z1=1,lastK=-1,bodyOn=false;const deform=[],bodyNodes=[],_bv=new THREE.Vector3(),_bm=new THREE.Matrix4();
 const bramp=z=>{const t=(Z1-z)/(Z1-Z0),u=Math.min(1,Math.max(0,(t-BODY_S)/(1-BODY_S)));return u*u*(3-2*u)};
 function applyBody(){
   if(!bodyOn)return;const k=BODY_K*tilt;if(Math.abs(k-lastK)<1e-4)return;lastK=k;
