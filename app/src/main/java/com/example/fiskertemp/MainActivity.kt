@@ -401,7 +401,6 @@ class MainActivity : Activity() {
         InApp.init(this); InApp.log = { m -> EventLog.add(m) }; InApp.onChange = { refreshMediaCards() }
         logLastExits()
         logBootInfo()
-        rebootIfUpdateScriptDied()
         // a crash writes its stack trace to the event log before the app goes down
         val prevHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { th, ex ->
@@ -4725,7 +4724,6 @@ class MainActivity : Activity() {
     private fun updateFailed(msg: String) {
         updateBusy = false
         EventLog.add("update failed: $msg")
-        prefs().edit().remove("rebootAfter").apply()
         updPt?.text = "Update failed: $msg"
         updBar?.visibility = View.GONE
         updPos?.apply { isEnabled = true; text = "Try again" }
@@ -4774,61 +4772,17 @@ class MainActivity : Activity() {
         d.show(); styleDark(d)
         updPos = d.getButton(AlertDialog.BUTTON_POSITIVE); updNeg = d.getButton(AlertDialog.BUTTON_NEGATIVE)
         updPos?.setOnClickListener {
-            // with root the update ends with a reboot of the Pulse: ask first (without root the app cannot reboot it, so it just updates)
-            Thread {
-                val canReboot = Updater.rootAvailable()
-                ui.post {
-                    if (!canReboot) startUpdate(r, d, pt, bar, false)
-                    else darkDialog().setTitle("Update and reboot your Pulse now?")
-                        .setMessage("${r.title} installs first, then your Pulse reboots by itself (about a minute). Anything running on it will close.\n\nUpdate and reboot your Pulse now?")
-                        .setPositiveButton("Update and reboot now") { _, _ -> showRebootCountdown(r, d, pt, bar) }
-                        .setNegativeButton("Not now", null).showDark()
-                }
-            }.start()
+            // the app cannot restart the Pulse itself, so it asks the user to do it after the install
+            darkDialog().setTitle("Please Reboot your Pulse after Installing the Update")
+                .setMessage("${r.title} installs now and the app restarts by itself. When it is done, please reboot your Pulse.")
+                .setPositiveButton("OK, I will") { _, _ -> startUpdate(r, d, pt, bar) }
+                .showDark()
         }
         updNeg?.setOnClickListener { d.dismiss() }     // "Update later": the dismiss listener leaves the button beside the clock
         refreshUpdateBtn()
     }
 
-    /** A big 10-second countdown before an update that restarts the Pulse: Cancel at any moment drops back to the dashboard with nothing installed (the orange button stays). */
-    private fun showRebootCountdown(r: Updater.Release, d: AlertDialog, pt: TextView, bar: android.widget.ProgressBar) {
-        val light = Color.parseColor("#F0F3F8")
-        val num = TextView(this).apply { text = "10"; textSize = 96f; setTextColor(light); gravity = Gravity.CENTER; typeface = Typeface.DEFAULT_BOLD }
-        val col = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(30), dp(16), dp(30), dp(8)); gravity = Gravity.CENTER_HORIZONTAL
-            addView(TextView(this@MainActivity).apply { text = "${r.title} installs, then your Pulse reboots in"; textSize = 20f; setTextColor(light); gravity = Gravity.CENTER })
-            addView(num, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10); bottomMargin = dp(4) })
-            addView(TextView(this@MainActivity).apply { text = "seconds. Press Cancel to stop: nothing is installed and the update stays available."; textSize = 16f; setTextColor(Color.parseColor("#C5CEDA")); gravity = Gravity.CENTER })
-        }
-        var left = 10; var over = false
-        val cd = darkDialog().setTitle("Update and reboot your Pulse now").setView(col).setCancelable(false)
-            .setNegativeButton("Cancel", null).create()
-        val tick = object : Runnable {
-            override fun run() {
-                if (over) return
-                left--
-                if (left <= 0) {
-                    over = true
-                    col.removeAllViews()
-                    col.addView(TextView(this@MainActivity).apply { text = "${r.title} is ready to install. Your Pulse reboots right after."; textSize = 20f; setTextColor(light); gravity = Gravity.CENTER })
-                    col.addView(Button(this@MainActivity).apply {
-                        text = "Touch here to reboot now"; isAllCaps = false; textSize = 28f
-                        setOnClickListener { cd.dismiss(); startUpdate(r, d, pt, bar, true) }
-                    }, LinearLayout.LayoutParams(-1, dp(130)).apply { topMargin = dp(18) })
-                    return
-                }
-                num.text = left.toString(); ui.postDelayed(this, 1000)
-            }
-        }
-        cd.show(); styleDark(cd)
-        cd.getButton(AlertDialog.BUTTON_NEGATIVE)?.apply {
-            textSize = 24f
-            setOnClickListener { over = true; ui.removeCallbacks(tick); cd.dismiss(); d.dismiss() }      // the update window closes: back to the dashboard, the orange button stays
-        }
-        ui.postDelayed(tick, 1000)
-    }
-
-    private fun startUpdate(r: Updater.Release, d: AlertDialog, pt: TextView, bar: android.widget.ProgressBar, reboot: Boolean = false) {
+    private fun startUpdate(r: Updater.Release, d: AlertDialog, pt: TextView, bar: android.widget.ProgressBar) {
         updateBusy = true
         d.setCancelable(false)
         updPos?.apply { isEnabled = false; text = "Updating\u2026" }
@@ -4839,11 +4793,10 @@ class MainActivity : Activity() {
                 val dir = File(cacheDir, "update"); dir.deleteRecursively()
                 val apk = File(dir, "FiskerBattery-build${r.build}.apk")
                 Updater.download(r, apk) { p -> ui.post { bar.progress = p; pt.text = "Downloading\u2026 $p%" } }
-                ui.post { pt.text = if (reboot) "Installing\u2026 then your Pulse reboots; your settings are kept" else "Installing\u2026 the app restarts by itself and keeps your settings"; bar.isIndeterminate = true }
+                ui.post { pt.text = "Installing\u2026 the app restarts by itself and keeps your settings"; bar.isIndeterminate = true }
                 if (Updater.rootAvailable()) {
                     prefs().edit().commit()
-                    if (reboot) prefs().edit().putInt("rebootAfter", r.build).putLong("rebootAfterAt", System.currentTimeMillis()).putInt("rebootAfterBoot", bootCount()).commit()
-                    if (!Updater.installRoot(this, apk, reboot)) throw RuntimeException("could not start the installer")
+                    if (!Updater.installRoot(this, apk)) throw RuntimeException("could not start the installer")
                 } else {
                     ui.post {
                         if (!installReceiverOn) {
@@ -5420,37 +5373,10 @@ class MainActivity : Activity() {
     private fun uptimeSecs(): String = try { java.io.File("/proc/uptime").readText().trim().split(" ")[0].toDouble().toInt().toString() } catch (e: Exception) { "?" }
 
     /** At start: how long the Pulse has been up and what Android and the kernel kept about the last crash or restart (needs root). */
-    private fun bootCount(): Int = try { android.provider.Settings.Global.getInt(contentResolver, "boot_count", -1) } catch (e: Throwable) { -1 }
-
-    /**
-     * Safety net for "Update and reboot": the install stops the old app, and on the Pulse the update script may be stopped with it
-     * before it reaches its reboot. If the new version starts on the same boot, soon after the touch, it does the reboot itself.
-     * The flag is cleared on the first read, and a restart in between (different boot count) cancels it, so it can never loop.
-     */
-    private fun rebootIfUpdateScriptDied() {
-        val want = prefs().getInt("rebootAfter", 0)
-        if (want == 0) return
-        val at = prefs().getLong("rebootAfterAt", 0L); val boot = prefs().getInt("rebootAfterBoot", -1)
-        prefs().edit().remove("rebootAfter").commit()
-        val fresh = System.currentTimeMillis() - at in 0..15 * 60_000L
-        val sameBoot = boot == -1 || boot == bootCount()
-        val up = Updater.installedBuild(this) >= want
-        if (!(fresh && sameBoot && up)) { EventLog.add("reboot after update: not needed (fresh=$fresh same boot=$sameBoot installed=$up)"); return }
-        EventLog.add("reboot after update: the update script did not reboot the Pulse, so the app does it now")
-        ui.post { Toast.makeText(this, "Update installed. Restarting the Pulse...", Toast.LENGTH_LONG).show() }
-        Thread {
-            val ok = try { Updater.rebootRoot(this@MainActivity) } catch (e: Throwable) { false }
-            EventLog.add("restart Pulse: " + (if (ok) "script started" else "could not start (no root?)"))
-            if (ok) { try { Thread.sleep(90_000) } catch (e: InterruptedException) { }; Updater.collectScriptLog(this@MainActivity) }
-        }.also { it.isDaemon = true }.start()
-    }
-
     private fun logBootInfo() {
         Thread {
             try {
                 EventLog.add("boot: Pulse up for " + uptimeSecs() + " s")
-                // what the last update script did (install result and every reboot attempt): the script keeps it in this app's own folder, so no root is needed to read it; copied into the event log once, then removed
-                Updater.collectScriptLog(this)
                 val r = Root.exec("getprop sys.boot.reason; getprop ro.boot.bootreason; echo '--pstore'; ls -l /sys/fs/pstore 2>&1 | head -n 8; echo '--dropbox'; ls -l /data/system/dropbox 2>&1 | tail -n 14; echo '--crash log'; logcat -b crash -d -t 25 2>&1 | cut -c1-200")
                 if (r.timedOut) EventLog.add("boot info: root shell timed out")
                 else EventLog.add("boot info:\n" + r.out.trim().take(3000))

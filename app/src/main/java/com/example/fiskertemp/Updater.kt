@@ -133,57 +133,13 @@ object Updater {
      * app was signed with a different key does the script copy the settings aside, uninstall, install, put the settings
      * back and fix their owner. It runs detached, because installing kills this app, and starts the new one when done.
      */
-    // after the install: just start the app again, or reboot the Pulse trying one way after another (each result goes into the script log, which the app copies into its event log at the next start)
-    private const val START_TAIL = "say \"starting the app\"\nam start -n §PKG/.MainActivity\nrm -f §A\n"
-    private const val REBOOT_TAIL = """rm -f §A
-say "rebooting: sync"; sync; sleep 3
-say "try: reboot"; reboot >> §LOG 2>&1; sleep 12
-say "try: /system/bin/reboot"; /system/bin/reboot >> §LOG 2>&1; sleep 12
-say "try: svc power reboot"; svc power reboot >> §LOG 2>&1; sleep 12
-say "try: setprop sys.powerctl reboot"; setprop sys.powerctl reboot >> §LOG 2>&1; sleep 12
-say "try: reboot -f"; reboot -f >> §LOG 2>&1; sleep 12
-say "try: sysrq b"; echo 1 > /proc/sys/kernel/sysrq; echo b > /proc/sysrq-trigger; sleep 12
-say "the Pulse did not reboot: starting the app instead"
-am start -n §PKG/.MainActivity
-"""
-
-    /** Restarts the Pulse as root without installing anything (Settings > Restart Pulse). Same attempts, same script log. */
-    fun rebootRoot(ctx: Context): Boolean {
+    fun installRoot(ctx: Context, apk: File): Boolean {
         val pkg = ctx.packageName
         val sh = """
-PKG=@PKG; A=/data/local/tmp/bb_update.apk; LOG=@LOG
-say() { echo "§1"; echo "§1" >> §LOG; chmod 666 §LOG; }
-say "restart requested from Settings (§(id))"
-@TAIL""".trim().replace("§", "$").replace("@PKG", pkg).replace("@LOG", File(ctx.cacheDir, "bb_update_log.txt").absolutePath).replace("@TAIL", REBOOT_TAIL.replace("§", "$"))
-        val f = File(ctx.cacheDir, "bb_reboot.sh")
-        f.writeText(sh)
-        f.setReadable(true, false)
-        return Root.exec("nohup setsid sh ${f.absolutePath} >/data/local/tmp/bb_reboot.log 2>&1 &").ok
-    }
-
-    /** Copies the script log (kept in the app's own folder, readable without root) into the event log, once, and removes it. */
-    fun collectScriptLog(ctx: Context) {
-        try {
-            val uf = File(ctx.cacheDir, "bb_update_log.txt")
-            if (uf.exists()) { val txt = uf.readText().trim(); uf.delete(); if (txt.isNotEmpty()) EventLog.add("update script log:\n" + txt.take(2500)) }
-        } catch (e: Throwable) { }
-    }
-
-    fun installRoot(ctx: Context, apk: File, reboot: Boolean = false): Boolean {
-        val pkg = ctx.packageName
-        val sh = """
-PKG=@PKG; A=/data/local/tmp/bb_update.apk; B=/data/local/tmp/bb_backup; LOG=@LOG
-say() { echo "§1"; echo "§1" >> §LOG; chmod 666 §LOG; }
-say "update script started (§(id))"
-say "process group before: §(cat /proc/self/cgroup 2>&1 | tr '\n' ' ')"
-for c in /sys/fs/cgroup/cgroup.procs /dev/cg2_bpf/cgroup.procs /acct/cgroup.procs /sys/fs/cgroup/uid_0/cgroup.procs; do
-  if [ -w §c ] && echo §§ > §c 2>/dev/null; then say "moved out of the app's process group via §c"; break; fi
-done
-say "process group after: §(cat /proc/self/cgroup 2>&1 | tr '\n' ' ')"
+PKG=@PKG; A=/data/local/tmp/bb_update.apk; B=/data/local/tmp/bb_backup
 cp @SRC §A && chmod 644 §A
 sleep 1
 R=§(pm install -r §A 2>&1)
-say "install -r: §R"
 case "§R" in
 *Success*) ;;
 *INCOMPATIBLE*)
@@ -191,7 +147,6 @@ case "§R" in
   for d in shared_prefs files databases; do [ -d /data/data/§PKG/§d ] && cp -a /data/data/§PKG/§d §B/; done
   pm uninstall §PKG
   R=§(pm install §A 2>&1)
-  say "install after uninstall: §R"
   case "§R" in
   *Success*)
     U=§(stat -c %u /data/data/§PKG)
@@ -201,7 +156,9 @@ case "§R" in
     restorecon -R /data/data/§PKG ;;
   esac ;;
 esac
-@TAIL""".trim().replace("§", "$").replace("@PKG", pkg).replace("@LOG", File(ctx.cacheDir, "bb_update_log.txt").absolutePath).replace("@SRC", apk.absolutePath).replace("@TAIL", (if (reboot) REBOOT_TAIL else START_TAIL).replace("§", "$"))
+am start -n §PKG/.MainActivity
+rm -f §A
+""".trim().replace("§", "$").replace("@PKG", pkg).replace("@SRC", apk.absolutePath)
         val f = File(ctx.cacheDir, "bb_update.sh")
         f.writeText(sh)
         f.setReadable(true, false)
