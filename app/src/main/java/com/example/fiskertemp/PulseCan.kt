@@ -80,6 +80,7 @@ data class CanSnapshot(
     val lightDistM: Int? = null,       // distance to it in metres (0x351 on IBUS2, byte 6)
     val brakeBcm: Boolean? = null,     // brake lamp output command (0x335 on IBUS1, byte 5 bit 7)
     val brakeVcu: Boolean? = null,     // stop lamp request from the drive unit (0x234 on IBUS1, byte 1 bit 6)
+    val gear: Int? = null,             // 1 P, 2 N, 3 R, 4 D, 6 E, 7 S (0x234 on IBUS1, byte 3 low nibble = VCU_GearSig, valid when byte 2 bits 7-6 = 1)
     val driveMode: Int? = null,        // 0 Earth, 1 Fun, 2 Hyper (0x234 on IBUS1, byte 7 bits 5-3)
     val regenKwh: Double = 0.0,        // energy put back into the battery while moving, this drive (from 0xE9 and 0x318)
     val headingDeg: Double? = null,    // compass heading, degrees from north (0x179 on IBUS1, bytes 2-3, 0.01 per bit)
@@ -725,7 +726,8 @@ class PulseCan(
         // 0x234 VCU_0x234 (IBUS1): VCU_DrvModSigFb 0 Eco (Earth), 1 Normal (Fun), 2 Sport (Hyper), 7 invalid
         if (bus == 1 && id == 0x234) {
             val m = (b[7] shr 3) and 7
-            return s.copy(driveMode = if (m <= 2) m else null, brakeVcu = ((b[1] shr 6) and 1) == 1, ready = ((b[1] shr 4) and 1) == 1)
+            val g = b[3] and 0x0F; val gv = (b[2] shr 6) and 3
+            return s.copy(gear = if (gv == 1 && g in 1..7) g else null, driveMode = if (m <= 2) m else null, brakeVcu = ((b[1] shr 6) and 1) == 1, ready = ((b[1] shr 4) and 1) == 1)
         }
         // 0x471 PLGM_0x471 (IBUS1, 100 ms), from the Oceanfront view's DBC: the power liftgate: shown opening and closing on the car
         if (bus == 1 && id == 0x471) {

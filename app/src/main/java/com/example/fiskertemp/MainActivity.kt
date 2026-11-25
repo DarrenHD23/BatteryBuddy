@@ -5219,7 +5219,12 @@ class MainActivity : Activity() {
             if (rlp != null && rlp.gravity != g) { rlp.gravity = g; rlp.leftMargin = if (g == Gravity.CENTER) 0 else dp(4); dashReady.layoutParams = rlp }
         }
         dashLightDist.text = if (signTest) "120 m" else if (lc == null) "" else s.lightDistM?.let { "$it m" } ?: ""
-        val dm = s.driveMode
+        // In Park the car keeps sending Earth: hold the last real mode (saved, so a restart keeps it) until a different mode comes through
+        val dm = run {
+            val raw = s.driveMode
+            if (s.gear == 1 && (raw == null || raw == 0)) prefs().getInt("lastDriveMode", -1).takeIf { it in 0..2 }
+            else { if (raw != null && prefs().getInt("lastDriveMode", -1) != raw) prefs().edit().putInt("lastDriveMode", raw).apply(); raw }
+        }
         if (dm == null) dashMode.visibility = View.INVISIBLE else {
             val (name, col) = when (dm) {
                 0 -> "EARTH" to "#4FC3F7"
