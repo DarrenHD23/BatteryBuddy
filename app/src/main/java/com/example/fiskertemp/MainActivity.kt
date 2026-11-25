@@ -1437,6 +1437,10 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideLight", on).apply() }
         }, 4)
         box.add(CheckBox(this).apply {
+            text = "Turn the speed number red, more strongly the further you are over the posted speed limit"; isChecked = prefs().getBoolean("overSpeedRed", true)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("overSpeedRed", on).apply() }
+        }, 4)
+        box.add(CheckBox(this).apply {
             text = "Hide the speed limit sign"; isChecked = prefs().getBoolean("hideSign", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideSign", on).apply() }
         }, 4)
@@ -5309,6 +5313,22 @@ class MainActivity : Activity() {
             dashSignSrc.text = when (tm) { 2 -> "Camera + Map"; 3 -> "Camera"; 4 -> "Map"; 5 -> "sign data error"; else -> "" }
             dashSignSrc.setTextColor(if (dashDay) Color.argb(200, 20, 32, 46) else Color.argb(200, 255, 255, 255))
         }
+        // over the posted limit: the speed number goes from its normal colour to a strong red, fully red about 20 km/h (12 mph) over; a 1 km/h (1 mph) margin first
+        run {
+            var t = 0f
+            val limNow = if (signTest) null else s.limit
+            if (limNow != null && spd != null && prefs().getBoolean("overSpeedRed", true)) {
+                val lm = if (s.limitMph == mph) limNow.toDouble() else if (mph) limNow * 0.621371 else limNow * 1.609344
+                val tol = 1.0; val full = if (mph) 12.0 else 20.0
+                t = ((spd - lm - tol) / (full - tol)).coerceIn(0.0, 1.0).toFloat()
+            }
+            dashSpeedGauge.overT = t
+            if (::adasSpdNum.isInitialized && t > 0f) {
+                val base = if (dashDay) Color.parseColor("#14202E") else Color.WHITE; val red = Color.rgb(255, 40, 30)
+                adasSpdNum.setTextColor(Color.rgb((Color.red(base) + (Color.red(red) - Color.red(base)) * t).toInt(), (Color.green(base) + (Color.green(red) - Color.green(base)) * t).toInt(), (Color.blue(base) + (Color.blue(red) - Color.blue(base)) * t).toInt()))
+            }
+            dashSpeedGauge.invalidate()
+        }
         val lc = if (signTest) 1 + ((nowMs / 3000L) % 3L).toInt() else if (prefs().getBoolean("hideLight", false)) null else s.lightColor
         if (lc != null) { lightColor = lc; lightSeenAt = nowMs; dashLight.setColor(lc) }
         val seen = lc != null || nowMs - lightSeenAt < 1500   // brief hold so one missed frame does not flicker
@@ -6193,6 +6213,13 @@ class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Fl
     var iconLevel = 0
     var topLabel = ""; var topValue = ""
     var title = ""; var valueText = "--"; var unit = ""
+    /** 0..1: how far over the posted limit the speed is (the number turns red and glows). */
+    var overT = 0f
+    private fun overInk(base: Int): Int {
+        val t = overT; if (t <= 0f) return base
+        fun mix(x: Int, y: Int) = (x + (y - x) * t).toInt().coerceIn(0, 255)
+        return Color.rgb(mix(Color.red(base), 255), mix(Color.green(base), 40), mix(Color.blue(base), 30))
+    }
     var bottomLabel = ""; var bottomValue = ""; var bottomColor: Int? = null
     var day = false
     var hold = false
@@ -6369,7 +6396,7 @@ class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Fl
         text(topLabel, cx, cy - r * (0.60f - topIn), r * 0.080f, g.dim, upright, 0.10f, lim(0.60f - topIn + 0.07f))
         text(topValue, cx, cy - r * (0.48f - topIn * 0.75f), r * 0.12f, g.ink, numTf(), 0f, lim(0.48f - topIn * 0.75f + 0.09f))
         text(title, cx, cy - r * 0.25f, r * 0.11f, g.dim, upright, 0.16f)
-        if (!hold) text(valueText, cx, cy + r * 0.14f, r * valueScale * 0.84f, g.ink, numTf())
+        if (!hold) { if (overT > 0f) txt.setShadowLayer(r * 0.18f * overT, 0f, 0f, Color.argb((230 * overT).toInt(), 255, 30, 20)); text(valueText, cx, cy + r * 0.14f, r * valueScale * 0.84f, overInk(g.ink), numTf()); txt.clearShadowLayer() }
         text(unit, cx, cy + r * 0.34f, r * 0.13f, g.accent, uprightMed, 0.06f)
         text(bottomLabel, cx, cy + r * 0.50f, r * 0.080f, g.dim, upright, 0.10f, lim(0.52f))
         text(bottomValue, cx, cy + r * 0.62f, r * 0.12f, bottomColor ?: g.ink, numTf(), 0f, lim(0.65f))
@@ -6828,7 +6855,7 @@ class ArcGaugeView(ctx: Context, var mirrored: Boolean, private val zeroFrac: Fl
         text(topLabel, cx, cy - r * 0.60f, r * 0.085f, grey, light)
         text(topValue, cx, cy - r * 0.48f, r * 0.12f, ink, lightItalic)
         text(title, cx, cy - r * 0.25f, r * 0.13f, grey, lightItalic)
-        if (!hold) text(valueText, cx, cy + r * 0.13f, r * 0.40f * 0.84f, ink, lightItalic)
+        if (!hold) { if (overT > 0f) txt.setShadowLayer(r * 0.18f * overT, 0f, 0f, Color.argb((230 * overT).toInt(), 255, 30, 20)); text(valueText, cx, cy + r * 0.13f, r * 0.40f * 0.84f, overInk(ink), lightItalic); txt.clearShadowLayer() }
         text(unit, cx, cy + r * 0.34f, r * 0.14f, Color.parseColor("#2AA8FF"), medium)
         text(bottomLabel, cx, cy + r * 0.50f, r * 0.085f, grey, light)
         text(bottomValue, cx, cy + r * 0.62f, r * 0.12f, bottomColor ?: ink, lightItalic)
