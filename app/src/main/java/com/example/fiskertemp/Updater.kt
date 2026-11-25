@@ -133,7 +133,7 @@ object Updater {
      * app was signed with a different key does the script copy the settings aside, uninstall, install, put the settings
      * back and fix their owner. It runs detached, because installing kills this app, and starts the new one when done.
      */
-    fun installRoot(ctx: Context, apk: File): Boolean {
+    fun installRoot(ctx: Context, apk: File, reboot: Boolean = false): Boolean {
         val pkg = ctx.packageName
         val sh = """
 PKG=@PKG; A=/data/local/tmp/bb_update.apk; B=/data/local/tmp/bb_backup
@@ -158,7 +158,7 @@ case "§R" in
 esac
 am start -n §PKG/.MainActivity
 rm -f §A
-""".trim().replace("§", "$").replace("@PKG", pkg).replace("@SRC", apk.absolutePath)
+@REBOOT""".trim().replace("§", "$").replace("@PKG", pkg).replace("@SRC", apk.absolutePath).replace("@REBOOT", if (reboot) "sync; sleep 6; reboot || svc power reboot\n" else "")
         val f = File(ctx.cacheDir, "bb_update.sh")
         f.writeText(sh)
         f.setReadable(true, false)

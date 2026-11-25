@@ -2855,7 +2855,16 @@ class MainActivity : Activity() {
             var lx = if (prefs().getBoolean("rhd", false)) root.width - lx0 - dashLight.width else lx0
             // ADAS view with Climate and Media closed: the same height, but in the middle of the screen instead of off to the side
             if (adasMode && adasNoCards) lx = (root.width - dashLight.width) / 2f
-            val ly = maxOf((ta[1] - r[1]).toFloat(), adasClockBottom().let { if (it > 0f) it + dp(6) else 0f }, if (adasMode && adasNoCards) rdyBottom else 0f)
+            var ly = maxOf((ta[1] - r[1]).toFloat(), adasClockBottom().let { if (it > 0f) it + dp(6) else 0f }, if (adasMode && adasNoCards) rdyBottom else 0f)
+            // the ADAS View button sits just left of the road (right of it in right-hand drive): if the light would sit on it, the light goes under it
+            (adasBar as? TextView)?.let { bar ->
+                if (bar.visibility == View.VISIBLE) {
+                    val bw = if (bar.width > 0) bar.width.toFloat() else dp(120).toFloat()
+                    val barBottom = ((bar.layoutParams as FrameLayout.LayoutParams).topMargin + (if (bar.height > 0) bar.height else dp(30))).toFloat() + bar.translationY
+                    val overX = lx < bar.translationX + bw + dp(4) && lx + dashLight.width > bar.translationX - dp(4)
+                    if (overX && ly < barBottom + dp(4)) ly = barBottom + dp(4)
+                }
+            }
             dashLight.translationX = lx
             dashLight.translationY = ly
             dashLightDist.translationX = lx + dashLight.width / 2f - dashLightDist.width / 2f
@@ -4746,12 +4755,24 @@ class MainActivity : Activity() {
         }
         d.show(); styleDark(d)
         updPos = d.getButton(AlertDialog.BUTTON_POSITIVE); updNeg = d.getButton(AlertDialog.BUTTON_NEGATIVE)
-        updPos?.setOnClickListener { startUpdate(r, d, pt, bar) }
+        updPos?.setOnClickListener {
+            // with root the update ends with a restart of the Pulse: ask first (without root the app cannot restart it, so it just updates)
+            Thread {
+                val canReboot = Updater.rootAvailable()
+                ui.post {
+                    if (!canReboot) startUpdate(r, d, pt, bar, false)
+                    else darkDialog().setTitle("Update and restart the Pulse?")
+                        .setMessage("${r.title} installs first, then the Pulse restarts by itself (about a minute). Anything running on it will close.\n\nUpdate and restart now?")
+                        .setPositiveButton("Update and restart now") { _, _ -> startUpdate(r, d, pt, bar, true) }
+                        .setNegativeButton("Not now", null).showDark()
+                }
+            }.start()
+        }
         updNeg?.setOnClickListener { d.dismiss() }     // "Update later": the dismiss listener leaves the button beside the clock
         refreshUpdateBtn()
     }
 
-    private fun startUpdate(r: Updater.Release, d: AlertDialog, pt: TextView, bar: android.widget.ProgressBar) {
+    private fun startUpdate(r: Updater.Release, d: AlertDialog, pt: TextView, bar: android.widget.ProgressBar, reboot: Boolean = false) {
         updateBusy = true
         d.setCancelable(false)
         updPos?.apply { isEnabled = false; text = "Updating\u2026" }
@@ -4762,10 +4783,10 @@ class MainActivity : Activity() {
                 val dir = File(cacheDir, "update"); dir.deleteRecursively()
                 val apk = File(dir, "FiskerBattery-build${r.build}.apk")
                 Updater.download(r, apk) { p -> ui.post { bar.progress = p; pt.text = "Downloading\u2026 $p%" } }
-                ui.post { pt.text = "Installing\u2026 the app restarts by itself and keeps your settings"; bar.isIndeterminate = true }
+                ui.post { pt.text = if (reboot) "Installing\u2026 then the Pulse restarts; your settings are kept" else "Installing\u2026 the app restarts by itself and keeps your settings"; bar.isIndeterminate = true }
                 if (Updater.rootAvailable()) {
                     prefs().edit().commit()
-                    if (!Updater.installRoot(this, apk)) throw RuntimeException("could not start the installer")
+                    if (!Updater.installRoot(this, apk, reboot)) throw RuntimeException("could not start the installer")
                 } else {
                     ui.post {
                         if (!installReceiverOn) {
