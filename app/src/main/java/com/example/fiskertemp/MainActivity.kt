@@ -880,6 +880,7 @@ class MainActivity : Activity() {
         edgeBox.addView(climateView, FrameLayout.LayoutParams(-1, -1))
         cautionView = buildCaution()
         edgeBox.addView(cautionView, FrameLayout.LayoutParams(-1, -1))
+        buildSimBar()
         applySkinChrome()
         setContentView(edgeBox)
         clearOptionBackgrounds(rootScroll)
@@ -1435,6 +1436,10 @@ class MainActivity : Activity() {
         box.add(CheckBox(this).apply {
             text = "Hide the traffic light"; isChecked = prefs().getBoolean("hideLight", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideLight", on).apply() }
+        }, 4)
+        box.add(CheckBox(this).apply {
+            text = "Show a speed test slider on the dashboard (to see the 3D car move into its driving position)"; isChecked = prefs().getBoolean("simSlider", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("simSlider", on).apply(); if (!on) simSpeed = -1f; updateSimBar() }
         }, 4)
         box.add(CheckBox(this).apply {
             text = "Turn the speed number red, more strongly the further you are over the posted speed limit"; isChecked = prefs().getBoolean("overSpeedRed", true)
@@ -2941,6 +2946,34 @@ class MainActivity : Activity() {
     }
 
     /** Sends the car's state to a 3D car: lamps, paint, wheels, doors, hatch and the solar roof. A part with no fresh signal stays closed / neutral. */
+    // a test slider (Settings): pretends the car is driving at this speed (km/h) so the 3D car can be watched moving; 0 = the real speed
+    private var simSpeed = -1f
+    private var simBar: LinearLayout? = null
+    private fun buildSimBar() {
+        val lab = TextView(this).apply { setTextColor(Color.WHITE); textSize = 13f; text = "Test speed: off" }
+        val sb = SeekBar(this).apply {
+            max = 140
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(b: SeekBar?, p: Int, user: Boolean) {
+                    simSpeed = if (p <= 0) -1f else p.toFloat()
+                    lab.text = if (p <= 0) "Test speed: off (real speed)" else "Test speed: $p km/h"
+                    if (user) { car3d?.let { feed3d(it, canSnap) } }
+                }
+                override fun onStartTrackingTouch(b: SeekBar?) {}
+                override fun onStopTrackingTouch(b: SeekBar?) {}
+            })
+        }
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(6), dp(14), dp(6)); elevation = dp(6).toFloat()
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(Color.argb(150, 10, 16, 28)); cornerRadius = dp(14).toFloat() }
+            addView(lab); addView(sb, LinearLayout.LayoutParams(dp(300), -2))
+        }
+        simBar = bar
+        edgeBox.addView(bar, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { setMargins(0, 0, 0, dp(84)) })
+        updateSimBar()
+    }
+    private fun updateSimBar() { simBar?.visibility = if (prefs().getBoolean("simSlider", false)) View.VISIBLE else View.GONE; simBar?.bringToFront() }
+
     private fun feed3d(v: Car3dView, s: CanSnapshot) {
         val now = System.currentTimeMillis()
         val db = s.doorBits
@@ -2953,7 +2986,7 @@ class MainActivity : Activity() {
         v.solar = if (s.solarW != null && now - s.solarAt < 5000) (s.solarW.coerceAtLeast(0) / prefs().getInt("solarMaxW", 250).toFloat()).coerceIn(0f, 1f) else -1f
         v.wheel = prefs().getString("carWheel", "F3A_22") ?: "F3A_22"
         v.tail = carView.headlights || carView.beamsOn || carView.highBeam
-        v.push(carView.speedKmh, if (carView.highBeam) 2 else if (carView.beamsOn) 1 else if (carView.headlights) 3 else 0, carView.braking, carView.leftInd, carView.rightInd, carView.reverse, CAR_PAINTS[carView.paintIdx].first)
+        v.push(if (simSpeed > 0f) simSpeed else carView.speedKmh, if (carView.highBeam) 2 else if (carView.beamsOn) 1 else if (carView.headlights) 3 else 0, carView.braking, carView.leftInd, carView.rightInd, carView.reverse, CAR_PAINTS[carView.paintIdx].first)
     }
 
     private fun syncCar3d(root: FrameLayout) {
