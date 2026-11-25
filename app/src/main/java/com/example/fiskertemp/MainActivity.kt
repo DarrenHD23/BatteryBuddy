@@ -1154,6 +1154,23 @@ class MainActivity : Activity() {
             text = "About"; isAllCaps = false
             setOnClickListener { showAbout() }
         }, 8)
+        box.add(Button(this).apply {
+            text = "Restart Pulse"; isAllCaps = false
+            setOnClickListener {
+                darkDialog().setTitle("Restart your Pulse now?")
+                    .setMessage("The Pulse restarts a few seconds after you press Restart. Nothing is installed. If it does not restart, the app opens again and the event log shows what each attempt said.")
+                    .setPositiveButton("Restart") { _, _ ->
+                        dialog.dismiss()
+                        Thread {
+                            val ok = try { Updater.rebootRoot(this@MainActivity) } catch (e: Throwable) { false }
+                            EventLog.add("restart Pulse requested from Settings: " + (if (ok) "script started" else "could not start (no root?)"))
+                            ui.post { Toast.makeText(this@MainActivity, if (ok) "Restarting the Pulse..." else "Could not restart: root access is not available", Toast.LENGTH_LONG).show() }
+                            if (ok) { try { Thread.sleep(90_000) } catch (e: InterruptedException) { }; Updater.collectScriptLog(this@MainActivity) }
+                        }.also { it.isDaemon = true }.start()
+                    }
+                    .setNegativeButton("Cancel", null).showDark()
+            }
+        }, 8)
         box.add(TextView(this).apply { text = "SKIN AND LAYOUT"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6AA8FF")) }, 30)
         // --- Skin
         box.add(TextView(this).apply { text = "Skin"; textSize = 14f; setTextColor(Color.parseColor("#B8C2D0")) }, 20)
@@ -5413,10 +5430,7 @@ class MainActivity : Activity() {
             try {
                 EventLog.add("boot: Pulse up for " + uptimeSecs() + " s")
                 // what the last update script did (install result and every reboot attempt): the script keeps it in this app's own folder, so no root is needed to read it; copied into the event log once, then removed
-                try {
-                    val uf = File(cacheDir, "bb_update_log.txt")
-                    if (uf.exists()) { val txt = uf.readText().trim(); uf.delete(); if (txt.isNotEmpty()) EventLog.add("update script log:\n" + txt.take(1500)) }
-                } catch (e: Throwable) { }
+                Updater.collectScriptLog(this)
                 val r = Root.exec("getprop sys.boot.reason; getprop ro.boot.bootreason; echo '--pstore'; ls -l /sys/fs/pstore 2>&1 | head -n 8; echo '--dropbox'; ls -l /data/system/dropbox 2>&1 | tail -n 14; echo '--crash log'; logcat -b crash -d -t 25 2>&1 | cut -c1-200")
                 if (r.timedOut) EventLog.add("boot info: root shell timed out")
                 else EventLog.add("boot info:\n" + r.out.trim().take(3000))

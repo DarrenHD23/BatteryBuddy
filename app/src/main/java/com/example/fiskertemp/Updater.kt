@@ -141,9 +141,33 @@ say "try: reboot"; reboot >> §LOG 2>&1; sleep 12
 say "try: /system/bin/reboot"; /system/bin/reboot >> §LOG 2>&1; sleep 12
 say "try: svc power reboot"; svc power reboot >> §LOG 2>&1; sleep 12
 say "try: setprop sys.powerctl reboot"; setprop sys.powerctl reboot >> §LOG 2>&1; sleep 12
+say "try: reboot -f"; reboot -f >> §LOG 2>&1; sleep 12
+say "try: sysrq b"; echo 1 > /proc/sys/kernel/sysrq; echo b > /proc/sysrq-trigger; sleep 12
 say "the Pulse did not reboot: starting the app instead"
 am start -n §PKG/.MainActivity
 """
+
+    /** Restarts the Pulse as root without installing anything (Settings > Restart Pulse). Same attempts, same script log. */
+    fun rebootRoot(ctx: Context): Boolean {
+        val pkg = ctx.packageName
+        val sh = """
+PKG=@PKG; A=/data/local/tmp/bb_update.apk; LOG=@LOG
+say() { echo "§1"; echo "§1" >> §LOG; chmod 666 §LOG; }
+say "restart requested from Settings (§(id))"
+@TAIL""".trim().replace("§", "$").replace("@PKG", pkg).replace("@LOG", File(ctx.cacheDir, "bb_update_log.txt").absolutePath).replace("@TAIL", REBOOT_TAIL.replace("§", "$"))
+        val f = File(ctx.cacheDir, "bb_reboot.sh")
+        f.writeText(sh)
+        f.setReadable(true, false)
+        return Root.exec("nohup setsid sh ${f.absolutePath} >/data/local/tmp/bb_reboot.log 2>&1 &").ok
+    }
+
+    /** Copies the script log (kept in the app's own folder, readable without root) into the event log, once, and removes it. */
+    fun collectScriptLog(ctx: Context) {
+        try {
+            val uf = File(ctx.cacheDir, "bb_update_log.txt")
+            if (uf.exists()) { val txt = uf.readText().trim(); uf.delete(); if (txt.isNotEmpty()) EventLog.add("update script log:\n" + txt.take(2500)) }
+        } catch (e: Throwable) { }
+    }
 
     fun installRoot(ctx: Context, apk: File, reboot: Boolean = false): Boolean {
         val pkg = ctx.packageName
