@@ -1008,6 +1008,16 @@ object EventLog {
         try { java.io.FileOutputStream(f, true).use { o -> o.write(line.toByteArray()) } } catch (e: Exception) { /* ignore */ }
     }
 
+    /** Deletes the saved log for good; lines logged afterwards start a fresh file. */
+    fun clear() {
+        val f = file ?: return
+        try { io.submit { }.get(1, java.util.concurrent.TimeUnit.SECONDS) } catch (e: Exception) { }      // let lines already queued land first, so none appear after the wipe
+        truncate(f)
+        add("log cleared")
+    }
+
+    @Synchronized private fun truncate(f: java.io.File) { try { f.writeText("") } catch (e: Exception) { } }
+
     @Synchronized fun allLines(): List<String> = try { file?.readLines() ?: emptyList() } catch (e: Exception) { emptyList() }
 
     @Synchronized fun text(maxLines: Int = 4000): String = try {

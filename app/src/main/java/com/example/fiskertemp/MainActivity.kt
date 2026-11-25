@@ -388,7 +388,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         EventLog.init(this)
-        EventLog.add("app start")
+        EventLog.add("app start (" + (try { packageManager.getPackageInfo(packageName, 0).versionName } catch (e: Exception) { "?" }) + ")")
         // a preset ticked "Load on startup" is put in place before the screen is built, once per start of the app (not again when the screen is only rebuilt)
         if (savedInstanceState == null && !startupPresetDone) {
             startupPresetDone = true
@@ -1618,8 +1618,8 @@ class MainActivity : Activity() {
                             toast("Copied ${txt.lines().size} lines, newest: $last")
                         } catch (e: Throwable) { toast("Could not copy: ${e.message}") }
                     }.setNegativeButton("Clear", null).setPositiveButton("Close", null).showDark()
-                // Clear empties the screen only and stays open; new lines then appear under it (the window also keeps up with the log while it is open)
-                dlg.getButton(AlertDialog.BUTTON_NEGATIVE)?.setOnClickListener { cleared = EventLog.allLines().size; refresh(true) }
+                // Clear deletes the log file for good and stays open; logging carries on from an empty file (the window keeps up with the log while it is open)
+                dlg.getButton(AlertDialog.BUTTON_NEGATIVE)?.setOnClickListener { EventLog.clear(); cleared = 0; refresh(true) }
                 val tick = object : Runnable { override fun run() { if (dlg.isShowing) { refresh(false); ui.postDelayed(this, 2000) } } }
                 ui.postDelayed(tick, 2000)
             }
