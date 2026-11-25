@@ -30,3 +30,15 @@ Contact sunnypilot Support <support@sunnypilot.ai> for permission requests.
 Haibin Wen, SUNNYPILOT LLC
 
 "Fisker Ocean (low-poly)" (https://skfb.ly/oR7xy) by LagzDesign is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).
+
+---
+
+3D car model (Fisker Ocean digital twin v2.3.3):
+Fisker Ocean (low-poly) by LagzDesign
+https://sketchfab.com/3d-models/fisker-ocean-low-poly-f506bfe876864c04b68bdfc59070739a
+Creative Commons Attribution 4.0: https://creativecommons.org/licenses/by/4.0/
+Modified: rear surface repairs, body smoothing/optimisation, badges and wordmark, lamp parts, runtime controls, wheel geometry options and material presets.
+
+The app's 3D car viewer uses Three.js (MIT licence), including its GLTF loader.
+
+Fisker names, wheel names and paint names identify the referenced vehicle and catalogue. The model and colour presets are visual approximations, not manufacturer CAD or measured colour standards.

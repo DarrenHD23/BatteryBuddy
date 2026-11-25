@@ -2,10 +2,10 @@
 <style>html,body{margin:0;background:transparent;overflow:hidden;height:100%}canvas{display:block;width:100vw;height:100vh;background:transparent}</style></head>
 <body><canvas id="cv"></canvas>
 <script type="module">
+// The live Ocean (digital twin 2.3.3): one GLB, controlled by name. Coordinates: metres, +Y up, +X car right, -Z forward; positive yaw = left turn.
+// The app sends its state with car3d.set({...}); this page owns smoothing, the lamp materials, openings, wheels, paint and the solar gradient.
 import * as THREE from './three.module.min.js';
 import {GLTFLoader} from './GLTFLoader.js';
-import {toCreasedNormals} from './BufferGeometryUtils.js';
-import B64 from './model.js';
 const bridge=window.CarBridge||{ready(){},fail(){}};
 try{
 const cv=document.getElementById('cv');
@@ -16,10 +16,10 @@ scene.add(new THREE.HemisphereLight(0xf2f5fa,0x53606d,2.1));
 const key=new THREE.DirectionalLight(0xf1f5fa,.75);key.position.set(-3,6,4);scene.add(key);
 const cam=new THREE.OrthographicCamera(-1,1,1,-1,.05,100);cam.up.set(0,0,-1);
 const target=new THREE.Vector3(0,.55,0);
-// viewer mode (?viewer=1): the car on its own, turned by dragging and zoomed by pinching, seen by a normal perspective camera
+// viewer mode (?viewer=1): the car on its own, turned by dragging and zoomed by pinching, seen by a normal perspective camera (and the standard-detail model)
 const VIEWER=/viewer=1/.test(location.search);
 const pcam=new THREE.PerspectiveCamera(32,1,.1,200),ORB0={th:.6,ph:1.25,d:11},orb={th:.6,ph:1.25,d:11,auto:false},vt=new THREE.Vector3(0,.7,0);
-if(VIEWER){{const q=new URLSearchParams(location.search);for(const k of['th','ph','d'])if(q.has(k)){orb[k]=ORB0[k]=parseFloat(q.get(k))}}      // (test pages can start at a chosen angle)
+if(VIEWER){{const q=new URLSearchParams(location.search);for(const k of['th','ph','d'])if(q.has(k)){orb[k]=ORB0[k]=parseFloat(q.get(k))}}
   cv.style.touchAction='none';const ps=new Map();let pd=0;
   const clamp=()=>{orb.ph=Math.max(.05,Math.min(Math.PI-.05,orb.ph));orb.d=Math.max(4.5,Math.min(22,orb.d))};
   cv.addEventListener('pointerdown',e=>{moving();cv.setPointerCapture(e.pointerId);ps.set(e.pointerId,{x:e.clientX,y:e.clientY});if(ps.size===2){const a=[...ps.values()];pd=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)}});
@@ -30,103 +30,164 @@ if(VIEWER){{const q=new URLSearchParams(location.search);for(const k of['th','ph
     clamp();dirty=true});
   const up=e=>{ps.delete(e.pointerId);pd=0;if(ps.size===0)settled()};
   cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up)}
-const mats=new Map(),rolls=[],steers=[],beams={Dipped:[],High:[]},glows={};let brakeMesh=null;
-let st={speed:0,head:0,turn:0,brake:false,left:false,right:false,rev:false,follow:true,red:false,paint:'#e7e8e3'},tilt=0,spin=0,last=performance.now(),lastDraw=0,dirty=true,loaded=false,size=0;
+
+// ---- state sent by the app (all optional; -1 = no signal)
+const st={speed:0,head:0,tail:false,turn:0,brake:false,left:false,right:false,rev:false,follow:true,red:false,paint:'silver-lining',wheel:'F3A_22',
+  open:{fl:0,fr:0,rl:0,rr:0,tg:0,sr:-1,hd:-1},solar:-1,solarStart:'#205a80',solarEnd:'#42c8a0'};
+let tilt=0,spin=0,last=performance.now(),lastDraw=0,dirty=true,loaded=false,size=0,yaw=0,steer=0,firstOpen=true;
 const smooth=x=>x*x*(3-2*x);
-const WHEEL_W=.49,WHEEL_S=.81,STEER_K=.93,BEAM_LEN=2.94,DRL_BRIGHT=.35,DRL_LEN=.8,DRL_LAMP=.4,BODY_K=.18,BODY_S=.35,YAW_K=.5,YAW_MAX=14,INDR_BRIGHT=3,AMB_BRIGHT=1,AMB_G=.08,IND_GLOW=.4,IND_GLOW_SIZE=.85;     // wheel width / size, how far they turn, driving beam length (parked is 1)
-const em=(n,c,k)=>{for(const m of mats.get(n)||[])if(m.emissive){m.emissive.setRGB(...c);m.emissiveIntensity=k}};
-let Z0=0,Z1=1,lastK=-1;const deform=[],nodes=[],_v=new THREE.Vector3(),_m=new THREE.Matrix4();
-const ramp=z=>{const t=(Z1-z)/(Z1-Z0),u=Math.min(1,Math.max(0,(t-BODY_S)/(1-BODY_S)));return u*u*(3-2*u)};
-let model,yaw=0;const Y_AXIS=new THREE.Vector3(0,1,0);const wantYaw=()=>!st.follow?0:Math.max(-YAW_MAX,Math.min(YAW_MAX,st.turn*YAW_K));    // the car body turns toward the road bend: half the wheel angle (40% of the compass turn), at most 14 degrees
-function applyBody(){const k=BODY_K*tilt;if(Math.abs(k-lastK)<.004&&!(k===0&&lastK!==0)&&!(k===BODY_K&&lastK!==BODY_K))return;const r=model.rotation.y;model.rotation.y=0;model.updateMatrixWorld(true);applyBody0();model.rotation.y=r;model.updateMatrixWorld(true)}     // the body is narrowed in world space, so do it with the car straight
-function applyBody0(){
-  const k=BODY_K*tilt;if(Math.abs(k-lastK)<.004&&!(k===0&&lastK!==0)&&!(k===BODY_K&&lastK!==BODY_K))return;lastK=k;
-  for(const o of deform){const base=o.userData.base,pos=o.geometry.attributes.position,M=o.matrixWorld;_m.copy(M).invert();
-    for(let i=0;i<pos.count;i++){_v.set(base[i*3],base[i*3+1],base[i*3+2]).applyMatrix4(M);_v.x*=1-k*ramp(_v.z);_v.applyMatrix4(_m);pos.setXYZ(i,_v.x,_v.y,_v.z)}
-    pos.needsUpdate=true;o.geometry.computeVertexNormals()}
-  for(const n of nodes){const z=n.userData.wz!==undefined?n.userData.wz:n.userData.bz,x0=n.userData.x!==undefined?n.userData.x:n.userData.bx;n.userData.fx=x0*(1-k*ramp(z))}
-  for(const n of nodes)if(n.name.startsWith('Steer_'))n.position.x=n.userData.fx;
-}
-function lamps(now){
-  const blink=Math.floor(now/380)%2===0,dip=st.head===1||st.head===2,high=st.head===2,drl=st.head===3;   // head: 0 off, 1 low beam, 2 high beam, 3 daytime running lights (a dimmer, shorter low beam)
-  for(const s of['L','R']){em('Mat_Head_'+s,[.9,.96,1],dip?2+(high?5:0):(drl?2*DRL_LAMP:0));em('Mat_Tail_'+s,[1,.03,.02],st.brake?3:(dip?1:0));em('Mat_Reverse_'+s,[1,1,1],st.rev?2.5:0)}
-  em('Mat_Brake_Centre',[1,.03,.02],st.brake?3:0);
+// how the app's own picture is tuned (kept from the previous model): driving beam length, daytime-lamp strengths, yaw follow
+const BEAM_LEN=2.94,DRL_BRIGHT=.35,DRL_LEN=.8,DRL_LAMP=.4,YAW_K=.5,YAW_MAX=14,IND_GLOW=.4,IND_GLOW_SIZE=.85;
+// contract 2.3.3 lighting strengths and linear colours
+const L={tail:.4,brake:7,centre:10,dip:2,high:5,ind:4,rev:4};
+const C={head:[.90,.96,1],tail:[1,.007,.012],rev:[.85,.95,1],ind:[1,.025,.001],indRed:[1,.007,.012]};
+const TWIN_RADIUS=.39415;
+
+// ---- bound parts (resolved by name)
+const nodes=new Map(),rest=new Map(),mats=new Map();
+let model=null,twin={wheels:[],paints:[]},wheelPre=null,solarTex=null;
+const node=n=>nodes.get(n);
+const eachMat=(n,f)=>{for(const m of mats.get(n)||[])f(m)};
+const AX=new THREE.Vector3(1,0,0),AY=new THREE.Vector3(0,1,0),_q=new THREE.Quaternion();
+const rot=(n,axis,rad)=>{const o=node(n),r=o&&rest.get(o);if(!o||!r)return;_q.setFromAxisAngle(axis,rad);o.quaternion.copy(r.q).multiply(_q)};      // absolute: the imported rest rotation, then this turn about the part's own axis
+const move=(n,x,y,z)=>{const o=node(n),r=o&&rest.get(o);if(!o||!r)return;o.position.set(r.p.x+x,r.p.y+y,r.p.z+z)};
+const emitCache={};
+const em=(n,c,k)=>{const x=c[0]*k,y=c[1]*k,z=c[2]*k,o=emitCache[n];if(o&&o[0]===x&&o[1]===y&&o[2]===z)return;emitCache[n]=[x,y,z];eachMat(n,m=>{if(m.emissive){m.emissive.setRGB(x,y,z);m.emissiveIntensity=1}})};
+
+// ---- paint: sRGB hex -> linear, then 0.022 + 0.978 * value once per channel (the GLB's default paint is already lifted); calm matte finish
+const _c=new THREE.Color();let paintKey='';
+function paint(){
+  const id=String(st.paint||'').toLowerCase().replace(/grey/g,'gray').replace(/[^a-z0-9#]+/g,'-').replace(/^-|-$/g,'');
+  const p=twin.paints.find(q=>q.id===id);
+  const hex=p?p.hex:(/^#[0-9a-f]{6}$/i.test(st.paint)?st.paint:'#a5adb6');
+  const metal=Math.min(.12,p?p.metallic:.1),rough=Math.max(.7,p?p.roughness:.76);
+  const k=hex+metal+rough;if(k===paintKey)return;paintKey=k;
+  _c.set(hex);const r=.022+.978*_c.r,g=.022+.978*_c.g,b=.022+.978*_c.b;
+  eachMat('Paint_Body',m=>{m.color.setRGB(r,g,b);m.metalness=metal;m.roughness=rough;if('clearcoat'in m)m.clearcoat=0})}
+
+// ---- wheels: one family per hub, accent finish on its own material only; tyre radius sets spin and ride height
+function wheels(){
+  const w=twin.wheels.find(q=>q.id===st.wheel)||twin.wheels[0];if(!w||w===wheelPre)return;wheelPre=w;
+  for(const c of['FL','FR','RL','RR'])for(const f of['F3','F5','F6','F7']){const n=node('WheelStyle_'+f+'_'+c);if(n){n.visible=f===w.family;n.scale.set(1,1,1)}}
+  eachMat(w.accent_material,m=>{m.color.set(w.accent_hex);m.roughness=w.accent_roughness});dirty=true}
+
+// ---- openings: the contract's four doors, hatch, front roof panel and handles; smoothed 180 ms, absolute offsets from the rest pose
+const open={fl:0,fr:0,rl:0,rr:0,tg:0,sr:0,hd:0};
+const fr=x=>Number.isFinite(x)&&x>0?Math.min(1,x):0;
+let openMoving=false;
+function openings(dt,snap){
+  const T={fl:fr(st.open.fl),fr:fr(st.open.fr),rl:fr(st.open.rl),rr:fr(st.open.rr),tg:fr(st.open.tg),sr:fr(st.open.sr),hd:fr(st.open.hd)};
+  const b=snap?1:1-Math.exp(-Math.min(.05,dt)/.18);openMoving=false;
+  for(const k in T){open[k]+=(T[k]-open[k])*b;if(Math.abs(T[k]-open[k])<.001)open[k]=T[k];else openMoving=true}
+  const D=Math.PI/180;
+  rot('Hinge_Door_FL',AY,-68*D*open.fl);rot('Hinge_Door_FR',AY,68*D*open.fr);rot('Hinge_Door_RL',AY,-68*D*open.rl);rot('Hinge_Door_RR',AY,68*D*open.rr);
+  rot('Hinge_Tailgate',AX,-82*D*open.tg);
+  move('Slide_Handle_FL',-.035*open.hd,0,0);move('Slide_Handle_RL',-.035*open.hd,0,0);move('Slide_Handle_FR',.035*open.hd,0,0);move('Slide_Handle_RR',.035*open.hd,0,0);
+  const lift=Math.min(1,open.sr/.18),slide=Math.max(0,Math.min(1,(open.sr-.18)/.82));
+  move('Slide_Sunroof_Front',0,.06*lift,.922*slide)}
+
+// ---- solar roof: ONE small texture shared by every instance of both solar materials (and so by both roof halves); the colour field never restarts at the seam
+const NEUTRAL=new THREE.Color('#293b48'),_a=new THREE.Color(),_b=new THREE.Color(),_t=new THREE.Color();let solarKey='';
+function solar(){
+  if(!solarTex)return;
+  const p=st.solar,k=p+'|'+st.solarStart+'|'+st.solarEnd;if(k===solarKey)return;solarKey=k;
+  const ok=Number.isFinite(p)&&p>=0,f=ok?Math.min(1,p):0,d=solarTex.image.data;_a.set(st.solarStart);_b.set(st.solarEnd);
+  for(let x=0;x<256;x++){_t.copy(_a).lerp(_b,x/255);if(!ok)_t.copy(NEUTRAL);else _t.lerp(NEUTRAL,1-f);_t.convertLinearToSRGB();
+    for(let y=0;y<2;y++){const i=(y*256+x)*4;d[i]=Math.round(_t.r*255);d[i+1]=Math.round(_t.g*255);d[i+2]=Math.round(_t.b*255);d[i+3]=255}}
+  solarTex.needsUpdate=true;dirty=true}
+function setupSolar(){
+  solarTex=new THREE.DataTexture(new Uint8Array(256*2*4),256,2,THREE.RGBAFormat);solarTex.colorSpace=THREE.SRGBColorSpace;
+  solarTex.magFilter=solarTex.minFilter=THREE.LinearFilter;solarTex.wrapS=solarTex.wrapT=THREE.ClampToEdgeWrapping;solarTex.generateMipmaps=false;
+  const old=new Set();for(const n of['Mat_SolarCells','Mat_SolarPower'])eachMat(n,m=>{if(m.map&&m.map!==solarTex)old.add(m.map);m.map=solarTex;m.needsUpdate=true});
+  for(const t of old)t.dispose();solarKey='';solar()}
+
+// ---- lamps: contract emission values per material; the car's own indicator flash is used as is (no second blink)
+const beams={Dipped:[],High:[]},glows={};
+function lamps(){
+  const head=st.head,dip=head===1||head===2,high=head===2,drl=head===3;
+  const front=dip?L.dip+(high?L.high:0):(drl?L.dip*DRL_LAMP:0);
+  for(const s of['L','R']){em('Mat_Head_'+s,C.head,front);em('Mat_Tail_'+s,C.tail,st.brake?L.brake:(st.tail?L.tail:0));em('Mat_Reverse_'+s,C.rev,st.rev?L.rev:0)}
+  em('Mat_Brake_Centre',C.tail,st.brake?L.centre:0);
+  const ic=st.red?C.indRed:C.ind;em('Mat_Indicator_L',ic,st.left?L.ind:0);em('Mat_Indicator_R',ic,st.right?L.ind:0);
   const gs=(s,o)=>{if(s)s.material.opacity=o};
-  gs(glows.brakeC,st.brake?.95:0);gs(glows.tailL,st.brake?.855:(dip?.25:0));gs(glows.tailR,st.brake?.855:(dip?.25:0));
-  // the model's own light beams (low beam: wide soft fan; high beam adds two long strips); no extra glow on the hood
+  gs(glows.brakeC,st.brake?.95:0);for(const s of['tailL','tailR'])gs(glows[s],st.brake?.855:(st.tail?.25:0));
+  for(const k in glows){const g=glows[k];if(g&&g.userData.side){g.material.color.setHex(st.red?0xff2a1a:0xff7a10);g.material.opacity=(g.userData.side==='L'?st.left:st.right)?IND_GLOW:0}}
+  // the road-light cards (low beam: wide soft fan; high beam adds a longer, narrower one); driving stretches them forward from the lamp. They are blended, depth-tested and never write depth.
   for(const k of['Dipped','High']){const on=k==='Dipped'?(dip||drl):high;
     for(const b of beams[k]){b.visible=on;
-      if(on){if(!b.userData.p){const r=model.rotation.y;model.rotation.y=0;model.updateMatrixWorld(true);b.scale.setScalar(1);b.updateMatrixWorld(true);const bx=new THREE.Box3().setFromObject(b);b.userData.p={pos:b.position.clone(),pz:bx.max.z};model.rotation.y=r;model.updateMatrixWorld(true)}
-        const q=b.userData.p,sz=(1+(BEAM_LEN-1)*tilt)*(drl&&k==='Dipped'?DRL_LEN:1);b.scale.set(1,1,sz);b.position.set(q.pos.x+(b.userData.fx!==undefined?b.userData.fx-b.userData.bx:0),q.pos.y,q.pz+(q.pos.z-q.pz)*sz)}      // driving: the beam stretches forward from the lamp
+      if(on){const sz=(1+(BEAM_LEN-1)*tilt)*(drl&&k==='Dipped'?DRL_LEN:1),pz=b.userData.pz;b.scale.set(1,1,sz);b.position.z=b.userData.z0+pz*(1-sz)}
       else b.scale.setScalar(0)}
-    for(const m of mats.get('Beam_'+k)||[]){m.transparent=true;m.opacity=on?(k==='High'?.8:(drl?.7*DRL_BRIGHT:.7)):0;m.color.set('#e8f5ff');if(m.emissive){m.emissive.setRGB(.65,.75,1);m.emissiveIntensity=on?(k==='High'?2.2:(drl?1.4*DRL_BRIGHT:1.4)):0}m.depthWrite=false}}
-  {const rd=st.red,ic=rd?[1,.03,.02]:[1,AMB_G,0],k=rd?INDR_BRIGHT:AMB_BRIGHT,lit={L:st.left,R:st.right};em('Mat_Indicator_L',ic,st.left?k:0);em('Mat_Indicator_R',ic,st.right?k:0);
-   for(const key in glows){const g=glows[key];if(g&&g.userData.side){if(rd)g.material.color.setHex(0xff2a1a);else g.material.color.setRGB(1,.45,0);g.material.opacity=lit[g.userData.side]?IND_GLOW:0}}}     // red (USA / Canada) or amber (Euro / UK) lamps with a small soft glow on the rear ones
+    eachMat('Beam_'+k,m=>{m.transparent=true;m.depthTest=true;m.depthWrite=false;m.color.set('#e8f5ff');
+      m.opacity=on?(k==='High'?.8:(drl?.7*DRL_BRIGHT:.7)):0;if(m.emissive){m.emissive.setRGB(.65,.75,1);m.emissiveIntensity=on?(k==='High'?2.2:(drl?1.4*DRL_BRIGHT:1.4)):0}})}
 }
-function paint(){for(const m of mats.get('Paint_Body')||[]){m.color.set(st.paint);m.metalness=.1;m.roughness=.76;if('clearcoat'in m)m.clearcoat=0}}
-// full-screen viewer: drawn at 2.5-3x the screen's pixels and scaled down (smooth edges, the WebView's own edge smoothing is often off); at the normal 1-2x while a finger is moving it, sharp again 0.3 s after
+
+// ---- full-screen viewer: drawn at 2.5-3x the screen's pixels and scaled down; at the normal 1-2x while a finger is moving it, sharp again 0.3 s after
 let qHi=true,qT=0;
 function pxr(){const dpr=window.devicePixelRatio||1;if(!VIEWER||!qHi)return Math.min(dpr,2);const w=cv.clientWidth,h=cv.clientHeight;return Math.max(1,Math.min(3,Math.max(dpr*1.5,2.5),Math.sqrt(7.5e6/Math.max(1,w*h))))}
 function setQ(hi){if(!VIEWER||qHi===hi)return;qHi=hi;size='';resize()}
 function moving(){clearTimeout(qT);setQ(false)}
-function smoothArches(g){      // the low-poly body's wheel-arch edge wanders in and out by a few cm; even it out round each wheel (viewer only)
-  const P=g.attributes.position,I=g.index;if(!I)return;
-  const K=i=>Math.round(P.getX(i)*1e4)+','+Math.round(P.getY(i)*1e4)+','+Math.round(P.getZ(i)*1e4);
-  const grp=new Map();for(let i=0;i<P.count;i++){const k=K(i);let a=grp.get(k);if(!a)grp.set(k,a=[]);a.push(i)}
-  const ec=new Map();for(let t=0;t<I.count;t+=3){const a=[0,1,2].map(j=>K(I.getX(t+j)));for(let j=0;j<3;j++){const x=a[j],y=a[(j+1)%3],k=x<y?x+'|'+y:y+'|'+x;ec.set(k,(ec.get(k)||0)+1)}}
-  const bnd=new Set();for(const[k,v]of ec)if(v===1){const q=k.split('|');bnd.add(q[0]);bnd.add(q[1])}
-  for(const sx of[1,-1])for(const cz of[1.37,-1.37]){
-    const arr=[];for(const k of bnd){const q=k.split(',').map(v=>v/1e4);if(q[0]*sx<.885)continue;const dy=q[1]-.39,dz=q[2]-cz,r=Math.hypot(dy,dz);if(r<.47||r>.6)continue;arr.push({k,x:q[0],a:Math.atan2(dy,dz),r})}
-    const med=arr.map(o=>{const n=arr.filter(q=>Math.abs(q.a-o.a)<.2).map(q=>q.r).sort((u,v)=>u-v);return n[n.length>>1]});
-    arr.forEach((o,j)=>{const r=med[j],y=.39+r*Math.sin(o.a),z=cz+r*Math.cos(o.a);for(const i of grp.get(o.k))P.setXYZ(i,P.getX(i),y,z)})}
-  P.needsUpdate=true;g.computeBoundingSphere()}
 function settled(){clearTimeout(qT);qT=setTimeout(()=>{if(!orb.auto)setQ(true)},300)}
 function resize(){const w=cv.clientWidth,h=cv.clientHeight;if(!w||!h)return;const r=pxr();if(size!==w*1000+h){size=w*1000+h;renderer.setPixelRatio(r);renderer.setSize(w,h,false);dirty=true}}
-window.car3d={set(o){Object.assign(st,o);if(loaded&&o.paint)paint();dirty=true},reset(){Object.assign(orb,ORB0,{auto:false});dirty=true},auto(b){orb.auto=!!b;if(orb.auto)moving();else settled();dirty=true}};
-const u8=Uint8Array.from(atob(B64),c=>c.charCodeAt(0));
-new GLTFLoader().parse(u8.buffer,'',g=>{
-  model=g.scene;scene.add(model);
-  if(VIEWER)model.traverse(o=>{if(o.isMesh&&o.name==='Body_Main_1'){try{smoothArches(o.geometry)}catch(e){}}});
-  if(VIEWER)model.traverse(o=>{if(o.isMesh&&!/^Beam_/.test(o.name)){try{o.geometry=toCreasedNormals(o.geometry,Math.PI/5)}catch(e){}}});      // viewer only: smooth shading across the flat segments of the low-poly body (edges sharper than 36 degrees stay crisp)
-  if(VIEWER){const lm=new THREE.MeshBasicMaterial({color:0x05080c,side:THREE.DoubleSide});      // viewer only: a dark liner behind each wheel arch, so a gap in the body edge shows dark instead of the background
-    for(const sx of[1,-1])for(const cz of[1.37,-1.37]){const cy=new THREE.CylinderGeometry(.57,.57,.29,48,1,true,-.1,Math.PI+.2);cy.rotateZ(Math.PI/2);const t=new THREE.Mesh(cy,lm);t.position.set(sx*.695,.39,cz);model.add(t);
-      const cap=new THREE.Mesh(new THREE.CircleGeometry(.57,48,-.1,Math.PI+.2),lm);cap.rotation.y=Math.PI/2;cap.position.set(sx*.55,.39,cz);model.add(cap)}}
-  model.traverse(o=>{if(o.isMesh){for(const m of Array.isArray(o.material)?o.material:[o.material]){if(!mats.has(m.name))mats.set(m.name,[]);mats.get(m.name).push(m)}}const mn=o.isMesh?(Array.isArray(o.material)?o.material:[o.material]).map(m=>m.name).join(' '):'';
-    if(/Spot|Anchor/.test(o.name)||o.isLight)o.visible=false;
-    const bm=/^Beam_(Dipped|High)_[LR]$/.exec(o.name);if(bm){beams[bm[1]].push(o);o.visible=false;o.scale.setScalar(0)}});
-  model.updateMatrixWorld(true);
-  // driving: the body narrows from partway along toward the nose (parked stays as is); front wheels and beams follow it in
-  {const bb=new THREE.Box3().setFromObject(model);Z0=bb.min.z;Z1=bb.max.z;
-   model.traverse(o=>{if(!o.isMesh)return;let p=o,skip=false;while(p){if(/^(Roll_|Steer_|Beam_)/.test(p.name)){skip=true;break}p=p.parent}
-     if(skip)return;o.geometry=o.geometry.clone();o.userData.base=o.geometry.attributes.position.array.slice();deform.push(o)});
-   for(const n of['FL','FR']){const o=model.getObjectByName('Steer_'+n);if(o){o.userData.x=o.position.x;o.userData.wz=new THREE.Vector3().setFromMatrixPosition(o.matrixWorld).z;nodes.push(o)}}
-   for(const k of['Dipped','High'])for(const b of beams[k]){b.userData.bx=b.position.x;b.userData.bz=new THREE.Box3().setFromObject(b).getCenter(new THREE.Vector3()).z;nodes.push(b)}}
-  const glowTex=(()=>{const c=document.createElement('canvas');c.width=c.height=64;const x=c.getContext('2d'),g=x.createRadialGradient(32,32,0,32,32,32);g.addColorStop(0,'rgba(255,255,255,1)');g.addColorStop(.25,'rgba(255,255,255,.55)');g.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=g;x.fillRect(0,0,64,64);return new THREE.CanvasTexture(c)})();
-  // soft glows on the lamps, always facing the camera, so the lights still show when the car is seen from straight above
-  function glow(name,color,size,front,sy,rot){const n=model.getObjectByName(name);if(!n)return null;const b=new THREE.Box3().setFromObject(n),c=b.getCenter(new THREE.Vector3());if(front){c.z=b.min.z-.04;c.x+=(c.x<0?-1:1)*.14}       // front: put it on the very front edge of the lamp (forward is -Z)
-    const s=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color,transparent:true,blending:THREE.AdditiveBlending,depthTest:false,depthWrite:false,opacity:0}));
-    s.position.copy(c);s.userData.b=c.clone();s.scale.set(size,sy||size,1);if(rot)s.material.rotation=rot;s.renderOrder=10;scene.add(s);return s}
-  glows.brakeC=glow("Lamp_Brake_Centre",0xff2a1a,1.155,false,.3);brakeMesh=model.getObjectByName('Lamp_Brake_Centre');if(brakeMesh)brakeMesh.scale.x=1.76;glows.tailL=glow('Lamp_Tail_L',0xff2a1a,.7);glows.tailR=glow('Lamp_Tail_R',0xff2a1a,.7);
-  {let n=0;model.traverse(o=>{if(!o.isMesh)return;for(const m of Array.isArray(o.material)?o.material:[o.material]){const mm=/^Mat_Indicator_([LR])$/.exec(m.name);if(!mm)continue;const c=new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3());if(c.z<0)continue;   // the rear indicator lamps only (forward is -Z)
-    const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:0xff2010,transparent:true,blending:THREE.AdditiveBlending,depthTest:false,depthWrite:false,opacity:0}));sp.position.copy(c);sp.userData.b=c.clone();sp.userData.side=mm[1];sp.scale.set(IND_GLOW_SIZE,IND_GLOW_SIZE,1);sp.renderOrder=11;scene.add(sp);glows['ind'+(n++)]=sp}})}
+window.car3d={set(o){
+  for(const k in o){if(k==='open'){Object.assign(st.open,o.open)}else st[k]=o[k]}
+  if(loaded){paint();wheels();solar();if(firstOpen&&o.open){firstOpen=false;openings(0,true)}}dirty=true},
+  reset(){Object.assign(orb,ORB0,{auto:false});dirty=true},auto(b){orb.auto=!!b;if(orb.auto)moving();else settled();dirty=true},
+  info(){return{loaded,wheel:wheelPre&&wheelPre.id,open:{...open},yaw,steer,tilt,calls:renderer.info.render.calls,tris:renderer.info.render.triangles,tex:renderer.info.memory.textures,geo:renderer.info.memory.geometries}}};
 
-  for(const n of['FL','FR','RL','RR']){const o=model.getObjectByName('Roll_'+n);if(o){rolls.push(o);o.scale.set(WHEEL_W,WHEEL_S,WHEEL_S)}}
-  for(const n of['FL','FR']){const o=model.getObjectByName('Steer_'+n);if(o)steers.push(o)}
-  paint();loaded=true;bridge.ready();requestAnimationFrame(loop);
-},e=>bridge.fail('model: '+(e&&e.message)));
+fetch('./'+(VIEWER?'ocean.glb':'ocean-lite.glb')).then(r=>{if(!r.ok)throw new Error('model '+r.status);return r.arrayBuffer()}).then(buf=>{
+new GLTFLoader().parse(buf,'',g=>{
+  try{
+  model=g.scene;scene.add(model);
+  const ex=g.parser.json.asset.extras&&g.parser.json.asset.extras.digitalTwin;if(!ex||!ex.wheelOptions||!ex.paintPresets)throw new Error('no wheel/paint data in the model');
+  twin={wheels:ex.wheelOptions,paints:ex.paintPresets};
+  model.traverse(o=>{
+    if(o.name&&!nodes.has(o.name))nodes.set(o.name,o);
+    rest.set(o,{p:o.position.clone(),q:o.quaternion.clone()});
+    if(o.isMesh){for(const m of Array.isArray(o.material)?o.material:[o.material]){if(!mats.has(m.name))mats.set(m.name,new Set());mats.get(m.name).add(m)}}
+    if(o.isLight||/^(Spot_|HeadAnchor_)/.test(o.name))o.visible=false;       // the supplied spotlights stay off (the cards below are the road light)
+    if(o.isCamera)o.visible=false});
+  const need=['VehicleYaw','Steer_FL','Steer_FR','Roll_FL','Roll_FR','Roll_RL','Roll_RR','Hinge_Door_FL','Hinge_Door_FR','Hinge_Door_RL','Hinge_Door_RR','Hinge_Tailgate','Slide_Sunroof_Front','Slide_Handle_FL','Slide_Handle_FR','Slide_Handle_RL','Slide_Handle_RR','Lamp_Brake_Centre'];
+  const miss=need.filter(n=>!nodes.has(n));if(miss.length)throw new Error('model parts missing: '+miss.join(','));
+  const mneed=['Paint_Body','Mat_Head_L','Mat_Tail_L','Mat_Indicator_L','Mat_Reverse_L','Mat_Brake_Centre','Mat_SolarCells','Mat_SolarPower'].filter(n=>!mats.has(n));if(mneed.length)throw new Error('model materials missing: '+mneed.join(','));
+  model.updateMatrixWorld(true);
+  // beam cards: rest scale 0 in the file -> unit scale, hidden until used; remember the lamp end of each so driving can stretch it forward
+  for(const k of['Dipped','High'])for(const s of['L','R']){const b=node('Beam_'+k+'_'+s);if(!b)continue;b.visible=false;b.scale.set(0,0,0);
+    const bx=new THREE.Box3();b.scale.set(1,1,1);b.updateMatrixWorld(true);bx.setFromObject(b);b.userData.pz=bx.max.z-b.position.z;b.userData.z0=b.position.z;b.scale.set(0,0,0);beams[k].push(b)}
+  const glowTex=(()=>{const c=document.createElement('canvas');c.width=c.height=64;const x=c.getContext('2d'),gr=x.createRadialGradient(32,32,0,32,32,32);gr.addColorStop(0,'rgba(255,255,255,1)');gr.addColorStop(.25,'rgba(255,255,255,.55)');gr.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=gr;x.fillRect(0,0,64,64);return new THREE.CanvasTexture(gr&&c)})();
+  // soft glows on the lamps (the page has no bloom pass: the view must stay transparent over the dashboard): a sprite on the lamp part, parented to what carries it
+  const spr=(parent,world,color,sz,sy,side)=>{const s=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color,transparent:true,blending:THREE.AdditiveBlending,depthTest:true,depthWrite:false,opacity:0}));
+    s.position.copy(parent.worldToLocal(world.clone()));s.scale.set(sz,sy||sz,1);s.renderOrder=10;if(side)s.userData.side=side;parent.add(s);return s};
+  const centre=n=>new THREE.Box3().setFromObject(node(n)).getCenter(new THREE.Vector3());
+  glows.brakeC=spr(node('Hinge_Tailgate'),centre('Lamp_Brake_Centre'),0xff2a1a,1.155,.3);
+  glows.tailL=spr(node('VehicleYaw'),centre('Lamp_Tail_L'),0xff2a1a,.7);glows.tailR=spr(node('VehicleYaw'),centre('Lamp_Tail_R'),0xff2a1a,.7);
+  // rear turn-signal glows: the amber patches are regions of Body_Main (also front, mirror, pillar): take the rear half (z > 0) of each side's patch
+  {let n=0;model.traverse(o=>{if(!o.isMesh)return;const mm=/^Mat_Indicator_([LR])$/.exec(o.material.name||'');if(!mm)return;
+    const P=o.geometry.attributes.position,bx=new THREE.Box3(),v=new THREE.Vector3();o.updateWorldMatrix(true,false);
+    for(let i=0;i<P.count;i++){v.fromBufferAttribute(P,i).applyMatrix4(o.matrixWorld);if(v.z>1)bx.expandByPoint(v)}if(bx.isEmpty())return;
+    glows['ind'+(n++)]=spr(node('VehicleYaw'),bx.getCenter(new THREE.Vector3()),0xff7a10,IND_GLOW_SIZE,IND_GLOW_SIZE,mm[1])})}
+  setupSolar();paint();wheels();
+  loaded=true;bridge.ready();requestAnimationFrame(loop);
+  }catch(e){bridge.fail('bind: '+e.message)}
+},e=>bridge.fail('model: '+(e&&e.message)))}).catch(e=>bridge.fail('load: '+e.message));
+
 function loop(now){
   requestAnimationFrame(loop);
   if(now-lastDraw<33)return;                          // about 30 fps
   const dt=Math.min(.1,(now-last)/1000);last=now;lastDraw=now;
   const g=smooth(Math.min(1,st.speed/10));
-  const moving=st.speed>.5,settling=Math.abs(tilt-g)>.003||Math.abs(yaw-wantYaw())>.02,blinking=false;
-  resize();     // a bigger or smaller view must be redrawn even when idle, or the old small picture is stretched (blurry, baggy)
-  if(!(moving||settling||blinking||dirty||(VIEWER&&orb.auto)))return;     // idle: draw nothing
+  const w=wheelPre?wheelPre.radius_m:TWIN_RADIUS;
+  const wantYaw=!st.follow?0:Math.max(-YAW_MAX,Math.min(YAW_MAX,st.turn*YAW_K));       // the car body turns toward the road bend (positive = right here)
+  const moving=st.speed>.5,settling=Math.abs(tilt-g)>.003||Math.abs(yaw-wantYaw)>.02||Math.abs(steer-st.turn)>.05,blinking=false;
+  resize();     // a bigger or smaller view must be redrawn even when idle, or the old small picture is stretched
+  if(!(moving||settling||openMoving||dirty||(VIEWER&&orb.auto)))return;     // idle: draw nothing
   tilt+=(g-tilt)*Math.min(1,dt*1.1);if(Math.abs(tilt-g)<.004)tilt=g;
-  if(moving){spin-=st.speed/3.6/0.38*dt;for(const r of rolls)r.rotation.x=spin}
-  const steer=Math.max(-28,Math.min(28,st.turn))*STEER_K;for(const o of steers)o.rotation.y=-steer*Math.PI/180;     // positive = right turn
-  {const w=wantYaw();yaw+=(w-yaw)*Math.min(1,dt*(Math.abs(w)<Math.abs(yaw)?9:5));if(Math.abs(yaw-w)<.02)yaw=w;model.rotation.y=-yaw*Math.PI/180*tilt;for(const k in glows){const q=glows[k];if(q&&q.userData.b)q.position.copy(q.userData.b).applyAxisAngle(Y_AXIS,model.rotation.y)}}     // the glow sprites live in the scene, so they turn with the car
-  resize();applyBody();lamps(now);
+  if(moving){spin=(spin-st.speed/3.6*dt/w)%(2*Math.PI)}
+  for(const c of['FL','FR','RL','RR'])rot('Roll_'+c,AX,spin);
+  const b=1-Math.exp(-dt/.12);steer+=(Math.max(-35,Math.min(35,st.turn))-steer)*b;if(Math.abs(steer-st.turn)<.02)steer=Math.max(-35,Math.min(35,st.turn));
+  for(const c of['FL','FR'])rot('Steer_'+c,AY,-steer*Math.PI/180);                // positive turn = right = a negative (clockwise) yaw
+  yaw+=(wantYaw-yaw)*Math.min(1,dt*(Math.abs(wantYaw)<Math.abs(yaw)?9:5));if(Math.abs(yaw-wantYaw)<.02)yaw=wantYaw;
+  rot('VehicleYaw',AY,-yaw*Math.PI/180*tilt);{const o=node('VehicleYaw'),r=rest.get(o);o.position.y=r.p.y+(w-TWIN_RADIUS)}
+  openings(dt,false);lamps();
   if(VIEWER){if(orb.auto)orb.th+=dt*.6;const sp=Math.sin(orb.ph);pcam.aspect=cv.clientWidth/Math.max(1,cv.clientHeight);pcam.updateProjectionMatrix();
     pcam.position.set(vt.x+orb.d*sp*Math.sin(orb.th),vt.y+orb.d*Math.cos(orb.ph),vt.z+orb.d*sp*Math.cos(orb.th));pcam.lookAt(vt);renderer.render(scene,pcam);dirty=false;return}
   const pitch=90+(24-90)*tilt,H=(7.4+(5.0-7.4)*tilt)*150/162/1.2,rad=pitch*Math.PI/180;

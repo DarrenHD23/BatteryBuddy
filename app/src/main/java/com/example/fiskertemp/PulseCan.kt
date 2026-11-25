@@ -68,6 +68,7 @@ data class CanSnapshot(
     val cabinC: Double? = null,        // cabin temperature, C (0x582 on IBUS2, byte 0, 0.5 per bit, -48)
     val outsideC: Double? = null,      // outside temperature, C (0x373 on IBUS1, byte 5, 0.5 per bit, -48)
     val solarW: Int? = null,           // solar roof power, W (0x6DD on IBUS1, 10 bits from byte 0)
+    val solarAt: Long = 0L,
     val volts12: Double? = null,       // 12V battery voltage (0x507 on IBUS1, bytes 6-7, 0.001 V)
     val soc12: Double? = null,         // 12V battery state of charge, % (0x2AC on IBUS1, byte 0, 0.5)
     val soh12: Double? = null,         // 12V battery state of health, % (0x2AC on IBUS1, byte 1, 0.5)
@@ -934,7 +935,7 @@ class PulseCan(
         }
         // 0x6DD BMS_PVIU_ActualPower (IBUS1, 1 s): solar roof power in W, 10 bits starting at byte 0
         if (bus == 1 && id == 0x6DD) {
-            return s.copy(solarW = (b[0] shl 2) or (b[1] shr 6))
+            return s.copy(solarW = (b[0] shl 2) or (b[1] shr 6), solarAt = System.currentTimeMillis())
         }
         // 0x507 VCU_0x507 (IBUS1, 100 ms): VCU_BattVolt, 12V battery voltage, 0.001 V (65535 = invalid)
         if (bus == 1 && id == 0x507) {

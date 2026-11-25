@@ -1460,6 +1460,27 @@ class MainActivity : Activity() {
             text = "Layout 1: turn the 3D car to match the curve of the road"; isChecked = prefs().getBoolean("l1CarFollow", true)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("l1CarFollow", on).apply() }
         }, 4)
+        box.add(Button(this).apply {
+            fun label() = "3D car wheels: " + (CAR_WHEELS.firstOrNull { it.first == prefs().getString("carWheel", "F3A_22") }?.second ?: CAR_WHEELS[0].second)
+            text = label(); isAllCaps = false
+            setOnClickListener {
+                val cur = CAR_WHEELS.indexOfFirst { it.first == prefs().getString("carWheel", "F3A_22") }.coerceAtLeast(0)
+                darkDialog().setTitle("3D car wheels").setSingleChoiceItems(CAR_WHEELS.map { it.second }.toTypedArray(), cur) { dlg, i ->
+                    prefs().edit().putString("carWheel", CAR_WHEELS[i].first).apply(); text = label(); dlg.dismiss()
+                }.setNegativeButton("Close", null).showDark()
+            }
+        }, 4)
+        box.add(Button(this).apply {
+            fun label() = "Solar roof: full colour at ${prefs().getInt("solarMaxW", 250)} W"
+            text = label(); isAllCaps = false
+            setOnClickListener {
+                val opts = intArrayOf(100, 150, 200, 250, 300, 400, 500)
+                val cur = opts.indexOf(prefs().getInt("solarMaxW", 250)).coerceAtLeast(0)
+                darkDialog().setTitle("Solar roof: power shown as full colour").setSingleChoiceItems(opts.map { "$it W" }.toTypedArray(), cur) { dlg, i ->
+                    prefs().edit().putInt("solarMaxW", opts[i]).apply(); text = label(); dlg.dismiss()
+                }.setNegativeButton("Close", null).showDark()
+            }
+        }, 4)
         box.add(CheckBox(this).apply {
             text = "Hide the \"Brake light on\" message"; isChecked = prefs().getBoolean("hideBrakeNote1", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideBrakeNote1", on).apply() }
@@ -2906,6 +2927,22 @@ class MainActivity : Activity() {
         dashLight.translationY = lightY
         dashLightDist.translationX = cxc + dashLight.width / 2f + dp(6)
         dashLightDist.translationY = lightY + dashLight.height / 2f - dashLightDist.height / 2f
+    }
+
+    /** Sends the car's state to a 3D car: lamps, paint, wheels, doors, hatch and the solar roof. A part with no fresh signal stays closed / neutral. */
+    private fun feed3d(v: Car3dView, s: CanSnapshot) {
+        val now = System.currentTimeMillis()
+        val db = s.doorBits
+        if (db != null && now - s.doorAt < 3000) {
+            fun d(i: Int) = if (((db shr i) and 1) == 1) 1f else 0f
+            v.fl = d(0); v.fr = d(1); v.rl = d(2); v.rr = d(3)      // same sides as the 2D car: bit 0 driver = left, bit 1 passenger = right
+        } else { v.fl = 0f; v.fr = 0f; v.rl = 0f; v.rr = 0f }
+        v.tg = if (s.hatchOpen != null && now - s.hatchAt < 3000) (if ((s.hatchPos ?: 0) > 0) s.hatchPos!!.coerceAtMost(100) / 100f else if (s.hatchOpen == true) 0.04f else 0f) else 0f
+        v.sr = -1f; v.hd = -1f          // no sunroof position or door-lock signal is decoded yet
+        v.solar = if (s.solarW != null && now - s.solarAt < 5000) (s.solarW.coerceAtLeast(0) / prefs().getInt("solarMaxW", 250).toFloat()).coerceIn(0f, 1f) else -1f
+        v.wheel = prefs().getString("carWheel", "F3A_22") ?: "F3A_22"
+        v.tail = carView.headlights || carView.beamsOn || carView.highBeam
+        v.push(carView.speedKmh, if (carView.highBeam) 2 else if (carView.beamsOn) 1 else if (carView.headlights) 3 else 0, carView.braking, carView.leftInd, carView.rightInd, carView.reverse, CAR_PAINTS[carView.paintIdx].first)
     }
 
     private fun syncCar3d(root: FrameLayout) {
@@ -5214,8 +5251,8 @@ class MainActivity : Activity() {
             car3d?.red = carView.redInd       // USA / Canada: the turn signals glow red, as the rear lamps do on those cars
             car3d?.follow = prefs().getBoolean(if (l2Applied) "l2CarFollow" else "l1CarFollow", true)
             if (viewerLayer != null && carView.speedKmh > 3f) closeCarViewer()      // driving off closes the viewer
-            viewer3d?.let { it.red = carView.redInd; it.push(carView.speedKmh, if (carView.highBeam) 2 else if (carView.beamsOn) 1 else if (carView.headlights) 3 else 0, carView.braking, carView.leftInd, carView.rightInd, carView.reverse, CAR_PAINTS[carView.paintIdx].second) }
-            car3d?.push(carView.speedKmh, if (carView.highBeam) 2 else if (carView.beamsOn) 1 else if (carView.headlights) 3 else 0, carView.braking, carView.leftInd, carView.rightInd, carView.reverse, CAR_PAINTS[carView.paintIdx].second)
+            viewer3d?.let { it.red = carView.redInd; feed3d(it, s) }
+            car3d?.let { feed3d(it, s) }
             if (l2Applied) {
             fun shortLabel(l: String) = when (l.lowercase()) { "distance driven" -> "Distance"; "energy consumed" -> "Energy"; "average speed" -> "Avg speed"; else -> l }
             val cells = tripCells(s, true).take(4).map { it.copy(label = shortLabel(it.label)) }
@@ -9381,6 +9418,9 @@ private val SEAT_WAVES = arrayOf(
 )
 
 /** Fisker's 14 paint colours: name and the colour the car drawings use. */
+/** The 3D car's wheel designs (ids as in the model): id and name. */
+val CAR_WHEELS = listOf("F3A_22" to "22 in F3a SlipStream", "F3B_22" to "22 in F3b SlipStream Black", "F5A_22" to "22 in F5a AirGlider", "F5B_22" to "22 in F5b AirGlider Black", "F6_22" to "22 in F6 Vortex", "F7_20" to "20 in F7 AeroStealth")
+
 val CAR_PAINTS = listOf(
         "Big Sur Blue" to 0xFF1A2130.toInt(), "Black Pearl" to 0xFF17181D.toInt(), "Blue Planet" to 0xFF2A4163.toInt(), "Great White" to 0xFFE6E8EA.toInt(),
         "Horizon Grey" to 0xFF2F3038.toInt(), "Mariana" to 0xFF1D4F7E.toInt(), "Marine Layer" to 0xFFE0E1DA.toInt(), "Night Drive" to 0xFF1A1A1A.toInt(),

@@ -1393,7 +1393,7 @@ class Car3dView(ctx: Context, private val viewer: Boolean = false, private val o
                 if (u.host != HOST || !(u.path ?: "").startsWith("/car3d/")) return android.webkit.WebResourceResponse("text/plain", "utf-8", 403, "Blocked", emptyMap(), java.io.ByteArrayInputStream(ByteArray(0)))
                 val name = u.path!!.removePrefix("/car3d/").ifEmpty { "index.html" }
                 return try {
-                    val mime = if (name.endsWith(".html")) "text/html" else "text/javascript"
+                    val mime = when { name.endsWith(".html") -> "text/html"; name.endsWith(".glb") -> "model/gltf-binary"; name.endsWith(".json") -> "application/json"; else -> "text/javascript" }
                     android.webkit.WebResourceResponse(mime, "utf-8", context.assets.open("car3d/$name"))
                 } catch (e: Throwable) {
                     android.webkit.WebResourceResponse("text/plain", "utf-8", 404, "Not found", emptyMap(), java.io.ByteArrayInputStream(ByteArray(0)))
@@ -1431,11 +1431,17 @@ class Car3dView(ctx: Context, private val viewer: Boolean = false, private val o
 
     var red = false         // USA / Canada: red turn signals
     var follow = true       // Settings: turn the car body toward the road bend
-    fun push(speedKmh: Float, head: Int, brake: Boolean, left: Boolean, right: Boolean, reverse: Boolean, paint: Int) {
+    var wheel = "F3A_22"    // Settings: wheel design (the model's six presets)
+    var tail = false        // rear lamps on (inferred from the headlight / position-lamp state: the car has no separate signal we read)
+    /** Opening fractions 0..1 for the four doors, hatch and handles; -1 = no signal (the part stays closed). Sunroof: no decoder, so -1. */
+    var fl = 0f; var fr = 0f; var rl = 0f; var rr = 0f; var tg = 0f; var sr = -1f; var hd = -1f
+    var solar = -1f         // roof power as a 0..1 fraction of the configured expected maximum; -1 = no signal
+    fun push(speedKmh: Float, head: Int, brake: Boolean, left: Boolean, right: Boolean, reverse: Boolean, paint: String) {
         if (!live) return
-        val hex = String.format("#%06x", paint and 0xFFFFFF)
         val sp = Math.round(speedKmh * 2f) / 2f
-        val json = "{speed:$sp,head:$head,brake:$brake,left:$left,right:$right,rev:$reverse,follow:$follow,red:$red,paint:'$hex'}"
+        fun q(x: Float) = if (x < 0f) "-1" else (Math.round(x * 100f) / 100f).toString()
+        val json = "{speed:$sp,head:$head,tail:$tail,brake:$brake,left:$left,right:$right,rev:$reverse,follow:$follow,red:$red,paint:'$paint',wheel:'$wheel'," +
+            "open:{fl:${q(fl)},fr:${q(fr)},rl:${q(rl)},rr:${q(rr)},tg:${q(tg)},sr:${q(sr)},hd:${q(hd)}},solar:${q(solar)}}"
         if (json == lastJson) return
         val now = SystemClock.uptimeMillis()
         val onlySpeed = lastJson.substringAfter(",head:") == json.substringAfter(",head:")
