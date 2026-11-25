@@ -105,8 +105,8 @@ function solar(now){
     // the traces (shared texture): dim line colour, with the pulse running over it
     if(!ok)_t.copy(NEUTRAL);
     else if(!solarOn)_t.copy(_s).multiplyScalar(.30);
-    else{const u=x/255,dd=Math.min(u,1-u)*2,e=(dd-ph)/.10,I=Math.exp(-e*e)*(1-sm(.95,1.3,ph));
-      _t.copy(_s).multiplyScalar(.10+.90*I);_t.lerp(_s.clone().lerp(new THREE.Color(1,1,1),.2),I*.4)}
+    else{const u=x/255,dd=Math.min(u,1-u)*2,e=(dd-ph)/(VIEWER?.10:.14),I=Math.exp(-e*e)*(1-sm(.95,1.3,ph));
+      _t.copy(_s).multiplyScalar((VIEWER?.10:.18)+(VIEWER?.90:.82)*I);_t.lerp(_s.clone().lerp(new THREE.Color(1,1,1),.2),I*.4)}
     _t.convertLinearToSRGB();
     for(let y=0;y<2;y++){const i=(y*256+x)*4;d[i]=Math.round(_t.r*255);d[i+1]=Math.round(_t.g*255);d[i+2]=Math.round(_t.b*255);d[i+3]=255}
     // the cells: one steady colour, no animation
@@ -119,7 +119,7 @@ function mkTex(){const t=new THREE.DataTexture(new Uint8Array(256*2*4),256,2,THR
 function setupSolar(){
   solarTex=mkTex();cellTex=mkTex();
   const old=new Set();
-  eachMat('Mat_SolarPower',m=>{if(m.map&&m.map!==solarTex)old.add(m.map);m.map=solarTex;m.emissive.setRGB(1,1,1);m.emissiveMap=solarTex;m.emissiveIntensity=1.7;m.needsUpdate=true});   // lit by itself, so the lines stay vivid on the small car
+  eachMat('Mat_SolarPower',m=>{if(m.map&&m.map!==solarTex)old.add(m.map);m.map=solarTex;m.emissive.setRGB(1,1,1);m.emissiveMap=solarTex;m.emissiveIntensity=VIEWER?2.6:4.2;m.toneMapped=false;m.needsUpdate=true});   // lit by itself, so the lines stay vivid on the small car
   eachMat('Mat_SolarCells',m=>{if(m.map&&m.map!==cellTex)old.add(m.map);m.map=cellTex;m.emissive.setRGB(1,1,1);m.emissiveMap=cellTex;m.emissiveIntensity=.12;m.needsUpdate=true});   // the cells keep their own steady colour: only the lines animate
   for(const t of old)t.dispose();solarKey='';solar(performance.now())}
 
