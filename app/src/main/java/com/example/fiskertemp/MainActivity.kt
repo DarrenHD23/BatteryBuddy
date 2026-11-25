@@ -1576,7 +1576,7 @@ class MainActivity : Activity() {
         box.add(Button(this).apply {
             text = "Show event log"; isAllCaps = false
             setOnClickListener {
-                var cleared = 0            // lines hidden by Clear (the log itself is kept)
+                var cleared = 0            // lines hidden by Clear log buffer (the saved log itself is kept; only Delete log removes it)
                 var query = ""
                 val light = Color.parseColor("#F0F3F8")
                 val tv = TextView(this@MainActivity).apply { textSize = 11f; setTextColor(light); typeface = Typeface.MONOSPACE; setPadding(dp(12), dp(8), dp(12), dp(8)) }
@@ -1608,6 +1608,20 @@ class MainActivity : Activity() {
                     addView(search, LinearLayout.LayoutParams(-1, -2).apply { setMargins(dp(12), 0, dp(12), 0) })
                     addView(sv, LinearLayout.LayoutParams(-1, (resources.displayMetrics.heightPixels * 0.6f).toInt()))
                 }
+                // Delete log: removes the saved log for good, so it asks for a second tap first
+                val del = Button(this@MainActivity).apply {
+                    text = "Delete log"; isAllCaps = false; setTextColor(Color.parseColor("#FF8A80"))
+                    var armed = false
+                    setOnClickListener {
+                        if (!armed) {
+                            armed = true; text = "Tap again to delete the saved log for good"
+                            postDelayed({ armed = false; text = "Delete log" }, 4000)
+                        } else {
+                            armed = false; text = "Delete log"; EventLog.clear(); cleared = 0; refresh(true); toast("Log deleted")
+                        }
+                    }
+                }
+                col.addView(del, LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.END; setMargins(dp(12), dp(4), dp(12), 0) })
                 refresh(true)
                 val dlg = darkDialog().setTitle("Event log (newest at the bottom)").setView(col)
                     .setNeutralButton("Copy") { _, _ ->
@@ -1617,9 +1631,9 @@ class MainActivity : Activity() {
                             val last = txt.substringAfterLast("\n", txt).take(19)      // the time stamp on the newest line copied
                             toast("Copied ${txt.lines().size} lines, newest: $last")
                         } catch (e: Throwable) { toast("Could not copy: ${e.message}") }
-                    }.setNegativeButton("Clear", null).setPositiveButton("Close", null).showDark()
-                // Clear deletes the log file for good and stays open; logging carries on from an empty file (the window keeps up with the log while it is open)
-                dlg.getButton(AlertDialog.BUTTON_NEGATIVE)?.setOnClickListener { EventLog.clear(); cleared = 0; refresh(true) }
+                    }.setNegativeButton("Clear log buffer", null).setPositiveButton("Close", null).showDark()
+                // Clear log buffer empties the screen only (the saved log is kept, and Copy then takes what is shown); the window keeps up with the log while it is open
+                dlg.getButton(AlertDialog.BUTTON_NEGATIVE)?.setOnClickListener { cleared = EventLog.allLines().size; refresh(true) }
                 val tick = object : Runnable { override fun run() { if (dlg.isShowing) { refresh(false); ui.postDelayed(this, 2000) } } }
                 ui.postDelayed(tick, 2000)
             }
