@@ -3119,19 +3119,19 @@ class MainActivity : Activity() {
         val hint = TextView(this).apply { text = "Drag to rotate  \u00B7  Pinch to zoom"; setTextColor(Color.parseColor("#9FB3C4")); setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f); gravity = Gravity.CENTER }
         val hlp = FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM); hlp.bottomMargin = dp(24)
         layer.addView(hint, hlp)
-        // SolarSky figures along the bottom, above the hint: now, today's lowest (while producing) and highest, and the roof's lifetime total
+        // SolarSky figures in a row under the car's name: now, today's lowest (while producing) and highest, and the roof's lifetime total
         run {
             val box = LinearLayout(this); box.orientation = LinearLayout.VERTICAL; box.gravity = Gravity.CENTER_HORIZONTAL
             box.addView(TextView(this).apply { text = "SOLAR SKY"; setTextColor(Color.parseColor("#6AA8FF")); setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; letterSpacing = 0.1f })
             val rowL = LinearLayout(this); rowL.orientation = LinearLayout.HORIZONTAL; rowL.gravity = Gravity.CENTER
             box.addView(rowL, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) })
             fun cell(label: String): TextView {
-                val c = LinearLayout(this); c.orientation = LinearLayout.VERTICAL; c.gravity = Gravity.CENTER_HORIZONTAL; c.setPadding(dp(22), 0, dp(22), 0)
+                val c = LinearLayout(this); c.orientation = LinearLayout.VERTICAL; c.gravity = Gravity.CENTER_HORIZONTAL; c.setPadding(dp(14), 0, dp(14), 0)
                 c.addView(TextView(this).apply { text = label; setTextColor(Color.parseColor("#9FB3C4")); setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f); gravity = Gravity.CENTER })
-                val v = TextView(this).apply { setTextColor(Color.WHITE); setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER }
+                val v = TextView(this).apply { setTextColor(Color.WHITE); setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER }
                 c.addView(v); rowL.addView(c); return v
             }
-            val vNow = cell("Now"); val vMin = cell("Lowest today"); val vMax = cell("Highest today"); val vLife = cell("Total over the car's life")
+            val vNow = cell("Now"); val vMin = cell("Lowest today"); val vMax = cell("Highest today"); val vLife = cell("Lifetime")
             solarUpdate = { s ->
                 val fresh = s.solarW != null && System.currentTimeMillis() - s.solarAt < 5000
                 val day = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date())
@@ -3142,7 +3142,7 @@ class MainActivity : Activity() {
                 vMax.text = if (mx >= 0) "$mx W" else "--"
                 vLife.text = s.solarLifeKwh?.let { "${(it + 500) / 1000} kWh" } ?: "--"      // the car counts this in Wh
             }
-            val lp = FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL); lp.bottomMargin = dp(60)
+            val lp = FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL); lp.topMargin = dp(92)
             layer.addView(box, lp)
         }
         // the car's name, top centre: touch it to type a new one ("Name your car" until one is saved)
@@ -3168,7 +3168,8 @@ class MainActivity : Activity() {
             val lp = FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL); lp.topMargin = dp(28)
             layer.addView(nameBtn, lp)
         }
-        dashRoot.addView(layer, FrameLayout.LayoutParams(-1, -1))
+        layer.translationZ = dp(200).toFloat(); layer.outlineProvider = null      // above everything else on the screen, whatever is brought to the front later
+        edgeBox.addView(layer, FrameLayout.LayoutParams(-1, -1))
         viewerLayer = layer
         car3d?.visibility = View.INVISIBLE
         // the climate screen and the media card step out of the way while the viewer is up; closing it puts back whatever was showing
@@ -3179,7 +3180,7 @@ class MainActivity : Activity() {
     private fun closeCarViewer() {
         val l = viewerLayer ?: return
         viewerLayer = null
-        dashRoot.removeView(l); viewer3d?.destroy(); viewer3d = null; solarUpdate = null
+        edgeBox.removeView(l); viewer3d?.destroy(); viewer3d = null; solarUpdate = null
         car3d?.let { if (it.live) it.visibility = View.VISIBLE }
         for (v in viewerHidden) if (v.visibility == View.INVISIBLE) v.visibility = View.VISIBLE
         viewerHidden = emptyList()

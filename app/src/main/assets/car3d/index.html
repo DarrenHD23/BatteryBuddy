@@ -147,10 +147,20 @@ function redrawFrontTraces(){
   const N=[];for(let i=0;i<n;i++)N.push(0,1,0);g.setAttribute('normal',new THREE.Float32BufferAttribute(N,3));g.setIndex(Ix);
   o.geometry.dispose();o.geometry=g}
 
+// small dash view: the lines are a centimetre or two wide on a car a hundred-odd pixels long, so they are drawn wider there (same paths) to stay visible
+function thickenLines(k){
+  for(const n of['SolarOverlay_Front','SolarOverlay_Rear']){const o=node(n);if(!o||!o.isMesh)continue;
+    const P=o.geometry.attributes.position,a=P.array;
+    for(let q=0;q+3<P.count;q+=4){
+      let x0=1e9,x1=-1e9,z0=1e9,z1=-1e9;for(let i=0;i<4;i++){const x=a[(q+i)*3],z=a[(q+i)*3+2];x0=Math.min(x0,x);x1=Math.max(x1,x);z0=Math.min(z0,z);z1=Math.max(z1,z)}
+      const cx=(x0+x1)/2,cz=(z0+z1)/2,sx=(x1-x0)<.012?k:1,sz=(z1-z0)<.012?k:1;
+      for(let i=0;i<4;i++){const j=(q+i)*3;a[j]=cx+(a[j]-cx)*sx;a[j+2]=cz+(a[j+2]-cz)*sz}}
+    P.needsUpdate=true}}
+
 function setupSolar(){
   solarTex=mkTex();cellTex=mkTex();
   const old=new Set();
-  eachMat('Mat_SolarPower',m=>{if(m.map&&m.map!==solarTex)old.add(m.map);m.map=solarTex;m.emissive.setRGB(1,1,1);m.emissiveMap=solarTex;m.emissiveIntensity=VIEWER?2.6:4.2;m.toneMapped=false;m.needsUpdate=true});   // lit by itself, so the lines stay vivid on the small car
+  eachMat('Mat_SolarPower',m=>{if(m.map&&m.map!==solarTex)old.add(m.map);m.map=solarTex;m.emissive.setRGB(1,1,1);m.emissiveMap=solarTex;m.emissiveIntensity=VIEWER?2.6:6;m.toneMapped=false;m.needsUpdate=true});   // lit by itself, so the lines stay vivid on the small car
   eachMat('Mat_SolarCells',m=>{if(m.map&&m.map!==cellTex)old.add(m.map);m.map=cellTex;m.emissive.setRGB(1,1,1);m.emissiveMap=cellTex;m.emissiveIntensity=.12;m.needsUpdate=true});   // the cells keep their own steady colour: only the lines animate
   for(const t of old)t.dispose();solarKey='';solar(performance.now())}
 
@@ -218,7 +228,7 @@ new GLTFLoader().parse(buf,'',g=>{
     const P=o.geometry.attributes.position,bx=new THREE.Box3(),v=new THREE.Vector3();o.updateWorldMatrix(true,false);
     for(let i=0;i<P.count;i++){v.fromBufferAttribute(P,i).applyMatrix4(o.matrixWorld);if(v.z>1)bx.expandByPoint(v)}if(bx.isEmpty())return;
     glows['ind'+(n++)]=spr(node('VehicleYaw'),bx.getCenter(new THREE.Vector3()),0xff7a10,IND_GLOW_SIZE,IND_GLOW_SIZE,mm[1])})}
-  redrawFrontTraces();setupSolar();paint();wheels();
+  redrawFrontTraces();if(!VIEWER)thickenLines(5);setupSolar();paint();wheels();
   loaded=true;bridge.ready();requestAnimationFrame(loop);
   }catch(e){bridge.fail('bind: '+e.message)}
 },e=>bridge.fail('model: '+(e&&e.message)))}).catch(e=>bridge.fail('load: '+e.message));
