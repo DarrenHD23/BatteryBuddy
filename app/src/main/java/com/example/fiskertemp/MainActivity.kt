@@ -9418,6 +9418,20 @@ class MediaCardView(ctx: Context) : View(ctx) {
         p.style = Paint.Style.STROKE; p.strokeWidth = dp(1.2f); p.color = Color.argb(70, 255, 255, 255)
         c.drawRoundRect(RectF(1f, 1f, w - 1f, h - 1f), rad, rad, p)
 
+        // a narrow card: the visualizer (when it is on) plays faintly behind the text and buttons
+        readViz()
+        if (w < dp(380f) && vizOn) {
+            var bands: FloatArray? = null
+            if (playing && AudioViz.start(context)) { vizLive = true; if (AudioViz.hasSignal()) bands = AudioViz.bands } else { vizLive = false; if (!playing) AudioViz.stop() }
+            val animating = painter.step(System.currentTimeMillis(), playing, bands)
+            c.saveLayerAlpha(card, 105)
+            painter.draw(c, RectF(dp(10f), dp(10f), w - dp(10f), h - dp(10f)), vizStyle, vizPal, Skins.look.accent)
+            c.restore()
+            if (animating) postInvalidateDelayed(33)
+            val since = System.currentTimeMillis() - palNameAt
+            if (since < 1600) postInvalidateDelayed(33)
+        }
+
         // controls on the driver's side: previous, play / pause, next, three identical round glass buttons
         val small = w < dp(380f)                       // a narrow card: the text on top, the three buttons in a row underneath
         readViz()
@@ -9518,9 +9532,21 @@ class MediaCardView(ctx: Context) : View(ctx) {
             drawSrcFav(c, bs)
         } else if (small) {
             // a narrow card (split screen): the two buttons go on the right, in the free space beside the three round buttons; nothing else moves
-            val bs = dp(26f)
             val free = w - rNext.right
-            if (free >= bs + dp(16f)) {
+            var bs = dp(26f)
+            val g3 = dp(3f); val pad = dp(6f)
+            if (4 * bs + 3 * g3 > h - 2 * pad) bs = ((h - 2 * pad - 3 * g3) / 4f).coerceAtLeast(dp(18f))
+            if (free >= bs + dp(16f) && 4 * bs + 3 * g3 <= h - dp(4f)) {
+                // four buttons in one column beside the round ones: the favourites star on top, then the visualizer on / off, its colour, and Sources
+                val bx = rNext.right + free / 2 - bs / 2
+                var y = (h - (4 * bs + 3 * g3)) / 2
+                favBtn.set(bx, y, bx + bs, y + bs); y += bs + g3
+                vizBtn.set(bx, y, bx + bs, y + bs); y += bs + g3
+                vizColBtn.set(bx, y, bx + bs, y + bs); y += bs + g3
+                srcBtn.set(bx, y, bx + bs, y + bs)
+                drawVizBtns(c, bs)
+                drawSrcFav(c, bs)
+            } else if (free >= bs + dp(16f)) {
                 val mid = rNext.right + free / 2
                 if (free >= 2 * bs + dp(22f)) {
                     favBtn.set(mid - dp(3f) - bs, cy - bs / 2, mid - dp(3f), cy + bs / 2)
@@ -9532,6 +9558,28 @@ class MediaCardView(ctx: Context) : View(ctx) {
                 drawSrcFav(c, bs)
             }
         }
+    }
+
+    /** The visualizer on / off and colour buttons of a narrow card, drawn on their rectangles. */
+    private fun drawVizBtns(c: Canvas, bs: Float) {
+        val on = vizOn
+        c.saveLayerAlpha(RectF(vizBtn.left - dp(8f), vizBtn.top - dp(8f), vizBtn.right + dp(8f), vizBtn.bottom + dp(10f)), 165)
+        drawLiquidGlass(c, p, vizBtn, bs / 2, dp(1f), if (on) Skins.look.accent else null)
+        p.style = Paint.Style.FILL; p.shader = null; p.color = Color.WHITE; p.alpha = if (on) 255 else 190
+        val bw = bs * 0.12f; val bx = vizBtn.centerX() - bw * 2.1f; val bb = vizBtn.centerY() + bs * 0.2f
+        val hs = floatArrayOf(0.34f, 0.5f, 0.26f)
+        for (i in 0..2) c.drawRoundRect(RectF(bx + i * bw * 2.1f, bb - bs * hs[i], bx + i * bw * 2.1f + bw, bb), bw / 2, bw / 2, p)
+        p.alpha = 255
+        c.restore()
+        c.saveLayerAlpha(RectF(vizColBtn.left - dp(8f), vizColBtn.top - dp(8f), vizColBtn.right + dp(8f), vizColBtn.bottom + dp(10f)), 165)
+        drawLiquidGlass(c, p, vizColBtn, bs / 2, dp(1f), null)
+        val pl = VizInfo.pal.getOrNull(vizPal)
+        val dots = if (pl == null) intArrayOf(Skins.look.accent, Skins.look.accent2, Color.WHITE) else intArrayOf(pl.first(), pl[pl.size / 2], pl.last())
+        p.style = Paint.Style.FILL; p.shader = null
+        val dr = bs * 0.1f
+        for (i in 0..2) { p.color = dots[i]; c.drawCircle(vizColBtn.centerX() + (i - 1) * dr * 2.5f, vizColBtn.centerY(), dr, p) }
+        p.alpha = 255
+        c.restore()
     }
 
     /** The Sources button and the favourites star, drawn on their rectangles. [bs] is the button size. */
