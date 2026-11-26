@@ -1442,6 +1442,10 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("brakeGlowApp", on).apply() }
         }, 4)
         box.add(CheckBox(this).apply {
+            text = "Show a solar test slider on the dashboard (shows the chosen power on the 3D car's roof; not counted in any statistics)"; isChecked = prefs().getBoolean("simSolarSlider", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("simSolarSlider", on).apply(); if (!on) simSolar = -1f; updateSimBar() }
+        }, 4)
+        box.add(CheckBox(this).apply {
             text = "Show a speed test slider on the dashboard (to see the 3D car move into its driving position)"; isChecked = prefs().getBoolean("simSlider", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("simSlider", on).apply(); if (!on) simSpeed = -1f; updateSimBar() }
         }, 4)
@@ -2953,6 +2957,8 @@ class MainActivity : Activity() {
     // a test slider (Settings): pretends the car is driving at this speed (km/h) so the 3D car can be watched moving; 0 = the real speed
     private var simSpeed = -1f
     private var simBar: LinearLayout? = null
+    private var simSolar = -1f          // test solar power in watts; < 0 = off (the real signal). Only drawn on the 3D car: never fed to the statistics
+    private var solBar: LinearLayout? = null
     private fun buildSimBar() {
         val lab = TextView(this).apply { setTextColor(Color.WHITE); textSize = 13f; text = "Test speed: off" }
         val sb = SeekBar(this).apply {
@@ -2973,10 +2979,35 @@ class MainActivity : Activity() {
             addView(lab); addView(sb, LinearLayout.LayoutParams(dp(300), -2))
         }
         simBar = bar
+        // the solar test slider: 0 = off (real reading), then 0 W up to the full-scale power
+        val maxW = prefs().getInt("solarMaxW", 250)
+        val labS = TextView(this).apply { setTextColor(Color.WHITE); textSize = 13f; text = "Test solar: off (real reading)" }
+        val sbS = SeekBar(this).apply {
+            max = maxW + 1
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(b: SeekBar?, p: Int, user: Boolean) {
+                    simSolar = if (p <= 0) -1f else (p - 1).toFloat()
+                    labS.text = if (p <= 0) "Test solar: off (real reading)" else "Test solar: ${p - 1} W"
+                    if (user) { car3d?.let { feed3d(it, canSnap) } }
+                }
+                override fun onStartTrackingTouch(b: SeekBar?) {}
+                override fun onStopTrackingTouch(b: SeekBar?) {}
+            })
+        }
+        val bar2 = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(6), dp(14), dp(6)); elevation = dp(6).toFloat()
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(Color.argb(150, 10, 16, 28)); cornerRadius = dp(14).toFloat() }
+            addView(labS); addView(sbS, LinearLayout.LayoutParams(dp(300), -2))
+        }
+        solBar = bar2
+        edgeBox.addView(bar2, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { setMargins(0, 0, 0, dp(160)) })
         edgeBox.addView(bar, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { setMargins(0, 0, 0, dp(84)) })
         updateSimBar()
     }
-    private fun updateSimBar() { simBar?.visibility = if (prefs().getBoolean("simSlider", false)) View.VISIBLE else View.GONE; simBar?.bringToFront() }
+    private fun updateSimBar() {
+        simBar?.visibility = if (prefs().getBoolean("simSlider", false)) View.VISIBLE else View.GONE; simBar?.bringToFront()
+        solBar?.visibility = if (prefs().getBoolean("simSolarSlider", false)) View.VISIBLE else View.GONE; solBar?.bringToFront()
+    }
 
     private fun feed3d(v: Car3dView, s: CanSnapshot) {
         val now = System.currentTimeMillis()
@@ -2987,7 +3018,7 @@ class MainActivity : Activity() {
         } else { v.fl = 0f; v.fr = 0f; v.rl = 0f; v.rr = 0f }
         v.tg = if (s.hatchOpen != null && now - s.hatchAt < 3000) (if ((s.hatchPos ?: 0) > 0) s.hatchPos!!.coerceAtMost(100) / 100f else if (s.hatchOpen == true) 0.04f else 0f) else 0f
         v.sr = -1f; v.hd = -1f          // no sunroof position or door-lock signal is decoded yet
-        v.solar = if (s.solarW != null && now - s.solarAt < 5000) (s.solarW.coerceAtLeast(0) / prefs().getInt("solarMaxW", 250).toFloat()).coerceIn(0f, 1f) else -1f
+        v.solar = if (simSolar >= 0f) (simSolar / prefs().getInt("solarMaxW", 250).toFloat()).coerceIn(0f, 1f) else if (s.solarW != null && now - s.solarAt < 5000) (s.solarW.coerceAtLeast(0) / prefs().getInt("solarMaxW", 250).toFloat()).coerceIn(0f, 1f) else -1f
         v.wheel = prefs().getString("carWheel", "F3A_22") ?: "F3A_22"
         v.brakeGlow = prefs().getBoolean("brakeGlowApp", true)
         v.tail = carView.headlights || carView.beamsOn || carView.highBeam
