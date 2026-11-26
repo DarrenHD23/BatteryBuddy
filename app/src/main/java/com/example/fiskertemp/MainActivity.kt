@@ -1879,7 +1879,7 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------- Layout 2 presets (up to 6)
     /** Settings that belong to the car, the install or the user's data rather than to how the screen looks: a preset leaves them alone. */
-    private val presetSkip = setOf("currentPreset", "startupPreset", "presets", "presetsL2", "presetsL1", "devToken", "betaOn", "betaUnlocked", "updDeferred", "source", "legacyCan", "canSafe", "climateTx", "radioFavs", "reopenSettings", "reopenDash", "adasRestore", "adasOn", "spdAdjMph", "spdAdjKmh", "packKwh", "disclaimerOk", "disclaimerAt", "disclaimerVer", "carName", "carPaint", "carWheel", "solarDay", "solarDayMin", "solarDayMax", "lastDriveMode")
+    private val presetSkip = setOf("currentPreset", "startupPreset", "presets", "presetsL2", "presetsL1", "devToken", "betaOn", "betaUnlocked", "updDeferred", "source", "legacyCan", "canSafe", "climateTx", "radioFavs", "reopenSettings", "reopenDash", "adasRestore", "adasOn", "spdAdjMph", "spdAdjKmh", "packKwh", "disclaimerOk", "disclaimerAt", "disclaimerVer", "carName", "carPaint", "carWheel", "solarDay", "solarDayMin", "solarDayMax", "lastDriveMode", "simSlider", "simSolarSlider")
 
     private fun curLayout() = if (prefs().getInt("layout", 1) == 2) 2 else 1
     /** One shared list of up to 6 presets, whichever layout saved them (older per-layout lists are merged in the first time). */
@@ -2618,16 +2618,24 @@ class MainActivity : Activity() {
             row.addView(et, LinearLayout.LayoutParams(dp(90), -2))
             box.addView(row)
         }
+        // Save / Cancel / Reset sit at the top, so the on-screen keyboard never hides them
+        val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, dp(8)) }
+        fun tb(t: String, col: Int): Button = Button(this).apply { text = t; isAllCaps = false; setTextColor(Color.WHITE); textSize = 15f
+            background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(col) } }
+        val bSave = tb("Save", Color.parseColor("#2E6FA6")); val bCancel = tb("Cancel", Color.parseColor("#3A4656")); val bReset = tb("Reset", Color.parseColor("#3A4656"))
+        for (b in listOf(bSave, bCancel, bReset)) bar.addView(b, LinearLayout.LayoutParams(0, dp(44), 1f).apply { setMargins(dp(3), 0, dp(3), 0) })
+        box.addView(bar, 0)
         val sv = ScrollView(this).apply { addView(box) }
-        val d = darkDialog().setTitle("Speedometer Adjustment").setView(sv)
-            .setPositiveButton("Save", null).setNegativeButton("Cancel", null).setNeutralButton("Reset", null).create()
+        val d = darkDialog().setTitle("Speedometer Adjustment").setView(sv).create()
+        d.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         d.show(); styleDark(d)
-        d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+        bSave.setOnClickListener {
             val vals = fields.map { it.text.toString().trim().toIntOrNull() ?: 0 }
-            prefs().edit().putString(if (mph) "spdAdjMph" else "spdAdjKmh", vals.joinToString(",")).apply()
+            prefs().edit().putString(if (mph) "spdAdjMph" else "spdAdjKmh", vals.joinToString(",")).apply()      // kept apart from the presets
             d.dismiss()
         }
-        d.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener { adjDefaults(mph).forEachIndexed { i, v -> fields[i].setText(v.toString()) } }
+        bCancel.setOnClickListener { d.dismiss() }
+        bReset.setOnClickListener { adjDefaults(mph).forEachIndexed { i, v -> fields[i].setText(v.toString()) } }
     }
 
     private fun wantLive3d(): Boolean = prefs().getBoolean("l2Live3d", true)
@@ -2960,6 +2968,7 @@ class MainActivity : Activity() {
     private var simSolar = -1f          // test solar power in watts; < 0 = off (the real signal). Only drawn on the 3D car: never fed to the statistics
     private var solBar: LinearLayout? = null
     private fun buildSimBar() {
+        prefs().edit().putBoolean("simSlider", false).putBoolean("simSolarSlider", false).apply()      // the test sliders are always off when the app starts, and are not part of a preset
         val lab = TextView(this).apply { setTextColor(Color.WHITE); textSize = 13f; text = "Test speed: off" }
         val sb = SeekBar(this).apply {
             max = 140
