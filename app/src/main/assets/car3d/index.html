@@ -150,6 +150,36 @@ function redrawFrontTraces(){
   const N=[];for(let i=0;i<n;i++)N.push(0,1,0);g.setAttribute('normal',new THREE.Float32BufferAttribute(N,3));g.setIndex(Ix);
   o.geometry.dispose();o.geometry=g}
 
+
+// ---- rear roof: the dotted line starts get the same pattern as the front ones (same spacing and length, running in from the rear edge); the circuit lines end where the dots begin
+function redrawRearDots(){
+  const o=node('SolarOverlay_Rear');if(!o||!o.isMesh||!o.geometry.index)return;
+  const g=o.geometry,P=g.attributes.position.array,UV=g.attributes.uv.array,cnt=g.attributes.position.count,Ix=g.index.array;
+  const Q=[];let zmax=-1e9;
+  for(let q=0;q+3<cnt;q+=4){let x0=1e9,x1=-1e9,z0=1e9,z1=-1e9;for(let i=0;i<4;i++){const x=P[(q+i)*3],z=P[(q+i)*3+2];x0=Math.min(x0,x);x1=Math.max(x1,x);z0=Math.min(z0,z);z1=Math.max(z1,z);zmax=Math.max(zmax,z)}Q.push({q,x0,x1,z0,z1})}
+  const dot=a=>a.x1-a.x0<.012&&a.z1-a.z0<.012,vert=a=>a.x1-a.x0<.012&&a.z1-a.z0>=.012;
+  const col=a=>Math.round((a.x0+a.x1)/2/.004),smp=new Map();
+  for(const a of Q)if(a.x1-a.x0<.012){const k=col(a);if(!smp.has(k))smp.set(k,[]);for(let i=0;i<4;i++)smp.get(k).push([P[(a.q+i)*3+2],P[(a.q+i)*3+1]])}
+  for(const l of smp.values())l.sort((a,b)=>a[0]-b[0]);
+  const yAt=(k,z)=>{const l=smp.get(k);if(!l||l.length<2)return 0;let i=1;while(i<l.length-1&&l[i][0]<z)i++;const a=l[i-1],b=l[i],d=b[0]-a[0];return d<1e-6?a[1]:a[1]+(b[1]-a[1])*(z-a[0])/d};
+  const W=.0023,PITCH=17/370*.83416,ZEND=zmax-(185-120)/370*.83416;      // the front's dots: a 17 px pitch, lines starting 65 px in from the edge
+  const NP=[],NU=[],NI=[];let n=0;
+  const uOf=z=>.0082812+(z+.28007447)*.5083,vOf=x=>.8825966-(x+.4228861)*.8985;
+  for(const a of Q){if(dot(a))continue;
+    const cut=vert(a)&&a.z1>zmax-.075;
+    for(let i=0;i<4;i++){const j=(a.q+i)*3;let z=P[j+2],y=P[j+1];if(cut&&z>zmax-.075){z=ZEND;y=yAt(col(a),ZEND)}NP.push(P[j],y,z);NU.push(UV[(a.q+i)*2],UV[(a.q+i)*2+1])}
+    const b=n;n+=4;const qi=Q.indexOf(a)*6;
+    for(let t=0;t<6;t++)NI.push(b+(Ix[qi+t]-a.q))}
+  const keys=new Set();for(const a of Q)if(vert(a)&&a.z1>zmax-.075)keys.add(col(a));
+  for(const k of keys){const xc=k*.004;
+    for(let i=0;i<4;i++){const zc=zmax-.0045-i*PITCH,xa=xc-W,xb=xc+W,za=zc-W,zb=zc+W;
+      const b=n;for(const [x,z] of [[xa,za],[xa,zb],[xb,zb],[xb,za]]){NP.push(x,yAt(k,z),z);NU.push(uOf(z),vOf(x))}n+=4;
+      const ay=(NP[(b+1)*3+2]-NP[b*3+2])*(NP[(b+2)*3]-NP[b*3])-(NP[(b+1)*3]-NP[b*3])*(NP[(b+2)*3+2]-NP[b*3+2]);
+      if(ay>0)NI.push(b,b+1,b+2,b,b+2,b+3);else NI.push(b,b+2,b+1,b,b+3,b+2)}}
+  const N=[];for(let i=0;i<n;i++)N.push(0,1,0);
+  const h=new THREE.BufferGeometry();h.setAttribute('position',new THREE.Float32BufferAttribute(NP,3));h.setAttribute('uv',new THREE.Float32BufferAttribute(NU,2));h.setAttribute('normal',new THREE.Float32BufferAttribute(N,3));h.setIndex(NI);
+  g.dispose();o.geometry=h}
+
 // small dash view: the lines are a centimetre or two wide on a car a hundred-odd pixels long, so they are drawn wider there (same paths) to stay visible
 function thickenLines(k){
   for(const n of['SolarOverlay_Front','SolarOverlay_Rear']){const o=node(n);if(!o||!o.isMesh)continue;
@@ -231,7 +261,7 @@ new GLTFLoader().parse(buf,'',g=>{
     const P=o.geometry.attributes.position,bx=new THREE.Box3(),v=new THREE.Vector3();o.updateWorldMatrix(true,false);
     for(let i=0;i<P.count;i++){v.fromBufferAttribute(P,i).applyMatrix4(o.matrixWorld);if(v.z>1)bx.expandByPoint(v)}if(bx.isEmpty())return;
     glows['ind'+(n++)]=spr(node('VehicleYaw'),bx.getCenter(new THREE.Vector3()),0xff7a10,IND_GLOW_SIZE,IND_GLOW_SIZE,mm[1])})}
-  redrawFrontTraces();if(!VIEWER)thickenLines(5);setupSolar();paint();wheels();
+  redrawFrontTraces();redrawRearDots();if(!VIEWER)thickenLines(5);setupSolar();paint();wheels();
   if(!VIEWER){const bb=new THREE.Box3().setFromObject(model);Z0=bb.min.z;Z1=bb.max.z;model.updateMatrixWorld(true);
     model.traverse(o=>{if(!o.isMesh)return;let p=o,skip=false;while(p){if(/^(Roll_|Steer_|Beam_)/.test(p.name)){skip=true;break}p=p.parent}
       if(skip||Math.abs(o.matrixWorld.determinant())<1e-9)return;o.geometry=o.geometry.clone();{const P=o.geometry.attributes.position,B=new Float32Array(P.count*3);for(let i=0;i<P.count;i++){B[i*3]=P.getX(i);B[i*3+1]=P.getY(i);B[i*3+2]=P.getZ(i)}o.userData.base=B;if(P.isInterleavedBufferAttribute||P.normalized||!(P.array instanceof Float32Array)){o.geometry.setAttribute('position',new THREE.BufferAttribute(B.slice(),3))}}deform.push(o)});
