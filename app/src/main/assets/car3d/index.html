@@ -235,14 +235,6 @@ new GLTFLoader().parse(buf,'',g=>{
   if(!VIEWER){const bb=new THREE.Box3().setFromObject(model);Z0=bb.min.z;Z1=bb.max.z;model.updateMatrixWorld(true);
     model.traverse(o=>{if(!o.isMesh)return;let p=o,skip=false;while(p){if(/^(Roll_|Steer_|Beam_)/.test(p.name)){skip=true;break}p=p.parent}
       if(skip||Math.abs(o.matrixWorld.determinant())<1e-9)return;o.geometry=o.geometry.clone();{const P=o.geometry.attributes.position,B=new Float32Array(P.count*3);for(let i=0;i<P.count;i++){B[i*3]=P.getX(i);B[i*3+1]=P.getY(i);B[i*3+2]=P.getZ(i)}o.userData.base=B;if(P.isInterleavedBufferAttribute||P.normalized||!(P.array instanceof Float32Array)){o.geometry.setAttribute('position',new THREE.BufferAttribute(B.slice(),3))}}deform.push(o)});
-    // left = right: the supplied body is not exactly symmetric at the nose; copy each right-side vertex position (mirrored) onto its nearest left-side partner, so both sides taper the same
-    {const R=.05,G=new Map(),key=(x,y,z)=>Math.round(x/R)+','+Math.round(y/R)+','+Math.round(z/R),W=[];
-     for(const o of deform){const B=o.userData.base,M=o.matrixWorld,w=new Float32Array(B.length);for(let i=0;i<B.length;i+=3){_bv.set(B[i],B[i+1],B[i+2]).applyMatrix4(M);w[i]=_bv.x;w[i+1]=_bv.y;w[i+2]=_bv.z;
-         if(_bv.x>.03){const k=key(_bv.x,_bv.y,_bv.z);if(!G.has(k))G.set(k,[]);G.get(k).push([_bv.x,_bv.y,_bv.z])}}W.push(w)}
-     deform.forEach((o,n)=>{const B=o.userData.base,w=W[n];_bm.copy(o.matrixWorld).invert();
-       for(let i=0;i<w.length;i+=3){if(w[i]>=-.03)continue;const mx=-w[i],cx=Math.round(mx/R),cy=Math.round(w[i+1]/R),cz=Math.round(w[i+2]/R);let best=null,bd=R*R*1.2;
-         for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++)for(let c=-1;c<=1;c++){const L=G.get((cx+a)+','+(cy+b)+','+(cz+c));if(!L)continue;for(const q of L){const d=(q[0]-mx)**2+(q[1]-w[i+1])**2+(q[2]-w[i+2])**2;if(d<bd){bd=d;best=q}}}
-         if(best){_bv.set(-best[0],best[1],best[2]).applyMatrix4(_bm);B[i]=_bv.x;B[i+1]=_bv.y;B[i+2]=_bv.z}}})}
     for(const n of['FL','FR']){const o=node('Steer_'+n);o.userData.bx=o.position.x;o.userData.wx=o.position.x;o.userData.bz=new THREE.Vector3().setFromMatrixPosition(o.matrixWorld).z;bodyNodes.push(o)}
     for(const k of['Dipped','High'])for(const b of beams[k]){b.userData.bx=b.position.x;b.userData.wx=b.userData.cx;b.userData.bz=b.userData.cz;bodyNodes.push(b)}
     bodyOn=true}
@@ -252,7 +244,7 @@ new GLTFLoader().parse(buf,'',g=>{
 },e=>bridge.fail('model: '+(e&&e.message)))}).catch(e=>bridge.fail('load: '+e.message));
 
 // driving (small view only): the body narrows from partway along toward the nose, as on the previous model (BODY_K at the nose, starting BODY_S of the way from the rear); the front wheels and beams follow it in
-const BODY_K=.38,BODY_S=.25;let Z0=0,Z1=1,lastK=-1,bodyOn=false;const deform=[],bodyNodes=[],_bv=new THREE.Vector3(),_bm=new THREE.Matrix4();
+const BODY_K=.10,BODY_S=.35;let Z0=0,Z1=1,lastK=-1,bodyOn=false;const deform=[],bodyNodes=[],_bv=new THREE.Vector3(),_bm=new THREE.Matrix4();
 const bramp=z=>{const t=(Z1-z)/(Z1-Z0),u=Math.min(1,Math.max(0,(t-BODY_S)/(1-BODY_S)));return u*u*(3-2*u)};
 function applyBody(){
   if(!bodyOn)return;const k=BODY_K*tilt;if(Math.abs(k-lastK)<1e-4)return;lastK=k;
