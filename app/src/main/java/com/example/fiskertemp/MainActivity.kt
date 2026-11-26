@@ -3092,7 +3092,7 @@ class MainActivity : Activity() {
                 setOnClickListener { onTap(this) }
             }
             col.addView(lb); col.addView(b, LinearLayout.LayoutParams(dp(52), dp(52)))
-            val lp = FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END); lp.topMargin = top; lp.rightMargin = dp(28)
+            val lp = FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END); lp.topMargin = top + dp(162); lp.rightMargin = dp(28)      // the whole column sits below the SolarSky figures
             layer.addView(col, lp)
         }
         circle("\u2715", "Close", dp(28)) { closeCarViewer() }
