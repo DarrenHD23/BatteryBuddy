@@ -113,7 +113,7 @@ function solar(now){
     _t.convertLinearToSRGB();
     for(let y=0;y<2;y++){const i=(y*256+x)*4;d[i]=Math.round(_t.r*255);d[i+1]=Math.round(_t.g*255);d[i+2]=Math.round(_t.b*255);d[i+3]=255}
     // the cells: one steady colour, no animation
-    _t.copy(solarOn?_s:NEUTRAL).multiplyScalar(solarOn?.30:1).convertLinearToSRGB();
+    _t.copy(NEUTRAL).convertLinearToSRGB();      // the cells never take the power colour: only the circuit lines do
     for(let y=0;y<2;y++){const i=(y*256+x)*4;dc[i]=Math.round(_t.r*255);dc[i+1]=Math.round(_t.g*255);dc[i+2]=Math.round(_t.b*255);dc[i+3]=255}}
   cellTex.needsUpdate=true;
   solarTex.needsUpdate=true;dirty=true}
