@@ -12,3 +12,6 @@ Build the APK:
 Many Thanks to Gabriello Gambale (UnFiskered), MoistPope, Ben Kay, and Majd J. Srour whom without their expertise, creativity and innovation, this app would not have been possible!  Shout out to JoseDB for his suggestions, graphic designs, bug reports and more!
 
 "Fisker Ocean (low-poly)" (https://skfb.ly/oR7xy) by LagzDesign is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).
+
+GitHub - jdebardi/fisker-ocean-3d-model: A 3D model of the Fisker O...
+A 3D model of the Fisker Ocean. Contribute to jdebardi/fisker-ocean-3d-model development by creating an account on GitHub.
