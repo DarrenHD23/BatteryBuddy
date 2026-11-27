@@ -2667,7 +2667,7 @@ class MainActivity : Activity() {
         } catch (e: Exception) { 1f }
         return if (fr < 0.42f) "third" else if (fr < 0.58f) "half" else if (fr < 0.85f) "twothirds" else "full"
     }
-    private fun cardKey(name: String) = "cardPos_L${curLayout()}_${cardCls()}_$name"
+    private fun cardKey(name: String) = "cardPos_L${curLayout()}_${cardCls()}_$name${if (adasMode) "_adas" else ""}"      // the ADAS view keeps its own positions
     private fun readCard(name: String): FloatArray? {
         val sv = prefs().getString(cardKey(name), null) ?: return null
         val a = sv.split(",").mapNotNull { it.toFloatOrNull() }
@@ -2679,7 +2679,7 @@ class MainActivity : Activity() {
         out.set(a[0].toFloat(), a[1].toFloat(), a[0] + v.width * v.scaleX, a[1] + v.height * v.scaleY)
     }
     private fun cardGrip(box: RectF) = RectF(box.right - dp(34), box.bottom - dp(34), box.right + dp(2), box.bottom + dp(2))
-    private fun cardsAllowed() = dashShown && ::dashRoot.isInitialized && !adasMode && viewerLayer == null
+    private fun cardsAllowed() = dashShown && ::dashRoot.isInitialized && viewerLayer == null      // (also in the ADAS view: the cards still showing there can be moved and resized)
     /** Is the climate screen drawn over this card? (then its grip is not shown) */
     private fun cardCovered(v: View): Boolean {
         if (v === climateView || !::climateView.isInitialized || !climateView.isShown || climateView.alpha < 0.1f || climateView.width <= 0) return false
