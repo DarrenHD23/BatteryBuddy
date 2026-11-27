@@ -2812,7 +2812,7 @@ class MainActivity : Activity() {
                     if (!b.contains(x, y)) continue
                     // the shortcuts page has its own long press on its tiles: there the card is picked up by its bottom strip only
                     val pg = (v as? PagerCardView)?.currentPage
-                    if (pg is ShortcutsCardView && y < b.bottom - dp(18) * v.scaleY) return false
+                    if (pg is ShortcutsCardView && y < b.bottom - dp(18) * v.scaleY && y > b.top + dp(56) * v.scaleY) return false      // the app tiles keep their own long press: pick the card up by its title strip or the dots below
                     if (v === climateView && y > b.top + dp(64)) continue         // the Climate screen is picked up by its top strip (the rest is buttons and dials)
                     cardMode = 1; cardName = name; cardView = v
                     cardDownX = x; cardDownY = y; cardLastX = x; cardLastY = y; cardDownTime = ev.downTime
@@ -2862,7 +2862,7 @@ class MainActivity : Activity() {
                         val lp = v.layoutParams as? FrameLayout.LayoutParams
                         if (cardFreeSize(v) && lp != null) {
                             // free resize: width and height follow the finger separately
-                            val minW = if (v === climateView) dp(320) else dp(150); val minH = if (v === climateView) dp(220) else dp(64)
+                            val minW = if (v === climateView) dp(320) else dp(48); val minH = if (v === climateView) dp(220) else dp(24)      // the media card can be made any shape, down to two by one grid squares
                             val w = nw.toInt().coerceIn(minW, maxOf(minW, dashRoot.width)); val h = nh.toInt().coerceIn(minH, maxOf(minH, dashRoot.height))
                             if (lp.width != w || lp.height != h) { lp.width = w; lp.height = h; if (v === climateView) { lp.rightMargin = 0; lp.bottomMargin = 0 }; v.layoutParams = lp }
                             v.scaleX = 1f; v.scaleY = 1f; cardSized = true
