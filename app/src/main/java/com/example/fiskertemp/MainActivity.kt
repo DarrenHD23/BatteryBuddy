@@ -2618,7 +2618,7 @@ class MainActivity : Activity() {
     }
     private fun cardGrip(box: RectF) = RectF(box.right - dp(34), box.bottom - dp(34), box.right + dp(2), box.bottom + dp(2))
     private fun cardsAllowed() = dashShown && ::dashRoot.isInitialized && !adasMode && viewerLayer == null &&
-        !(::climateView.isInitialized && climateView.isShown) && !(::mediaPopup.isInitialized && mediaPopup.isShown)
+        !(::climateView.isInitialized && climateView.isShown)       // (the small media popup no longer hides the grips)
 
     /** Puts every card at its saved offset and scale (or back at the layout's own place). Safe to call often. */
     private fun applyCards() {
