@@ -2652,6 +2652,7 @@ class MainActivity : Activity() {
             if (::rightPager.isInitialized) l.add("compass" to rightPager)
         } else if (::tripPanel.isInitialized) l.add("trip" to tripPanel)
         if (::mediaCard.isInitialized) l.add("media" to mediaCard)
+        if (::mediaPopup.isInitialized) l.add("popup" to mediaPopup)       // the small Media pop-up card (split screen)
         return l
     }
     private fun cardCls(): String {
