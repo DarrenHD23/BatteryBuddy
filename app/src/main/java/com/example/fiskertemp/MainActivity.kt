@@ -8917,8 +8917,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val chipsTop = tilesTop - gap - chipH
         val dialTop = topY + headH
         val dialH = chipsTop - gap - dialTop
-        // Layout 2 with the 3D car, in every climate view: the car is a big close-up of the cabin (see CloseUp)
-        val closeUp = l2 && use3d && !compact
+        // Layout 1 and 2 with the 3D car, in every climate view: the car is a big close-up of the cabin (see CloseUp)
+        val closeUp = use3d && !compact
         var hdrL = 0f; var hdrR = w                   // how far the title and the pills reach in from each side (the close-up car must not cover them)
 
         // ---- header: power, title, cabin and outside readings
