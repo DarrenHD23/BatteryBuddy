@@ -1531,6 +1531,14 @@ class MainActivity : Activity() {
                 }
             }
         }, 4)
+        box.add(Button(this).apply {
+            text = "Reset the moved and resized cards (this layout)"; isAllCaps = false
+            setOnClickListener {
+                val pre = "cardPos_L${curLayout()}_"
+                val ed = prefs().edit(); for (k in prefs().all.keys) if (k.startsWith(pre)) ed.remove(k); ed.apply()
+                applyCards(); Toast.makeText(this@MainActivity, "Cards are back in their normal places", Toast.LENGTH_SHORT).show()
+            }
+        }, 8)
         box.add(CheckBox(this).apply {
             text = "Layout 2: hide the \"Brake light on\" message"; isChecked = prefs().getBoolean("hideBrakeNote", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("hideBrakeNote", on).apply() }
@@ -1911,7 +1919,7 @@ class MainActivity : Activity() {
     private fun snapshotPrefs(): org.json.JSONObject {
         val o = org.json.JSONObject()
         for ((k, v) in prefs().all) {
-            if (k in presetSkip) continue
+            if (k in presetSkip || k.startsWith("cardPos_")) continue
             val e = org.json.JSONObject()
             when (v) {
                 is Boolean -> e.put("t", "b").put("v", v)
@@ -2056,7 +2064,7 @@ class MainActivity : Activity() {
     /** Puts every saved setting back (settings the preset does not hold go back to their defaults), then rebuilds the screen like a restart. */
     private fun writePresetToPrefs(data: org.json.JSONObject) {
         val ed = prefs().edit()
-        for (k in prefs().all.keys) if (k !in presetSkip) ed.remove(k)
+        for (k in prefs().all.keys) if (k !in presetSkip && !k.startsWith("cardPos_")) ed.remove(k)
         for (k in data.keys()) {
             if (k == "adasOn") continue
             val e = data.getJSONObject(k)
@@ -2428,7 +2436,192 @@ class MainActivity : Activity() {
         })
     }
 
+    // ---------------------------------------------------------- movable cards (Trip Information, compass, media)
+    // A long press on a card picks it up and it follows the finger; the grip in its bottom-right corner resizes it (the card scales, text and all).
+    // Every layout (1 or 2) and window size (full, 2/3, 50/50, 1/3) keeps its own positions, as an offset in dp from where the layout puts the card and a scale.
+    private var cardMode = 0                       // 0 idle, 1 waiting for the long press, 2 dragging, 3 resizing
+    private var cardName = ""
+    private var cardView: View? = null
+    private var cardDownX = 0f; private var cardDownY = 0f; private var cardDownTime = 0L
+    private var cardLastX = 0f; private var cardLastY = 0f
+    private var cardStartTx = 0f; private var cardStartTy = 0f; private var cardStartS = 1f
+    private val cardBox0 = RectF()
+    private var cardGrabX = 0f; private var cardGrabY = 0f
+    private lateinit var cardOverlay: CardGripOverlay
+    private val cardLpRun = Runnable { cardStartDrag() }
+    private val cardRaised = ArrayList<View>()
+
+    private fun movableCards(): List<Pair<String, View>> {
+        val l = ArrayList<Pair<String, View>>()
+        if (!::dashRoot.isInitialized) return l
+        if (l2Applied) {
+            if (::leftPager.isInitialized) l.add("trip" to leftPager)
+            if (::rightPager.isInitialized) l.add("compass" to rightPager)
+        } else if (::tripPanel.isInitialized) l.add("trip" to tripPanel)
+        if (::mediaCard.isInitialized) l.add("media" to mediaCard)
+        return l
+    }
+    private fun cardCls(): String {
+        val fr = try {
+            if (android.os.Build.VERSION.SDK_INT >= 30) windowManager.currentWindowMetrics.bounds.height().toFloat() / windowManager.maximumWindowMetrics.bounds.height() else 1f
+        } catch (e: Exception) { 1f }
+        return if (fr < 0.42f) "third" else if (fr < 0.58f) "half" else if (fr < 0.85f) "twothirds" else "full"
+    }
+    private fun cardKey(name: String) = "cardPos_L${curLayout()}_${cardCls()}_$name"
+    private fun readCard(name: String): FloatArray? {
+        val sv = prefs().getString(cardKey(name), null) ?: return null
+        val a = sv.split(",").mapNotNull { it.toFloatOrNull() }
+        return if (a.size == 3) floatArrayOf(a[0], a[1], a[2].coerceIn(0.4f, 2.6f)) else null
+    }
+    private fun cardShown(v: View) = v.isShown && v.alpha > 0.1f && v.width > 0 && v.height > 0
+    private fun cardScreenBox(v: View, out: RectF) {
+        val a = IntArray(2); v.getLocationOnScreen(a)
+        out.set(a[0].toFloat(), a[1].toFloat(), a[0] + v.width * v.scaleX, a[1] + v.height * v.scaleY)
+    }
+    private fun cardGrip(box: RectF) = RectF(box.right - dp(34), box.bottom - dp(34), box.right + dp(2), box.bottom + dp(2))
+    private fun cardsAllowed() = dashShown && ::dashRoot.isInitialized && !adasMode && viewerLayer == null &&
+        !(::climateView.isInitialized && climateView.isShown) && !(::mediaPopup.isInitialized && mediaPopup.isShown)
+
+    /** Puts every card at its saved offset and scale (or back at the layout's own place). Safe to call often. */
+    private fun applyCards() {
+        if (!::dashRoot.isInitialized || cardMode >= 2) return
+        val d = resources.displayMetrics.density
+        for ((name, v) in movableCards()) {
+            val st = readCard(name)
+            v.pivotX = 0f; v.pivotY = 0f
+            if (st == null) {
+                if (v.scaleX != 1f) { v.scaleX = 1f; v.scaleY = 1f }
+                if (v.translationX != 0f) v.translationX = 0f
+                if (v !== tripPanel && v.translationY != 0f) v.translationY = 0f      // (Layout 1 moves the trip panel down itself)
+            } else {
+                if (v.scaleX != st[2]) { v.scaleX = st[2]; v.scaleY = st[2] }
+                if (Math.abs(v.translationX - st[0] * d) > 0.5f) v.translationX = st[0] * d
+                if (Math.abs(v.translationY - st[1] * d) > 0.5f) v.translationY = st[1] * d
+            }
+        }
+        if (::cardOverlay.isInitialized) { if (dashRoot.getChildAt(dashRoot.childCount - 1) !== cardOverlay) cardOverlay.bringToFront(); cardOverlay.invalidate() }
+    }
+    private fun cardHasCustom(v: View): Boolean {
+        for ((name, c) in movableCards()) if (c === v) return readCard(name) != null
+        return false
+    }
+    private fun cardOverlayInfo(): List<CardGripOverlay.Info> {
+        val out = ArrayList<CardGripOverlay.Info>()
+        if (!cardsAllowed() || !::cardOverlay.isInitialized) return out
+        val oa = IntArray(2); cardOverlay.getLocationOnScreen(oa)
+        for ((_, v) in movableCards()) {
+            if (!cardShown(v)) continue
+            val b = RectF(); cardScreenBox(v, b)
+            val g = cardGrip(b)
+            b.offset(-oa[0].toFloat(), -oa[1].toFloat()); g.offset(-oa[0].toFloat(), -oa[1].toFloat())
+            out.add(CardGripOverlay.Info(b, g, cardMode >= 2 && cardView === v))
+        }
+        return out
+    }
+    private fun cardEnd(save: Boolean) {
+        ui.removeCallbacks(cardLpRun)
+        val v = cardView
+        if (save && v != null && cardMode >= 2) {
+            val d = resources.displayMetrics.density
+            val k = cardKey(cardName)
+            val moved = Math.abs(v.translationX) > 1f || Math.abs(v.translationY - (if (v === tripPanel) cardStartTy else 0f)) > 1f || Math.abs(v.scaleX - 1f) > 0.01f
+            if (moved || readCard(cardName) != null) prefs().edit().putString(k, "${v.translationX / d},${v.translationY / d},${v.scaleX}").apply()
+        }
+        for (r in cardRaised) r.translationZ = 0f
+        cardRaised.clear()
+        cardMode = 0; cardView = null
+        if (::cardOverlay.isInitialized) cardOverlay.invalidate()
+    }
+    private fun cardStartDrag() {
+        val v = cardView ?: return
+        if (cardMode != 1) return
+        cardMode = 2
+        val d = resources.displayMetrics.density
+        cardStartTx = v.translationX; cardStartTy = v.translationY
+        cardScreenBox(v, cardBox0)
+        // the finger's touch on the card is cancelled so it does not also press a button
+        val cancel = android.view.MotionEvent.obtain(cardDownTime, android.os.SystemClock.uptimeMillis(), android.view.MotionEvent.ACTION_CANCEL, cardLastX, cardLastY, 0)
+        try { watchCarLongPress(cancel); swipe.onTouchEvent(cancel); super.dispatchTouchEvent(cancel) } catch (e: Exception) { }
+        cancel.recycle()
+        // above the other cards while it is held
+        var pv: View? = v
+        while (pv != null) { pv.translationZ = 12f * d; cardRaised.add(pv); if (pv === dashRoot) break; pv = pv.parent as? View }
+        dashRoot.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+        if (::cardOverlay.isInitialized) cardOverlay.invalidate()
+    }
+
+    private fun cardTouch(ev: android.view.MotionEvent): Boolean {
+        when (ev.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                cardEnd(false)
+                if (!cardsAllowed()) return false
+                val x = ev.rawX; val y = ev.rawY
+                val b = RectF()
+                val cards = movableCards().filter { cardShown(it.second) }
+                // the grip resizes straight away
+                for ((name, v) in cards.asReversed()) {
+                    cardScreenBox(v, b)
+                    if (cardGrip(b).contains(x, y)) {
+                        cardMode = 3; cardName = name; cardView = v
+                        cardStartS = v.scaleX; cardBox0.set(b); cardGrabX = x - b.right; cardGrabY = y - b.bottom
+                        dashRoot.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+                        if (::cardOverlay.isInitialized) cardOverlay.invalidate()
+                        return true
+                    }
+                }
+                // a long press on the card moves it
+                for ((name, v) in cards.asReversed()) {
+                    cardScreenBox(v, b)
+                    if (!b.contains(x, y)) continue
+                    // the shortcuts page has its own long press on its tiles: there the card is picked up by its bottom strip only
+                    val pg = (v as? PagerCardView)?.currentPage
+                    if (pg is ShortcutsCardView && y < b.bottom - dp(18) * v.scaleY) return false
+                    cardMode = 1; cardName = name; cardView = v
+                    cardDownX = x; cardDownY = y; cardLastX = x; cardLastY = y; cardDownTime = ev.downTime
+                    ui.postDelayed(cardLpRun, 600)
+                    return false
+                }
+                return false
+            }
+            android.view.MotionEvent.ACTION_MOVE -> {
+                cardLastX = ev.rawX; cardLastY = ev.rawY
+                val v = cardView
+                when (cardMode) {
+                    1 -> { if (Math.hypot((ev.rawX - cardDownX).toDouble(), (ev.rawY - cardDownY).toDouble()) > dp(12)) cardEnd(false); return false }
+                    2 -> {
+                        if (v == null) return true
+                        val root = RectF(); cardScreenBox(dashRoot, root)
+                        root.set(root.left, root.top, root.left + dashRoot.width, root.top + dashRoot.height)
+                        val keep = dp(48).toFloat()
+                        var sx = ev.rawX - cardDownX; var sy = ev.rawY - cardDownY
+                        // always leave a corner of the card on the screen
+                        sx = sx.coerceIn(root.left + keep - cardBox0.right, root.right - keep - cardBox0.left)
+                        sy = sy.coerceIn(root.top + keep - cardBox0.bottom, root.bottom - keep - cardBox0.top)
+                        v.translationX = cardStartTx + sx; v.translationY = cardStartTy + sy
+                        if (::cardOverlay.isInitialized) cardOverlay.invalidate()
+                        return true
+                    }
+                    3 -> {
+                        if (v == null) return true
+                        val nw = (ev.rawX - cardGrabX) - cardBox0.left; val nh = (ev.rawY - cardGrabY) - cardBox0.top
+                        val s = (((nw / v.width) + (nh / v.height)) / 2f).coerceIn(0.4f, 2.6f)
+                        v.scaleX = s; v.scaleY = s
+                        if (::cardOverlay.isInitialized) cardOverlay.invalidate()
+                        return true
+                    }
+                }
+            }
+            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                val was = cardMode
+                cardEnd(ev.actionMasked == android.view.MotionEvent.ACTION_UP)
+                if (was >= 2) { applyCards(); return true }
+            }
+        }
+        return cardMode >= 2
+    }
+
     override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (cardTouch(ev)) return true
         watchCarLongPress(ev)
         if (dashShown && !StatusStripView.dragging) swipe.onTouchEvent(ev)      // only watches: touches still reach the buttons
         return super.dispatchTouchEvent(ev)
@@ -2706,7 +2899,8 @@ class MainActivity : Activity() {
                 val room = (floor - bot0 - dp(4) - readyRoom).coerceAtLeast(0f)
                 dy = (carBottom - top0 + dp(4)).coerceAtLeast(0f).coerceAtMost(room)
             }
-            if (Math.abs(tripPanel.translationY - dy) > 1f) tripPanel.translationY = dy
+            val tripCustom = cardHasCustom(tripPanel)
+            if (!tripCustom && Math.abs(tripPanel.translationY - dy) > 1f) tripPanel.translationY = dy
             if (::chargeBar.isInitialized && Math.abs(chargeBar.translationY - dy) > 1f) chargeBar.translationY = dy
         }
         // Layout 1, traffic light showing (it would sit on top of the word): Ready moves to just under the trip information, above the media player
@@ -3640,6 +3834,8 @@ class MainActivity : Activity() {
         }
         objView = ObjectsView(this, roadView)         // the other objects around the car: on top of everything
         f.addView(objView, FrameLayout.LayoutParams(-1, -1))
+        cardOverlay = CardGripOverlay(this) { cardOverlayInfo() }
+        f.addView(cardOverlay, FrameLayout.LayoutParams(-1, -1))
         return f
     }
 
@@ -3657,6 +3853,7 @@ class MainActivity : Activity() {
             applyAdasGauges()
             if (adasMode) refitAdas()
             placeUpdateBtn()
+            applyCards()
             if (dashShown) ui.postDelayed(this, 200)
         }
     }

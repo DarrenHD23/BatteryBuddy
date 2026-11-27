@@ -1237,6 +1237,7 @@ class PagerCardView(ctx: Context) : android.widget.FrameLayout(ctx) {
     private var pages: List<View> = emptyList()
     var index = 0
         private set
+    val currentPage: View? get() = pages.getOrNull(index)
     private var downX = 0f; private var downY = 0f; private var swiping = false
     private val slop = android.view.ViewConfiguration.get(ctx).scaledTouchSlop
 
