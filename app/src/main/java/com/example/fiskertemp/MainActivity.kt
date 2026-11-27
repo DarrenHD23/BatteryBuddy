@@ -2602,8 +2602,9 @@ class MainActivity : Activity() {
                 // a swipe that began on one of the Layout 2 swipe cards (shortcuts, media ...) only changes that card's page
                 if (l2Applied && ::leftPager.isInitialized && ::rightPager.isInitialized) for (pg in listOf<View>(leftPager, rightPager)) {
                     if (pg.visibility != View.VISIBLE || pg.width == 0) continue
-                    val pl = IntArray(2); pg.getLocationOnScreen(pl)
-                    if (e1.rawX >= pl[0] && e1.rawX <= pl[0] + pg.width && e1.rawY >= pl[1] && e1.rawY <= pl[1] + pg.height) return false
+                    // the card as it is drawn now: moved and resized cards are bigger or smaller than their layout box, plus a margin around it
+                    val bx = RectF(); cardScreenBox(pg, bx); val pad = dp(14).toFloat()
+                    if (e1.x >= bx.left - pad && e1.x <= bx.right + pad && e1.y >= bx.top - pad && e1.y <= bx.bottom + pad) return false
                 }
                 if (ShortcutGuard.locked()) return false
                 val rowLoc = IntArray(2)
