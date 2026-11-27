@@ -2643,6 +2643,7 @@ class MainActivity : Activity() {
     private lateinit var cardOverlay: CardGripOverlay
     private val cardLpRun = Runnable { cardStartDrag() }
     private val cardRaised = ArrayList<View>()
+    private var swPager: PagerCardView? = null; private var swIdx = 0; private var swX = 0f; private var swY = 0f
     private var cardSized = false                  // the media card was resized in this gesture (its width and height change, instead of a scale)
     private var climateSizedByUs = false          // the Climate screen's layout size is ours right now
     private fun cardFreeSize(v: View) = v === mediaCard || v === climateView
@@ -2781,6 +2782,13 @@ class MainActivity : Activity() {
         when (ev.actionMasked) {
             android.view.MotionEvent.ACTION_DOWN -> {
                 cardEnd(false)
+                // Layout 2: a swipe that starts anywhere on a swipe card changes its page (backed up here in case the card's own touch handling misses it)
+                swPager = null
+                if (l2Applied && ::leftPager.isInitialized && ::rightPager.isInitialized) for (pg in listOf(leftPager, rightPager)) {
+                    if (pg.visibility != View.VISIBLE || pg.width == 0) continue
+                    val bx = RectF(); cardScreenBox(pg, bx)
+                    if (bx.contains(ev.x, ev.y) && !cardGrip(bx).contains(ev.x, ev.y)) { swPager = pg; swIdx = pg.index; swX = ev.x; swY = ev.y }
+                }
                 if (!cardsAllowed()) return false
                 val x = ev.x; val y = ev.y
                 val b = RectF()
@@ -2869,6 +2877,14 @@ class MainActivity : Activity() {
             }
             android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
                 val was = cardMode
+                val sp = swPager; swPager = null
+                if (sp != null && was < 2 && ev.actionMasked == android.view.MotionEvent.ACTION_UP) {
+                    val dx = ev.x - swX; val dy = ev.y - swY; val idx = swIdx
+                    if (Math.abs(dx) > dp(40) && Math.abs(dx) > Math.abs(dy)) {
+                        // the card's own handling runs first (right after this); only if it left the page alone is the page changed here
+                        ui.postDelayed({ if (sp.index == idx) sp.show(if (dx < 0) idx + 1 else idx - 1) }, 90)
+                    }
+                }
                 cardEnd(ev.actionMasked == android.view.MotionEvent.ACTION_UP)
                 if (was >= 2) { applyCards(); return true }
             }
