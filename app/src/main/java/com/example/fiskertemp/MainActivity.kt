@@ -1930,7 +1930,25 @@ class MainActivity : Activity() {
         if (!climRestoreDone) {
             val secs = prefs().getInt("climRestoreMin", 0) * 60 + prefs().getInt("climRestoreSec", 30)
             ui.postDelayed(climRestoreRun, maxOf(secs * 1000L, 5000L))
+            ui.postDelayed({ showRestoreNotice() }, 1500)
         }
+    }
+    /** A short note over the screen at start-up: the climate settings will be restored in so long. Shows 4 seconds, then fades away. */
+    private fun showRestoreNotice() {
+        if (isFinishing || isDestroyed || !::edgeBox.isInitialized) return
+        val m = prefs().getInt("climRestoreMin", 0); val sc = prefs().getInt("climRestoreSec", 30)
+        val parts = ArrayList<String>()
+        if (m > 0) parts.add("$m minute${if (m == 1) "" else "s"}")
+        if (sc > 0 || m == 0) parts.add("$sc second${if (sc == 1) "" else "s"}")
+        val tv = TextView(this).apply {
+            text = "Restoring previous climate settings in ${parts.joinToString(", ")}.\nTurn this feature on or off in Settings."
+            textSize = 15f; setTextColor(Color.WHITE); gravity = Gravity.CENTER; setPadding(dp(22), dp(12), dp(22), dp(12))
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(Color.argb(235, 24, 34, 52)); cornerRadius = dp(18).toFloat(); setStroke(dp(1), Color.argb(120, 120, 190, 255)) }
+            elevation = dp(12).toFloat(); alpha = 0f; isClickable = false
+        }
+        edgeBox.addView(tv, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(28); leftMargin = dp(16); rightMargin = dp(16) })
+        tv.animate().alpha(1f).setDuration(250).start()
+        tv.postDelayed({ tv.animate().alpha(0f).setDuration(600).withEndAction { try { edgeBox.removeView(tv) } catch (e: Exception) { } }.start() }, 4000)
     }
     private fun climSnapJson(s: CanSnapshot): org.json.JSONObject = org.json.JSONObject().apply {
         put("fan", s.climFan); put("mode", s.climDrvMode); put("ac", s.climAc); put("auto", s.climAuto); put("sync", s.climSync); put("outer", s.climOuterAir)
