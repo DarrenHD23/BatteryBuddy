@@ -8680,12 +8680,12 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val labH = dp(if (small) 16f else 20f)
         val carH = areaH - barsH - labH - dp(10f)
         overheadCar(cx, top - dp(10f), areaW, carH, s, s.climSeen && s.climFan > 0, s.climDrvMode, cu)
-        if (!seatsPlaced && !hideSeatIcons) seatButtons(cx, areaW, s)
+        if (!seatsPlaced && !hideSeatIcons && cu == null) seatButtons(cx, areaW, s)
         if (cu != null && cu.side) {
             // a third-height window: the fan speed is a small vertical stepper beside the car (+ on top, the level, then -), so the car gets the whole height
             val bz = minOf(dp(32f), (areaH - dp(48f)) / 2f)
             val half = (150f * cu.k + areaW / 2f) / 2f
-            val fx = if (rhdSide) cx - half else cx + half
+            val fx = if (rhdSide) cx + half else cx - half        // left of the car in left-hand drive, right of it in right-hand drive
             val y0 = top + dp(2f)
             val rp = RectF(fx - bz / 2f, y0, fx + bz / 2f, y0 + bz)
             val rm = RectF(fx - bz / 2f, y0 + bz + dp(40f), fx + bz / 2f, y0 + 2 * bz + dp(40f))
@@ -8915,8 +8915,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val chipsTop = tilesTop - gap - chipH
         val dialTop = topY + headH
         val dialH = chipsTop - gap - dialTop
-        // split windows with the outside seat buttons hidden: the car is a big close-up of the cabin (see CloseUp)
-        val closeUp = l2 && use3d && hideSeatIcons && !floating && !compact
+        // Layout 2 with the 3D car, in every climate view: the car is a big close-up of the cabin (see CloseUp)
+        val closeUp = l2 && use3d && !compact
         var hdrL = 0f; var hdrR = w                   // how far the title and the pills reach in from each side (the close-up car must not cover them)
 
         // ---- header: power, title, cabin and outside readings
@@ -8957,7 +8957,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
 
         // ---- the two dials and the cabin between them
         tempBtns.clear(); tempBtnInfo.clear(); modeRects.clear(); seatRects.clear(); seatWho.clear()
-        val cabinW = if (closeUp) w * (if (small) 0.44f else 0.38f) else w * 0.30f
+        val cabinW = if (closeUp) (if (hideSeatIcons) w * (if (small) 0.44f else 0.38f) else w * 0.32f) else w * 0.30f
         val dialW = (w - cabinW - 3 * m) / 2f
         val drvRight = rhdSide
         seatRects.clear(); seatWho.clear()
