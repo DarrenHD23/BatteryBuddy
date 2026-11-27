@@ -1713,10 +1713,64 @@ class MainActivity : Activity() {
             if (v is ViewGroup) for (k in 0 until v.childCount) lightInk(v.getChildAt(k))
         }
         lightInk(box)
+        // ---- search: a box above the list filters it as the user types (a section shows when its title or any of its settings match)
+        class SItem(val views: MutableList<View>)
+        class SSec(val header: View?, val items: MutableList<SItem> = ArrayList())
+        fun textOf(v: View): String {
+            val sb = StringBuilder()
+            if (v is TextView) { sb.append(v.text).append(' '); if (v is android.widget.EditText) sb.append(v.hint ?: "") }
+            if (v is ViewGroup) for (k in 0 until v.childCount) sb.append(textOf(v.getChildAt(k))).append(' ')
+            return sb.toString()
+        }
+        val secs = ArrayList<SSec>()
+        run {
+            var cur = SSec(null); secs.add(cur)
+            for (k in 0 until box.childCount) {
+                val c = box.getChildAt(k)
+                if (c is TextView && c !is Button && c.currentTextColor == Color.parseColor("#6AA8FF") && c.typeface?.isBold == true) { cur = SSec(c); secs.add(cur); continue }
+                if (textOf(c).isBlank() && cur.items.isNotEmpty()) cur.items.last().views.add(c)     // a slider or switch belongs with the label above it
+                else cur.items.add(SItem(mutableListOf(c)))
+            }
+        }
+        val noMatch = TextView(this).apply { text = "No settings match your search."; textSize = 14f; setTextColor(Color.parseColor("#8E99A8")); visibility = View.GONE; setPadding(0, dp(16), 0, dp(16)) }
+        box.addView(noMatch)
+        val search = android.widget.EditText(this).apply {
+            hint = "Search settings"; setHintTextColor(Color.parseColor("#8E99A8")); setTextColor(Color.WHITE); textSize = 16f
+            isSingleLine = true; imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            background = GradientDrawable().apply { setColor(Color.parseColor("#2A303C")); cornerRadius = dp(10).toFloat(); setStroke(dp(1), Color.parseColor("#4A5568")) }
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(a: CharSequence?, b: Int, c: Int, d: Int) {}
+                override fun onTextChanged(a: CharSequence?, b: Int, c: Int, d: Int) {}
+                override fun afterTextChanged(e: android.text.Editable?) {
+                    val q = e?.toString()?.trim()?.lowercase() ?: ""
+                    var shown = 0
+                    for (sec in secs) {
+                        val secHit = q.isEmpty() || (sec.header != null && textOf(sec.header).lowercase().contains(q))
+                        var any = false
+                        for (it in sec.items) {
+                            val hit = secHit || it.views.any { v -> textOf(v).lowercase().contains(q) }
+                            for (v in it.views) v.visibility = if (hit) View.VISIBLE else View.GONE
+                            if (hit) any = true
+                        }
+                        sec.header?.visibility = if (any || secHit) View.VISIBLE else View.GONE
+                        if (any) shown++
+                    }
+                    noMatch.visibility = if (q.isNotEmpty() && shown == 0) View.VISIBLE else View.GONE
+                }
+            })
+        }
         val scroller = ScrollView(this).apply { addView(box) }
-        dialog = darkDialog().setTitle("Settings").setView(scroller)
+        val holder = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(search, LinearLayout.LayoutParams(-1, -2).apply { setMargins(dp(20), dp(6), dp(20), dp(4)) })
+            addView(scroller, LinearLayout.LayoutParams(-1, -2))
+        }
+        dialog = darkDialog().setTitle("Settings").setView(holder)
             .setNegativeButton("Close", null).create()
         dialog.show()
+        // the dialog must be able to take the keyboard for the search box
+        dialog.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
         styleDark(dialog)
     }
 
@@ -2755,7 +2809,7 @@ class MainActivity : Activity() {
                         var sx = ev.x - cardDownX; var sy = ev.y - cardDownY
                         // snap to the grid: the card's left or right edge (whichever is nearer a line), and its top or bottom edge
                         run {
-                            val g = dp(GRID_DP).toFloat()
+                            val g = dp(GRID_DP.toInt()).toFloat()
                             fun near(p: Float, o: Float) = root.let { val k = Math.round((p - o) / g); o + k * g }
                             val l = cardBox0.left + sx; val r = cardBox0.right + sx
                             val dl = near(l, root.left) - l; val dr = near(r, root.left) - r
@@ -2775,7 +2829,7 @@ class MainActivity : Activity() {
                         if (v == null) return true
                         var nw = (ev.x - cardGrabX) - cardBox0.left; var nh = (ev.y - cardGrabY) - cardBox0.top
                         run {       // the right and bottom edges snap to the grid
-                            val g = dp(GRID_DP).toFloat()
+                            val g = dp(GRID_DP.toInt()).toFloat()
                             val rb = RectF(); cardScreenBox(dashRoot, rb)
                             nw = rb.left + Math.round((cardBox0.left + nw - rb.left) / g) * g - cardBox0.left
                             nh = rb.top + Math.round((cardBox0.top + nh - rb.top) / g) * g - cardBox0.top
@@ -4027,7 +4081,7 @@ class MainActivity : Activity() {
                 RectF(r.left - oa[0], r.top - oa[1], r.left - oa[0] + dashRoot.width, r.top - oa[1] + dashRoot.height)
             } else null
         }
-        cardOverlay.gridStep = dp(GRID_DP).toFloat()
+        cardOverlay.gridStep = dp(GRID_DP.toInt()).toFloat()
         cardOverlay.translationZ = dp(200).toFloat()       // above every elevated sibling, in any window size
         f.addView(cardOverlay, FrameLayout.LayoutParams(-1, -1))
         return f
