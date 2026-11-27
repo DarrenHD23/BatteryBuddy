@@ -2613,7 +2613,7 @@ class MainActivity : Activity() {
     }
     private fun cardShown(v: View) = v.isShown && v.alpha > 0.1f && v.width > 0 && v.height > 0
     private fun cardScreenBox(v: View, out: RectF) {
-        val a = IntArray(2); v.getLocationOnScreen(a)
+        val a = IntArray(2); v.getLocationInWindow(a)
         out.set(a[0].toFloat(), a[1].toFloat(), a[0] + v.width * v.scaleX, a[1] + v.height * v.scaleY)
     }
     private fun cardGrip(box: RectF) = RectF(box.right - dp(34), box.bottom - dp(34), box.right + dp(2), box.bottom + dp(2))
@@ -2656,7 +2656,7 @@ class MainActivity : Activity() {
     private fun cardOverlayInfo(): List<CardGripOverlay.Info> {
         val out = ArrayList<CardGripOverlay.Info>()
         if (!cardsAllowed() || !::cardOverlay.isInitialized) return out
-        val oa = IntArray(2); cardOverlay.getLocationOnScreen(oa)
+        val oa = IntArray(2); cardOverlay.getLocationInWindow(oa)
         for ((_, v) in movableCards()) {
             if (!cardShown(v)) continue
             val b = RectF(); cardScreenBox(v, b)
@@ -2706,7 +2706,7 @@ class MainActivity : Activity() {
             android.view.MotionEvent.ACTION_DOWN -> {
                 cardEnd(false)
                 if (!cardsAllowed()) return false
-                val x = ev.rawX; val y = ev.rawY
+                val x = ev.x; val y = ev.y
                 val b = RectF()
                 val cards = movableCards().filter { cardShown(it.second) }
                 // the grip resizes straight away
@@ -2735,16 +2735,16 @@ class MainActivity : Activity() {
                 return false
             }
             android.view.MotionEvent.ACTION_MOVE -> {
-                cardLastX = ev.rawX; cardLastY = ev.rawY
+                cardLastX = ev.x; cardLastY = ev.y
                 val v = cardView
                 when (cardMode) {
-                    1 -> { if (Math.hypot((ev.rawX - cardDownX).toDouble(), (ev.rawY - cardDownY).toDouble()) > dp(12)) cardEnd(false); return false }
+                    1 -> { if (Math.hypot((ev.x - cardDownX).toDouble(), (ev.y - cardDownY).toDouble()) > dp(12)) cardEnd(false); return false }
                     2 -> {
                         if (v == null) return true
                         val root = RectF(); cardScreenBox(dashRoot, root)
                         root.set(root.left, root.top, root.left + dashRoot.width, root.top + dashRoot.height)
                         val keep = dp(48).toFloat()
-                        var sx = ev.rawX - cardDownX; var sy = ev.rawY - cardDownY
+                        var sx = ev.x - cardDownX; var sy = ev.y - cardDownY
                         // always leave a corner of the card on the screen
                         sx = sx.coerceIn(root.left + keep - cardBox0.right, root.right - keep - cardBox0.left)
                         sy = sy.coerceIn(root.top + keep - cardBox0.bottom, root.bottom - keep - cardBox0.top)
@@ -2754,7 +2754,7 @@ class MainActivity : Activity() {
                     }
                     3 -> {
                         if (v == null) return true
-                        val nw = (ev.rawX - cardGrabX) - cardBox0.left; val nh = (ev.rawY - cardGrabY) - cardBox0.top
+                        val nw = (ev.x - cardGrabX) - cardBox0.left; val nh = (ev.y - cardGrabY) - cardBox0.top
                         val lp = v.layoutParams as? FrameLayout.LayoutParams
                         if (v === mediaCard && lp != null) {
                             // free resize: width and height follow the finger separately
@@ -3994,6 +3994,7 @@ class MainActivity : Activity() {
         objView = ObjectsView(this, roadView)         // the other objects around the car: on top of everything
         f.addView(objView, FrameLayout.LayoutParams(-1, -1))
         cardOverlay = CardGripOverlay(this) { cardOverlayInfo() }
+        cardOverlay.translationZ = dp(200).toFloat()       // above every elevated sibling, in any window size
         f.addView(cardOverlay, FrameLayout.LayoutParams(-1, -1))
         return f
     }
