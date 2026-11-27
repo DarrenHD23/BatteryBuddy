@@ -2713,6 +2713,19 @@ class MainActivity : Activity() {
                     mediaSizedByUs = true
                 } else if (mediaSizedByUs) { mediaSizedByUs = false; relayoutDash() }       // the layout puts its own size back
             }
+            if (v === tripPanel) {
+                val stretched = st != null && st.size == 5
+                tripPanel.autoFit = stretched
+                tripPanel.vsx = if (stretched) st!![3] else 1f; tripPanel.vsy = if (stretched) st!![4] else 1f
+                if (stretched) { if (v.scaleX != st!![3] || v.scaleY != st[4]) { v.scaleX = st[3]; v.scaleY = st[4] } }
+                else if (v.scaleX != (st?.get(2) ?: 1f)) { v.scaleX = st?.get(2) ?: 1f; v.scaleY = v.scaleX }
+                if (st == null) { if (v.translationX != 0f) v.translationX = 0f }
+                else {
+                    if (Math.abs(v.translationX - st[0] * d) > 0.5f) v.translationX = st[0] * d
+                    if (Math.abs(v.translationY - st[1] * d) > 0.5f) v.translationY = st[1] * d
+                }
+                continue
+            }
             if (st == null) {
                 if (v.scaleX != 1f) { v.scaleX = 1f; v.scaleY = 1f }
                 if (v.translationX != 0f) v.translationX = 0f
@@ -2753,7 +2766,7 @@ class MainActivity : Activity() {
             val k = cardKey(cardName)
             val old = readCard(cardName)
             val lpM = v.layoutParams as? FrameLayout.LayoutParams
-            val wh = if (cardFreeSize(v) && cardSized && lpM != null) ",${lpM.width / d},${lpM.height / d}" else if (cardFreeSize(v) && old != null && old.size == 5) ",${old[3]},${old[4]}" else ""
+            val wh = if (v === tripPanel && cardSized) ",${v.scaleX},${v.scaleY}" else if (v === tripPanel && old != null && old.size == 5) ",${old[3]},${old[4]}" else if (cardFreeSize(v) && cardSized && lpM != null) ",${lpM.width / d},${lpM.height / d}" else if (cardFreeSize(v) && old != null && old.size == 5) ",${old[3]},${old[4]}" else ""
             val moved = cardSized || Math.abs(v.translationX) > 1f || Math.abs(v.translationY - (if (v === tripPanel) cardStartTy else 0f)) > 1f || Math.abs(v.scaleX - 1f) > 0.01f
             if (moved || old != null) prefs().edit().putString(k, "${v.translationX / d},${v.translationY / d},${if (wh.isNotEmpty()) 1f else v.scaleX}$wh").apply()
         }
@@ -2867,6 +2880,11 @@ class MainActivity : Activity() {
                             if (lp.width != w || lp.height != h) { lp.width = w; lp.height = h; if (v === climateView) { lp.rightMargin = 0; lp.bottomMargin = 0 }; v.layoutParams = lp }
                             v.scaleX = 1f; v.scaleY = 1f; cardSized = true
                             if (v === climateView) { climateView.floating = true; climateSizedByUs = true } else mediaSizedByUs = true
+                        } else if (v === tripPanel) {
+                            // Layout 1's trip panel: any width and height (stretched without moving its neighbours); it shows more figures as it grows
+                            val kx = (nw / v.width).coerceIn(0.3f, 4f); val ky = (nh / v.height).coerceIn(0.3f, 4f)
+                            v.scaleX = kx; v.scaleY = ky; tripPanel.vsx = kx; tripPanel.vsy = ky; tripPanel.autoFit = true; cardSized = true
+                            tripPanel.invalidate()
                         } else {
                             val s = (((nw / v.width) + (nh / v.height)) / 2f).coerceIn(0.4f, 2.6f)
                             v.scaleX = s; v.scaleY = s
@@ -5990,7 +6008,11 @@ class MainActivity : Activity() {
         dashStrip.setItems(everything)
         dashRow.setItems(everything)
         if (tripPanel.visibility == View.VISIBLE || tripDlgView != null) {
-            if (l1cApplied) {
+            if (tripPanel.autoFit && !l2Applied) {
+                // stretched by the user: every figure is available and the card shows as many as fit
+                val short = listOf("EFF", "DIST", "AVG", "kWh", "TIME", "REGEN")
+                tripPanel.setCells(if (l1cApplied) tripCells(s, true).mapIndexed { i, c -> c.copy(label = short[i], unit = if (i == 3) "" else c.unit) } else tripCells(s, true))
+            } else if (l1cApplied) {
                 val short = listOf("EFF", "DIST", "AVG", "kWh")
                 tripPanel.setCells(tripCells(s, true).take(4).mapIndexed { i, c -> c.copy(label = short[i], unit = if (i == 3) "" else c.unit) })
             } else tripPanel.setCells(tripCells(s, true).take(if (tripMidRows >= 3) 6 else 4))
@@ -8102,11 +8124,40 @@ class TripPanelView(ctx: Context) : View(ctx) {
         }
     }
 
+    /** Layout 1 lets this card be stretched to any width and height without moving its neighbours: the view keeps its layout box and is scaled by
+     *  ([vsx], [vsy]), and the card draws itself at the stretched size with the opposite scale, so nothing is distorted. */
+    var vsx = 1f
+    var vsy = 1f
+    /** When stretched, the card shows as many of its figures as fit (up to six) and picks the number of columns itself. */
+    var autoFit = false
+
+    private fun pick(w: Float, h: Float, d: Float): Pair<List<TripCell>, Int> {
+        val all = cells
+        val titleRes = if (title != null) 24f * d else 0f
+        for (n in listOf(6, 4)) {
+            if (n > all.size) continue
+            for (cc in if (n == 6) listOf(6, 3, 2) else listOf(4, 2)) {
+                val rr = (n + cc - 1) / cc
+                if (w / cc >= 108f * d && (h - titleRes) / rr >= 50f * d) return all.take(n) to cc
+            }
+        }
+        return all.take(4) to (if (w / 4 >= 80f * d) 4 else 2)
+    }
+
     override fun onDraw(c: Canvas) {
-        val w = width.toFloat()
-        val h = height.toFloat()
+        val kx = if (vsx > 0.05f) vsx else 1f; val ky = if (vsy > 0.05f) vsy else 1f
+        if (kx == 1f && ky == 1f) { drawCard(c, width.toFloat(), height.toFloat()); return }
+        c.save(); c.scale(1f / kx, 1f / ky)
+        drawCard(c, width * kx, height * ky)
+        c.restore()
+    }
+
+    private fun drawCard(c: Canvas, w: Float, h: Float) {
         if (w <= 0f || h <= 0f || cells.isEmpty()) return
         val d = resources.displayMetrics.density
+        val picked = if (autoFit) pick(w, h, d) else null
+        val cells = picked?.first ?: this.cells
+        val cols = picked?.second ?: this.cols
         val look = Skins.look
         val accent = if (day) look.accentDay else look.accent
         val ink = if (day) Color.parseColor("#14202E") else Color.WHITE
