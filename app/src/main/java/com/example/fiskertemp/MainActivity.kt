@@ -417,6 +417,7 @@ class MainActivity : Activity() {
         if (reopenDash) prefs().edit().remove("reopenDash").apply()
         if (reopenDash || getSharedPreferences("prefs", MODE_PRIVATE).getBoolean("dashDefault", false)) showDashboard(true)
         registerPresetAutoSave()
+        initClimateRestore()
         // optionally go into split screen right after a fresh start (not when the screen is only being rebuilt)
         val startSplit = prefs().getString("startSplit", "")
         if (savedInstanceState == null && !splitOnStartDone && (startSplit == "spotify" || startSplit == "maps" || (startSplit == "custom" && !prefs().getString("startSplitPkg", "").isNullOrEmpty()))) {
@@ -1678,6 +1679,16 @@ class MainActivity : Activity() {
                 toast("Takes effect the next time the app starts")
             }
         }, 4)
+        val restoreBtn = Button(this).apply { isAllCaps = false }
+        fun restoreLabel() = "Restore after: ${prefs().getInt("climRestoreMin", 0)} min ${prefs().getInt("climRestoreSec", 30)} s  (tap to change)"
+        restoreBtn.text = restoreLabel()
+        restoreBtn.setOnClickListener { showRestoreTime { restoreBtn.text = restoreLabel() } }
+        box.add(CheckBox(this).apply {
+            text = "Restore the previous climate settings after the app starts: puts the climate system back as it was the last time the app was used (power, temperatures, fan, air direction, A/C, recirc, sync, auto, heated wheel, seats, rear defrost), once the time below has passed. Needs the climate control option above."
+            isChecked = prefs().getBoolean("climRestoreOn", false)
+            setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("climRestoreOn", on).apply(); toast("Takes effect the next time the app starts") }
+        }, 4)
+        box.add(restoreBtn, 8)
         box.add(TextView(this).apply {
             text = "This project uses software from Haibin Wen and SUNNYPILOT LLC and is licensed under a custom license requiring permission for use."
             textSize = 11f; setTextColor(Color.parseColor("#8E99A8"))
@@ -1848,7 +1859,7 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------- Layout 2 presets (up to 6)
     /** Settings that belong to the car, the install or the user's data rather than to how the screen looks: a preset leaves them alone. */
-    private val presetSkip = setOf("currentPreset", "startupPreset", "presets", "presetsL2", "presetsL1", "devToken", "betaOn", "betaUnlocked", "updDeferred", "source", "legacyCan", "canSafe", "climateTx", "radioFavs", "reopenSettings", "reopenDash", "adasRestore", "adasOn", "spdAdjMph", "spdAdjKmh", "packKwh", "disclaimerOk", "disclaimerAt", "disclaimerVer", "carName", "carPaint", "carWheel", "solarDay", "solarDayMin", "solarDayMax", "lastDriveMode", "simSlider", "simSolarSlider", "presetAutoSave")
+    private val presetSkip = setOf("currentPreset", "startupPreset", "presets", "presetsL2", "presetsL1", "devToken", "betaOn", "betaUnlocked", "updDeferred", "source", "legacyCan", "canSafe", "climateTx", "radioFavs", "reopenSettings", "reopenDash", "adasRestore", "adasOn", "spdAdjMph", "spdAdjKmh", "packKwh", "disclaimerOk", "disclaimerAt", "disclaimerVer", "carName", "carPaint", "carWheel", "solarDay", "solarDayMin", "solarDayMax", "lastDriveMode", "simSlider", "simSolarSlider", "presetAutoSave", "climLast")
 
     private fun curLayout() = if (prefs().getInt("layout", 1) == 2) 2 else 1
     /** One shared list of up to 6 presets, whichever layout saved them (older per-layout lists are merged in the first time). */
@@ -1901,6 +1912,118 @@ class MainActivity : Activity() {
             o.put("l2PageR", org.json.JSONObject().put("t", "i").put("v", rightPager.index))
         }
         return o
+    }
+
+    // ---------------------------------------------------------- restore the previous climate settings
+    // The climate state is kept (while the climate system is on) so that the next start of the app can put it back after a delay set in Settings.
+    private var prevClimate: org.json.JSONObject? = null       // what the climate system was set to the last time the app ran (read once, at start)
+    private var climRestoreDone = false
+    private var climRestoring = false
+    private var climRestoreTries = 0
+    private val climKeepRun = object : Runnable { override fun run() { keepClimate(); ui.postDelayed(this, 5000) } }
+    private val climRestoreRun = Runnable { startClimateRestore() }
+
+    private fun initClimateRestore() {
+        prevClimate = try { org.json.JSONObject(prefs().getString("climLast", "") ?: "") } catch (e: Exception) { null }
+        climRestoreDone = !prefs().getBoolean("climRestoreOn", false)
+        ui.postDelayed(climKeepRun, 5000)
+        if (!climRestoreDone) {
+            val secs = prefs().getInt("climRestoreMin", 0) * 60 + prefs().getInt("climRestoreSec", 30)
+            ui.postDelayed(climRestoreRun, maxOf(secs * 1000L, 5000L))
+        }
+    }
+    private fun climSnapJson(s: CanSnapshot): org.json.JSONObject = org.json.JSONObject().apply {
+        put("fan", s.climFan); put("mode", s.climDrvMode); put("ac", s.climAc); put("auto", s.climAuto); put("sync", s.climSync); put("outer", s.climOuterAir)
+        s.climDrvT?.let { put("drvT", it) }; s.climPassT?.let { put("passT", it) }
+        put("wheel", s.wheelHeat == true); put("rear", s.rearDefrost == true)
+        put("seats", org.json.JSONArray(listOf(s.seatDrv ?: 0, s.seatPass ?: 0, s.seatRL ?: 0, s.seatRR ?: 0)))
+    }
+    /** Writes the current climate state down, but only while the system is on, and not before the restore has had its turn. */
+    private fun keepClimate() {
+        if (!climRestoreDone || climRestoring) return
+        val s = canSnap
+        if (!s.climSeen || s.climFan <= 0) return
+        val j = climSnapJson(s).toString()
+        if (j != prefs().getString("climLast", null)) prefs().edit().putString("climLast", j).apply()
+    }
+    private fun startClimateRestore() {
+        if (climRestoreDone || climRestoring) return
+        if (!prefs().getBoolean("climRestoreOn", false)) { climRestoreDone = true; return }
+        val p = prevClimate
+        if (p == null) { EventLog.add("climate restore: nothing was saved yet"); climRestoreDone = true; return }
+        val pl = pulse
+        if (pl == null || !canSnap.climSeen) {
+            // the A/C unit has not been heard yet: try again for about two minutes
+            if (++climRestoreTries <= 24) { ui.postDelayed(climRestoreRun, 5000); return }
+            EventLog.add("climate restore: the A/C unit was not seen, nothing restored"); climRestoreDone = true; return
+        }
+        if (!prefs().getBoolean("climateTx", true)) { EventLog.add("climate restore: climate control is off in Settings"); climRestoreDone = true; return }
+        if (p.optInt("fan", 0) <= 0) { EventLog.add("climate restore: the climate system was off last time, left as it is"); climRestoreDone = true; return }
+        climRestoring = true
+        val steps = ArrayList<Pair<Long, () -> Unit>>()          // (wait before the step in ms, the step); every step looks at the car's state when it runs
+        fun step(wait: Long = 900L, f: () -> Unit) { steps.add(wait to f) }
+        step(0L) { if (canSnap.climFan == 0) { pl.sendClimatePower(true); EventLog.add("climate restore: power on") } }
+        step(if (canSnap.climFan == 0) 4500L else 0L) { if (canSnap.climSync != p.optBoolean("sync")) pl.sendButton(3) }
+        step { p.optDouble("drvT", Double.NaN).let { t -> if (!t.isNaN() && canSnap.climDrvT != t) pl.sendTemp(true, t, p.optBoolean("sync")) } }
+        if (!p.optBoolean("sync")) step { p.optDouble("passT", Double.NaN).let { t -> if (!t.isNaN() && canSnap.climPassT != t) pl.sendTemp(false, t, false) } }
+        if (p.optBoolean("auto")) {
+            step { if (!canSnap.climAuto) pl.sendButton(4) }
+        } else {
+            step { val f = p.optInt("fan"); if (f in 1..7 && canSnap.climFan != f) pl.sendFan(f) }
+            step { val m = p.optInt("mode"); if (m in 1..5 && canSnap.climDrvMode != m) pl.sendAirMode(m) }
+        }
+        step { if (canSnap.climAc != p.optBoolean("ac")) pl.sendButton(0) }
+        step { if (canSnap.climOuterAir != p.optBoolean("outer")) pl.sendButton(2) }
+        if (p.optBoolean("wheel")) step { if (canSnap.wheelHeat != true) pl.sendWheelHeat() }
+        val seats = p.optJSONArray("seats")
+        if (seats != null) for (w in 0 until minOf(4, seats.length())) {
+            val lv = seats.optInt(w, 0)
+            if (lv > 0) step { val cur = when (w) { 0 -> canSnap.seatDrv; 1 -> canSnap.seatPass; 2 -> canSnap.seatRL; else -> canSnap.seatRR } ?: 0; if (cur != lv) pl.sendSeatHeat(w, lv) }
+        }
+        if (p.optBoolean("rear")) step { if (canSnap.rearDefrost != true) pl.sendRearDefrost(true) }
+        var at = 0L
+        for ((i, st) in steps.withIndex()) {
+            at += st.first
+            ui.postDelayed({
+                try { st.second() } catch (e: Exception) { EventLog.add("climate restore step failed: ${e.message}") }
+                if (i == steps.size - 1) { climRestoring = false; climRestoreDone = true; EventLog.add("climate restore: done"); toast("Previous climate settings restored") }
+            }, at)
+        }
+    }
+
+    /** Two vertical sliders: minutes 0-30 and seconds 0-60. */
+    private fun showRestoreTime(onDone: () -> Unit) {
+        var mins = prefs().getInt("climRestoreMin", 0).coerceIn(0, 30)
+        var secs = prefs().getInt("climRestoreSec", 30).coerceIn(0, 60)
+        val sum = TextView(this).apply { textSize = 18f; gravity = Gravity.CENTER; setTextColor(Color.WHITE); setPadding(0, dp(4), 0, dp(8)) }
+        fun refresh() { sum.text = "$mins min  $secs s" }
+        refresh()
+        fun column(title: String, max: Int, value: Int, onChange: (Int) -> Unit): LinearLayout {
+            val num = TextView(this).apply { textSize = 22f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.parseColor("#6FC3FF")); text = value.toString() }
+            val sb = SeekBar(this).apply {
+                this.max = max; progress = value; rotation = 270f          // turned on its end: up = more
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(b: SeekBar?, p: Int, u: Boolean) { num.text = p.toString(); onChange(p); refresh() }
+                    override fun onStartTrackingTouch(b: SeekBar?) {}
+                    override fun onStopTrackingTouch(b: SeekBar?) {}
+                })
+            }
+            val holder = FrameLayout(this).apply { addView(sb, FrameLayout.LayoutParams(dp(220), dp(60), Gravity.CENTER)) }
+            return LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
+                addView(TextView(this@MainActivity).apply { text = title; textSize = 13f; setTextColor(Color.parseColor("#9FB3C4")); gravity = Gravity.CENTER })
+                addView(num); addView(holder, LinearLayout.LayoutParams(dp(70), dp(220)))
+            }
+        }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
+            addView(column("Minutes (0-30)", 30, mins) { mins = it }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(column("Seconds (0-60)", 60, secs) { secs = it }, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(4), dp(16), 0); addView(sum); addView(row) }
+        darkDialog().setTitle("Restore climate settings after").setView(col)
+            .setPositiveButton("Save") { _, _ -> prefs().edit().putInt("climRestoreMin", mins).putInt("climRestoreSec", secs).apply(); onDone() }
+            .setNegativeButton("Cancel", null).showDark()
     }
 
     // ---------------------------------------------------------- auto-save of the active preset
