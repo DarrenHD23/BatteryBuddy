@@ -2617,8 +2617,15 @@ class MainActivity : Activity() {
         out.set(a[0].toFloat(), a[1].toFloat(), a[0] + v.width * v.scaleX, a[1] + v.height * v.scaleY)
     }
     private fun cardGrip(box: RectF) = RectF(box.right - dp(34), box.bottom - dp(34), box.right + dp(2), box.bottom + dp(2))
-    private fun cardsAllowed() = dashShown && ::dashRoot.isInitialized && !adasMode && viewerLayer == null &&
-        !(::climateView.isInitialized && climateView.isShown)       // (the small media popup no longer hides the grips)
+    private fun cardsAllowed() = dashShown && ::dashRoot.isInitialized && !adasMode && viewerLayer == null
+    /** Is the climate screen drawn over this card? (then its grip is not shown) */
+    private fun cardCovered(v: View): Boolean {
+        if (!::climateView.isInitialized || !climateView.isShown || climateView.alpha < 0.1f || climateView.width <= 0) return false
+        // the climate screen sits above the dashboard: a card is covered when the screen is drawn over the card's grip
+        val cb = RectF(); cardScreenBox(climateView, cb); cb.set(cb.left, cb.top, cb.left + climateView.width, cb.top + climateView.height)
+        val vb = RectF(); cardScreenBox(v, vb)
+        return cb.contains(vb.right - dp(12), vb.bottom - dp(12))
+    }
 
     /** Puts every card at its saved offset and scale (or back at the layout's own place). Safe to call often. */
     private fun applyCards() {
@@ -2658,7 +2665,7 @@ class MainActivity : Activity() {
         if (!cardsAllowed() || !::cardOverlay.isInitialized) return out
         val oa = IntArray(2); cardOverlay.getLocationInWindow(oa)
         for ((_, v) in movableCards()) {
-            if (!cardShown(v)) continue
+            if (!cardShown(v) || cardCovered(v)) continue
             val b = RectF(); cardScreenBox(v, b)
             val g = cardGrip(b)
             b.offset(-oa[0].toFloat(), -oa[1].toFloat()); g.offset(-oa[0].toFloat(), -oa[1].toFloat())
@@ -2708,7 +2715,7 @@ class MainActivity : Activity() {
                 if (!cardsAllowed()) return false
                 val x = ev.x; val y = ev.y
                 val b = RectF()
-                val cards = movableCards().filter { cardShown(it.second) }
+                val cards = movableCards().filter { cardShown(it.second) && !cardCovered(it.second) }
                 // the grip resizes straight away
                 for ((name, v) in cards.asReversed()) {
                     cardScreenBox(v, b)
