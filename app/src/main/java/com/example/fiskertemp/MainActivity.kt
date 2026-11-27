@@ -846,7 +846,6 @@ class MainActivity : Activity() {
         applySkinChrome()
         setContentView(edgeBox)
         clearOptionBackgrounds(rootScroll)
-        if (!cautionAgreedThisRun) showCaution()
         applyEdgePadding()
         applyTheme(getSharedPreferences("prefs", MODE_PRIVATE).getInt("theme", 0).coerceIn(0, THEMES.size - 1))
         if (prefs().getBoolean("reopenSettings", false)) {      // the layout was just changed from Settings: back to Settings
@@ -2329,7 +2328,6 @@ class MainActivity : Activity() {
         val p = pulse ?: return
         val s = canSnap
         // a new drive begins when the car goes from not ready to ready: the notice must be agreed to again
-        if (s.ready == true && lastReadySeen == false) { cautionAgreedThisRun = false; showCaution() }
         if (s.ready != null) lastReadySeen = s.ready
         p.flipPower = prefs().getBoolean("flipPower", false)
         val live = System.currentTimeMillis() - p.lastChangeAt < 3000
