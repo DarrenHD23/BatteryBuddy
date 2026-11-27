@@ -1684,7 +1684,7 @@ class MainActivity : Activity() {
         restoreBtn.text = restoreLabel()
         restoreBtn.setOnClickListener { showRestoreTime { restoreBtn.text = restoreLabel() } }
         box.add(CheckBox(this).apply {
-            text = "Restore the previous climate settings after the app starts: puts the climate system back as it was the last time the app was used (power, temperatures, fan, air direction, A/C, recirc, sync, auto, heated wheel, seats, rear defrost), once the time below has passed. Needs the climate control option above."
+            text = "Restore the previous climate settings after the app starts: puts the climate system back as it was the last time the app was used (power, temperatures, fan, air direction, A/C, recirc, sync, auto, heated wheel, seats, front and rear defrost), once the time below has passed. Needs the climate control option above."
             isChecked = prefs().getBoolean("climRestoreOn", false)
             setOnCheckedChangeListener { _, on -> prefs().edit().putBoolean("climRestoreOn", on).apply(); toast("Takes effect the next time the app starts") }
         }, 4)
@@ -1935,7 +1935,7 @@ class MainActivity : Activity() {
     private fun climSnapJson(s: CanSnapshot): org.json.JSONObject = org.json.JSONObject().apply {
         put("fan", s.climFan); put("mode", s.climDrvMode); put("ac", s.climAc); put("auto", s.climAuto); put("sync", s.climSync); put("outer", s.climOuterAir)
         s.climDrvT?.let { put("drvT", it) }; s.climPassT?.let { put("passT", it) }
-        put("wheel", s.wheelHeat == true); put("rear", s.rearDefrost == true)
+        put("wheel", s.wheelHeat == true); put("rear", s.rearDefrost == true); put("defrost", s.climMaxDefrost)
         put("seats", org.json.JSONArray(listOf(s.seatDrv ?: 0, s.seatPass ?: 0, s.seatRL ?: 0, s.seatRR ?: 0)))
     }
     /** Writes the current climate state down, but only while the system is on, and not before the restore has had its turn. */
@@ -1981,6 +1981,7 @@ class MainActivity : Activity() {
             if (lv > 0) step { val cur = when (w) { 0 -> canSnap.seatDrv; 1 -> canSnap.seatPass; 2 -> canSnap.seatRL; else -> canSnap.seatRR } ?: 0; if (cur != lv) pl.sendSeatHeat(w, lv) }
         }
         if (p.optBoolean("rear")) step { if (canSnap.rearDefrost != true) pl.sendRearDefrost(true) }
+        if (p.optBoolean("defrost")) step { if (!canSnap.climMaxDefrost) pl.sendButton(1) }      // front defrost last: it takes over fan, air direction and A/C by itself
         var at = 0L
         for ((i, st) in steps.withIndex()) {
             at += st.first
