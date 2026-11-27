@@ -4871,8 +4871,8 @@ class MainActivity : Activity() {
         }
         fullOrderNow = showMedia
         val mediaOn = showMedia && prefs().getBoolean("fullMedia", true)
-        // the Climate panel starts under the media card, or directly under the buttons when the card is off
-        val climTop = if (mediaOn) mediaEndY + 8 else mediaTopY
+        // the Climate panel always starts where it does with the media card up: turning the card off with the Media button must not move it
+        val climTop = mediaEndY + 8
         climateTopDp = if (showMedia) climTop else 0
         climateHDp = if (showMedia) climBottomY - climTop else 0
         if (climateView.visibility == View.VISIBLE) edgeBox.post { placeClimate() }
