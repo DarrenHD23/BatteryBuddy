@@ -4647,10 +4647,12 @@ class MainActivity : Activity() {
                 }
             }
             if (l2Third && climateBtn.visibility == View.VISIBLE) {
-                // third-height window: Media / Climate under the battery bar, on its side, the same as in the 50/50 split
+                // third-height window: there is no room for both, so the battery bar is hidden and Media / Climate move up into its place,
+                // clear of the media card under the cards (left- and right-hand drive)
+                chargeBar.visibility = View.GONE
                 val barEnd3 = prefs().getBoolean("speedLeft", false) != prefs().getBoolean("rhd", false)
                 val bw3 = l2BtnW; val edge3 = dp(12); val gv3 = Gravity.TOP or (if (barEnd3) Gravity.END else Gravity.START)
-                val top3 = dp(l2BtnRowBottom - 2)
+                val top3 = dp(maxOf(l2BtnRowBottom - 30, 0))
                 (mediaBtn.layoutParams as FrameLayout.LayoutParams).apply {
                     width = dp(bw3); height = dp(26); gravity = gv3; topMargin = top3
                     if (barEnd3) { rightMargin = edge3 + dp(bw3) + dp(6); leftMargin = 0 } else { leftMargin = edge3; rightMargin = 0 }
