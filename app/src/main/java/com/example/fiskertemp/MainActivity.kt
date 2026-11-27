@@ -2428,7 +2428,7 @@ class MainActivity : Activity() {
     /** One copy of every page of the two swipe cards (a view can only be in one place, so each card has its own set). */
     private inner class PageSet {
         val trip = TripPanelView(this@MainActivity).apply {
-            cols = 2; title = "Trip Information"
+            cols = 2; title = "Trip Information"; cornerDp = 22f
             onReset = { pulse?.resetDrive(); Toast.makeText(context, "Trip reset", Toast.LENGTH_SHORT).show() }
         }
         val compass = CompassCardView(this@MainActivity)
@@ -7885,6 +7885,7 @@ class TripPanelView(ctx: Context) : View(ctx) {
     var cols = 2
     var title: String? = null
     var onReset: (() -> Unit)? = null
+    var cornerDp = 10f                                // Layout 2's swipe cards all use 22 dp corners
     private var cells: List<TripCell> = emptyList()
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
@@ -7985,7 +7986,7 @@ class TripPanelView(ctx: Context) : View(ctx) {
         val grey = if (day) Color.argb(160, 20, 32, 46) else Color.argb(160, 255, 255, 255)
         val rows = (cells.size + cols - 1) / cols
         // the card
-        val rad = 10f * d
+        val rad = cornerDp * d
         fill.color = if (day) Color.argb(170, (Color.red(accent) * 0.4f + 255 * 0.6f).toInt(), (Color.green(accent) * 0.4f + 255 * 0.6f).toInt(), (Color.blue(accent) * 0.4f + 255 * 0.6f).toInt()) else Color.argb(100, 8, 14, 34)   // Day mode: tinted with the skin colour
         rect.set(1f, 1f, w - 1f, h - 1f)
         c.drawRoundRect(rect, rad, rad, fill)
@@ -9811,7 +9812,7 @@ class MediaCardView(ctx: Context) : View(ctx) {
     override fun onDraw(c: Canvas) {
         canvas0 = c
         val w = width.toFloat(); val h = height.toFloat()
-        val rad = dp(20f)
+        val rad = dp(22f)
         val card = RectF(0f, 0f, w, h)
         c.save()
         path.reset(); path.addRoundRect(card, rad, rad, Path.Direction.CW); c.clipPath(path)
