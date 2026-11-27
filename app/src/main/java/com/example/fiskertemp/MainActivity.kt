@@ -842,6 +842,7 @@ class MainActivity : Activity() {
         edgeBox.addView(climateView, FrameLayout.LayoutParams(-1, -1))
         cautionView = buildCaution()
         edgeBox.addView(cautionView, FrameLayout.LayoutParams(-1, -1))
+        if (::cardOverlay.isInitialized) { (cardOverlay.parent as? ViewGroup)?.removeView(cardOverlay); edgeBox.addView(cardOverlay, FrameLayout.LayoutParams(-1, -1)) }      // above the Climate screen too
         buildSimBar()
         applySkinChrome()
         setContentView(edgeBox)
@@ -2642,6 +2643,8 @@ class MainActivity : Activity() {
     private val cardLpRun = Runnable { cardStartDrag() }
     private val cardRaised = ArrayList<View>()
     private var cardSized = false                  // the media card was resized in this gesture (its width and height change, instead of a scale)
+    private var climateSizedByUs = false          // the Climate screen's layout size is ours right now
+    private fun cardFreeSize(v: View) = v === mediaCard || v === climateView
     private var mediaSizedByUs = false             // the media card's layout size is ours right now
 
     private fun movableCards(): List<Pair<String, View>> {
@@ -2652,6 +2655,7 @@ class MainActivity : Activity() {
             if (::rightPager.isInitialized) l.add("compass" to rightPager)
         } else if (::tripPanel.isInitialized) l.add("trip" to tripPanel)
         if (::mediaCard.isInitialized) l.add("media" to mediaCard)
+        if (::climateView.isInitialized) l.add("climate" to climateView)      // last: it is on top, so it is picked first
         if (::mediaPopup.isInitialized) l.add("popup" to mediaPopup)       // the small Media pop-up card (split screen)
         return l
     }
@@ -2676,7 +2680,7 @@ class MainActivity : Activity() {
     private fun cardsAllowed() = dashShown && ::dashRoot.isInitialized && !adasMode && viewerLayer == null
     /** Is the climate screen drawn over this card? (then its grip is not shown) */
     private fun cardCovered(v: View): Boolean {
-        if (!::climateView.isInitialized || !climateView.isShown || climateView.alpha < 0.1f || climateView.width <= 0) return false
+        if (v === climateView || !::climateView.isInitialized || !climateView.isShown || climateView.alpha < 0.1f || climateView.width <= 0) return false
         // the climate screen sits above the dashboard: a card is covered when the screen is drawn over the card's grip
         val cb = RectF(); cardScreenBox(climateView, cb); cb.set(cb.left, cb.top, cb.left + climateView.width, cb.top + climateView.height)
         val vb = RectF(); cardScreenBox(v, vb)
@@ -2690,6 +2694,14 @@ class MainActivity : Activity() {
         for ((name, v) in movableCards()) {
             val st = readCard(name)
             v.pivotX = 0f; v.pivotY = 0f
+            if (v === climateView) {
+                val lp = v.layoutParams as? FrameLayout.LayoutParams
+                if (st != null && st.size == 5 && lp != null) {
+                    val w = (st[3] * d).toInt(); val h = (st[4] * d).toInt()
+                    if (lp.width != w || lp.height != h) { lp.width = w; lp.height = h; lp.rightMargin = 0; lp.bottomMargin = 0; v.layoutParams = lp }
+                    climateView.floating = true; climateSizedByUs = true
+                } else if (climateSizedByUs) { climateSizedByUs = false; placeClimate() }
+            }
             if (v === mediaCard) {
                 // the media card is resized in both directions on its own (a real width and height, so its contents lay themselves out again)
                 val lp = v.layoutParams as? FrameLayout.LayoutParams
@@ -2704,13 +2716,13 @@ class MainActivity : Activity() {
                 if (v.translationX != 0f) v.translationX = 0f
                 if (v !== tripPanel && v.translationY != 0f) v.translationY = 0f      // (Layout 1 moves the trip panel down itself)
             } else {
-                val sc = if (v === mediaCard && st.size == 5) 1f else st[2]
+                val sc = if (cardFreeSize(v) && st.size == 5) 1f else st[2]
                 if (v.scaleX != sc) { v.scaleX = sc; v.scaleY = sc }
                 if (Math.abs(v.translationX - st[0] * d) > 0.5f) v.translationX = st[0] * d
                 if (Math.abs(v.translationY - st[1] * d) > 0.5f) v.translationY = st[1] * d
             }
         }
-        if (::cardOverlay.isInitialized) { if (dashRoot.getChildAt(dashRoot.childCount - 1) !== cardOverlay) cardOverlay.bringToFront(); cardOverlay.invalidate() }
+        if (::cardOverlay.isInitialized) { val par = cardOverlay.parent as? ViewGroup; if (par != null && par.getChildAt(par.childCount - 1) !== cardOverlay) cardOverlay.bringToFront(); cardOverlay.invalidate() }
     }
     private fun cardHasCustom(v: View): Boolean {
         for ((name, c) in movableCards()) if (c === v) return readCard(name) != null
@@ -2737,7 +2749,7 @@ class MainActivity : Activity() {
             val k = cardKey(cardName)
             val old = readCard(cardName)
             val lpM = v.layoutParams as? FrameLayout.LayoutParams
-            val wh = if (v === mediaCard && cardSized && lpM != null) ",${lpM.width / d},${lpM.height / d}" else if (v === mediaCard && old != null && old.size == 5) ",${old[3]},${old[4]}" else ""
+            val wh = if (cardFreeSize(v) && cardSized && lpM != null) ",${lpM.width / d},${lpM.height / d}" else if (cardFreeSize(v) && old != null && old.size == 5) ",${old[3]},${old[4]}" else ""
             val moved = cardSized || Math.abs(v.translationX) > 1f || Math.abs(v.translationY - (if (v === tripPanel) cardStartTy else 0f)) > 1f || Math.abs(v.scaleX - 1f) > 0.01f
             if (moved || old != null) prefs().edit().putString(k, "${v.translationX / d},${v.translationY / d},${if (wh.isNotEmpty()) 1f else v.scaleX}$wh").apply()
         }
@@ -2790,6 +2802,7 @@ class MainActivity : Activity() {
                     // the shortcuts page has its own long press on its tiles: there the card is picked up by its bottom strip only
                     val pg = (v as? PagerCardView)?.currentPage
                     if (pg is ShortcutsCardView && y < b.bottom - dp(18) * v.scaleY) return false
+                    if (v === climateView && y > b.top + dp(64)) continue         // the Climate screen is picked up by its top strip (the rest is buttons and dials)
                     cardMode = 1; cardName = name; cardView = v
                     cardDownX = x; cardDownY = y; cardLastX = x; cardLastY = y; cardDownTime = ev.downTime
                     ui.postDelayed(cardLpRun, 600)
@@ -2837,11 +2850,13 @@ class MainActivity : Activity() {
                             if (nw < g) nw = g; if (nh < g) nh = g
                         }
                         val lp = v.layoutParams as? FrameLayout.LayoutParams
-                        if (v === mediaCard && lp != null) {
+                        if (cardFreeSize(v) && lp != null) {
                             // free resize: width and height follow the finger separately
-                            val w = nw.toInt().coerceIn(dp(150), maxOf(dp(150), dashRoot.width)); val h = nh.toInt().coerceIn(dp(64), maxOf(dp(64), dashRoot.height))
-                            if (lp.width != w || lp.height != h) { lp.width = w; lp.height = h; v.layoutParams = lp }
-                            v.scaleX = 1f; v.scaleY = 1f; cardSized = true; mediaSizedByUs = true
+                            val minW = if (v === climateView) dp(320) else dp(150); val minH = if (v === climateView) dp(220) else dp(64)
+                            val w = nw.toInt().coerceIn(minW, maxOf(minW, dashRoot.width)); val h = nh.toInt().coerceIn(minH, maxOf(minH, dashRoot.height))
+                            if (lp.width != w || lp.height != h) { lp.width = w; lp.height = h; if (v === climateView) { lp.rightMargin = 0; lp.bottomMargin = 0 }; v.layoutParams = lp }
+                            v.scaleX = 1f; v.scaleY = 1f; cardSized = true
+                            if (v === climateView) { climateView.floating = true; climateSizedByUs = true } else mediaSizedByUs = true
                         } else {
                             val s = (((nw / v.width) + (nh / v.height)) / 2f).coerceIn(0.4f, 2.6f)
                             v.scaleX = s; v.scaleY = s
@@ -4619,6 +4634,10 @@ class MainActivity : Activity() {
         } else {
             lp.topMargin = 0; lp.height = FrameLayout.LayoutParams.MATCH_PARENT; lp.leftMargin = 0; lp.rightMargin = 0
             climateView.floating = false
+        }
+        readCard("climate")?.takeIf { it.size == 5 }?.let { st ->
+            val dn = resources.displayMetrics.density
+            lp.width = (st[3] * dn).toInt(); lp.height = (st[4] * dn).toInt(); lp.rightMargin = 0; lp.bottomMargin = 0; climateView.floating = true; climateSizedByUs = true
         }
         climateView.layoutParams = lp
     }
