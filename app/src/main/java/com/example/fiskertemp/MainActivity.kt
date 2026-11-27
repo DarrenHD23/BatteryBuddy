@@ -1919,7 +1919,7 @@ class MainActivity : Activity() {
     private fun snapshotPrefs(): org.json.JSONObject {
         val o = org.json.JSONObject()
         for ((k, v) in prefs().all) {
-            if (k in presetSkip || k.startsWith("cardPos_")) continue
+            if (k in presetSkip) continue
             val e = org.json.JSONObject()
             when (v) {
                 is Boolean -> e.put("t", "b").put("v", v)
@@ -2064,7 +2064,7 @@ class MainActivity : Activity() {
     /** Puts every saved setting back (settings the preset does not hold go back to their defaults), then rebuilds the screen like a restart. */
     private fun writePresetToPrefs(data: org.json.JSONObject) {
         val ed = prefs().edit()
-        for (k in prefs().all.keys) if (k !in presetSkip && !k.startsWith("cardPos_")) ed.remove(k)
+        for (k in prefs().all.keys) if (k !in presetSkip) ed.remove(k)
         for (k in data.keys()) {
             if (k == "adasOn") continue
             val e = data.getJSONObject(k)
