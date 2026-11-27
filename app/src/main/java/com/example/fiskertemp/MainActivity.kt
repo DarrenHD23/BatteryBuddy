@@ -2570,6 +2570,8 @@ class MainActivity : Activity() {
     private lateinit var cardOverlay: CardGripOverlay
     private val cardLpRun = Runnable { cardStartDrag() }
     private val cardRaised = ArrayList<View>()
+    private var cardSized = false                  // the media card was resized in this gesture (its width and height change, instead of a scale)
+    private var mediaSizedByUs = false             // the media card's layout size is ours right now
 
     private fun movableCards(): List<Pair<String, View>> {
         val l = ArrayList<Pair<String, View>>()
@@ -2591,7 +2593,7 @@ class MainActivity : Activity() {
     private fun readCard(name: String): FloatArray? {
         val sv = prefs().getString(cardKey(name), null) ?: return null
         val a = sv.split(",").mapNotNull { it.toFloatOrNull() }
-        return if (a.size == 3) floatArrayOf(a[0], a[1], a[2].coerceIn(0.4f, 2.6f)) else null
+        return if (a.size == 3) floatArrayOf(a[0], a[1], a[2].coerceIn(0.4f, 2.6f)) else if (a.size == 5) floatArrayOf(a[0], a[1], a[2].coerceIn(0.4f, 2.6f), a[3], a[4]) else null
     }
     private fun cardShown(v: View) = v.isShown && v.alpha > 0.1f && v.width > 0 && v.height > 0
     private fun cardScreenBox(v: View, out: RectF) {
@@ -2609,12 +2611,22 @@ class MainActivity : Activity() {
         for ((name, v) in movableCards()) {
             val st = readCard(name)
             v.pivotX = 0f; v.pivotY = 0f
+            if (v === mediaCard) {
+                // the media card is resized in both directions on its own (a real width and height, so its contents lay themselves out again)
+                val lp = v.layoutParams as? FrameLayout.LayoutParams
+                if (st != null && st.size == 5 && lp != null) {
+                    val w = (st[3] * d).toInt(); val h = (st[4] * d).toInt()
+                    if (lp.width != w || lp.height != h) { lp.width = w; lp.height = h; v.layoutParams = lp }
+                    mediaSizedByUs = true
+                } else if (mediaSizedByUs) { mediaSizedByUs = false; relayoutDash() }       // the layout puts its own size back
+            }
             if (st == null) {
                 if (v.scaleX != 1f) { v.scaleX = 1f; v.scaleY = 1f }
                 if (v.translationX != 0f) v.translationX = 0f
                 if (v !== tripPanel && v.translationY != 0f) v.translationY = 0f      // (Layout 1 moves the trip panel down itself)
             } else {
-                if (v.scaleX != st[2]) { v.scaleX = st[2]; v.scaleY = st[2] }
+                val sc = if (v === mediaCard && st.size == 5) 1f else st[2]
+                if (v.scaleX != sc) { v.scaleX = sc; v.scaleY = sc }
                 if (Math.abs(v.translationX - st[0] * d) > 0.5f) v.translationX = st[0] * d
                 if (Math.abs(v.translationY - st[1] * d) > 0.5f) v.translationY = st[1] * d
             }
@@ -2644,12 +2656,15 @@ class MainActivity : Activity() {
         if (save && v != null && cardMode >= 2) {
             val d = resources.displayMetrics.density
             val k = cardKey(cardName)
-            val moved = Math.abs(v.translationX) > 1f || Math.abs(v.translationY - (if (v === tripPanel) cardStartTy else 0f)) > 1f || Math.abs(v.scaleX - 1f) > 0.01f
-            if (moved || readCard(cardName) != null) prefs().edit().putString(k, "${v.translationX / d},${v.translationY / d},${v.scaleX}").apply()
+            val old = readCard(cardName)
+            val lpM = v.layoutParams as? FrameLayout.LayoutParams
+            val wh = if (v === mediaCard && cardSized && lpM != null) ",${lpM.width / d},${lpM.height / d}" else if (v === mediaCard && old != null && old.size == 5) ",${old[3]},${old[4]}" else ""
+            val moved = cardSized || Math.abs(v.translationX) > 1f || Math.abs(v.translationY - (if (v === tripPanel) cardStartTy else 0f)) > 1f || Math.abs(v.scaleX - 1f) > 0.01f
+            if (moved || old != null) prefs().edit().putString(k, "${v.translationX / d},${v.translationY / d},${if (wh.isNotEmpty()) 1f else v.scaleX}$wh").apply()
         }
         for (r in cardRaised) r.translationZ = 0f
         cardRaised.clear()
-        cardMode = 0; cardView = null
+        cardMode = 0; cardView = null; cardSized = false
         if (::cardOverlay.isInitialized) cardOverlay.invalidate()
     }
     private fun cardStartDrag() {
@@ -2724,8 +2739,16 @@ class MainActivity : Activity() {
                     3 -> {
                         if (v == null) return true
                         val nw = (ev.rawX - cardGrabX) - cardBox0.left; val nh = (ev.rawY - cardGrabY) - cardBox0.top
-                        val s = (((nw / v.width) + (nh / v.height)) / 2f).coerceIn(0.4f, 2.6f)
-                        v.scaleX = s; v.scaleY = s
+                        val lp = v.layoutParams as? FrameLayout.LayoutParams
+                        if (v === mediaCard && lp != null) {
+                            // free resize: width and height follow the finger separately
+                            val w = nw.toInt().coerceIn(dp(150), maxOf(dp(150), dashRoot.width)); val h = nh.toInt().coerceIn(dp(64), maxOf(dp(64), dashRoot.height))
+                            if (lp.width != w || lp.height != h) { lp.width = w; lp.height = h; v.layoutParams = lp }
+                            v.scaleX = 1f; v.scaleY = 1f; cardSized = true; mediaSizedByUs = true
+                        } else {
+                            val s = (((nw / v.width) + (nh / v.height)) / 2f).coerceIn(0.4f, 2.6f)
+                            v.scaleX = s; v.scaleY = s
+                        }
                         if (::cardOverlay.isInitialized) cardOverlay.invalidate()
                         return true
                     }
