@@ -8297,12 +8297,22 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     private val carRect = RectF()
     private val carZones = ArrayList<Pair<RectF, Int>>()     // touchable parts of the car: 0..3 a seat, 10 front window, 11 rear window, 12 steering wheel
     private var carZoneTop = 0f; private var carZoneK = 1f
+    /** Layout 2 split windows with the outside seat buttons hidden: the car is shown as a close-up of the cabin so the wheel and seats are big enough to tap. */
+    private class CloseUp(val k: Float, val top: Float, val bottom: Float, val side: Boolean)
+    private var cuOn = false
+    private val CU_YA = 60f; private val CU_YB = 412f      // the part of the car picture kept: dash to the rear seats
     /** Remembers a touchable part of the car; the numbers are in the car's own cabin drawing units. */
     private fun carZone(x0: Float, y0: Float, x1: Float, y1: Float, id: Int) {
         val sy = 0.88f
         if (use3d) {
             // 3D car: the numbers are in its own drawing units (150 is the middle, 0 the top of the cabin drawing, -166.55 the nose)
-            carZones.add(Pair(RectF(carRect.left + (150f + (x0 - 150f) * C3F) * carZoneK, carZoneTop + (y0 + 166.55f) * C3F * carZoneK, carRect.left + (150f + (x1 - 150f) * C3F) * carZoneK, carZoneTop + (y1 + 166.55f) * C3F * carZoneK), id))
+            val zr = RectF(carRect.left + (150f + (x0 - 150f) * C3F) * carZoneK, carZoneTop + (y0 + 166.55f) * C3F * carZoneK, carRect.left + (150f + (x1 - 150f) * C3F) * carZoneK, carZoneTop + (y1 + 166.55f) * C3F * carZoneK)
+            if (cuOn) {
+                if (id == 10 || id == 11) return              // the window taps are cropped away; the Defrost tiles do the same job
+                val mw = maxOf(zr.width(), dp(44f)); val mh = maxOf(zr.height(), dp(44f))      // never smaller than a fingertip
+                zr.set(zr.centerX() - mw / 2f, zr.centerY() - mh / 2f, zr.centerX() + mw / 2f, zr.centerY() + mh / 2f)
+            }
+            carZones.add(Pair(zr, id))
             return
         }
         carZones.add(Pair(RectF(carRect.left + x0 * carZoneK, carZoneTop + (y0 + 142f) * carZoneK * sy, carRect.left + x1 * carZoneK, carZoneTop + (y1 + 142f) * carZoneK * sy), id))
@@ -8340,9 +8350,10 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     private val carMat = android.graphics.Matrix()
 
     /** The car from above (white body, glass, dash, seats) with the air streams, coloured by the set temperatures. Drawn in a 320 x 716 box, squeezed to 88% in height. */
-    private fun overheadCar(cx: Float, top: Float, areaW: Float, carH: Float, s: CanSnapshot, flow: Boolean, mode: Int) {
+    private fun overheadCar(cx: Float, top: Float, areaW: Float, carH: Float, s: CanSnapshot, flow: Boolean, mode: Int, cu: CloseUp? = null) {
         val sy = 0.88f
-        val k = minOf(carH / (676f * sy), areaW / 320f)
+        cuOn = cu != null
+        val k = if (cu != null) cu.k / C3F else minOf(carH / (676f * sy), areaW / 320f)
         val now = android.os.SystemClock.uptimeMillis()
         val ph = (now % 1600L) / 1600f
         val pulse = (0.65f + 0.35f * Math.sin(ph * 2.0 * Math.PI)).toFloat()
@@ -8386,11 +8397,13 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             fillP(0xFF0B101B.toInt()); rr(18f, 198f, 9f, 9f, 2f)
         }
 
-        val carTop0 = top + (carH - 676f * sy * k) / 2f
+        val carTop0 = if (cu != null) cu.top - (CU_YA + 166.55f) * cu.k else top + (carH - 676f * sy * k) / 2f
         carRect.set(cx - 150f * k, carTop0, cx + 150f * k, carTop0 + 676f * sy * k)
         carZones.clear(); carZoneTop = carTop0; carZoneK = k
         if (use3d) {
             // ---- 3D Ocean from above over the cabin graphic: the seats, wheel and windows sit where they can be tapped
+            val cuBox = if (cu != null) RectF(cx - 150f * cu.k - dp(4f), cu.top, cx + 150f * cu.k + dp(4f), cu.bottom) else null
+            val cuLay = if (cuBox != null) canvas.saveLayer(cuBox, null) else -1
             canvas.save()
             canvas.translate(cx - 150f * k, carTop0)
             canvas.scale(k, k * sy)
@@ -8501,6 +8514,15 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             c3Paint.alpha = 77; canvas.drawBitmap(c3Trim, null, d, c3Paint); c3Paint.alpha = 255
             canvas.drawBitmap(c3BodyFor(paintIdx), null, d, c3Paint)
             canvas.restore()
+            if (cuBox != null) {
+                // close-up: fade the cut edges at the top and bottom of the cabin
+                p.style = Paint.Style.FILL
+                p.shader = LinearGradient(0f, cuBox.top, 0f, cuBox.bottom, intArrayOf(0x00000000, -0x1000000, -0x1000000, 0x00000000), floatArrayOf(0f, 0.10f, 0.90f, 1f), Shader.TileMode.CLAMP)
+                p.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
+                canvas.drawRect(cuBox, p)
+                p.xfermode = null; p.shader = null
+                canvas.restoreToCount(cuLay)
+            }
             p.shader = null
             return
         }
@@ -8653,14 +8675,31 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     }
 
     /** The cabin from above with the airflow lit by the driver's air direction, and the fan speed bars under it. */
-    private fun cabin(cx: Float, top: Float, areaW: Float, areaH: Float, s: CanSnapshot, small: Boolean, btnRef: Float = areaH) {
+    private fun cabin(cx: Float, top: Float, areaW: Float, areaH: Float, s: CanSnapshot, small: Boolean, btnRef: Float = areaH, cu: CloseUp? = null) {
         val barsH = (areaH * 0.15f).coerceIn(dp(20f), dp(40f))
         val labH = dp(if (small) 16f else 20f)
         val carH = areaH - barsH - labH - dp(10f)
-        overheadCar(cx, top - dp(10f), areaW, carH, s, s.climSeen && s.climFan > 0, s.climDrvMode)
+        overheadCar(cx, top - dp(10f), areaW, carH, s, s.climSeen && s.climFan > 0, s.climDrvMode, cu)
         if (!seatsPlaced && !hideSeatIcons) seatButtons(cx, areaW, s)
+        if (cu != null && cu.side) {
+            // a third-height window: the fan speed is a small vertical stepper beside the car (+ on top, the level, then -), so the car gets the whole height
+            val bz = minOf(dp(32f), (areaH - dp(48f)) / 2f)
+            val half = (150f * cu.k + areaW / 2f) / 2f
+            val fx = if (rhdSide) cx - half else cx + half
+            val y0 = top + dp(2f)
+            val rp = RectF(fx - bz / 2f, y0, fx + bz / 2f, y0 + bz)
+            val rm = RectF(fx - bz / 2f, y0 + bz + dp(40f), fx + bz / 2f, y0 + 2 * bz + dp(40f))
+            glassBtn(rm, 0); glassBtn(rp, 1)
+            val pad = dp(3f)
+            fanMinus.set(rm.left - pad, rm.top - pad, rm.right + pad, rm.bottom + pad); fanPlus.set(rp.left - pad, rp.top - pad, rp.right + pad, rp.bottom + pad)
+            val lv = if (s.climFan == 0) "Off" else "${s.climFan}"
+            text(lv, fx, y0 + bz + dp(15f), 18f, if (s.climFan == 0) ink(150) else on, true)
+            text("FAN", fx, y0 + bz + dp(30f), 9f, ink(if (dayBg) 230 else 170), true)
+            fanRect.set(fx - bz / 2f, y0 + bz, fx + bz / 2f, y0 + bz + dp(40f))
+            return
+        }
         // fan speed bars
-        val bt = top + carH + dp(10f)
+        val bt = if (cu != null) cu.bottom + dp(10f) else top + carH + dp(10f)
         val bw = minOf(dp(13f), areaW * 0.07f); val bg = dp(5f)
         val x0 = cx - (7 * bw + 6 * bg) / 2f
         for (i in 0 until 7) {
@@ -8835,10 +8874,10 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         return true
     }
 
-    private fun pill(right: Float, cy: Float, ph: Float, label: String, value: String, small: Boolean): Float {
+    private fun pill(right: Float, cy: Float, ph: Float, label: String, value: String, small: Boolean, tight: Boolean = false): Float {
         p.typeface = Typeface.DEFAULT; p.textSize = dp(if (small) 11f else 12f); val lw = p.measureText(label)
         p.typeface = Typeface.DEFAULT_BOLD; p.textSize = dp(if (small) 13f else 15f); val vw = p.measureText(value)
-        val pad = dp(12f); val gp = dp(6f)
+        val pad = dp(if (tight) 9f else 12f); val gp = dp(if (tight) 5f else 6f)
         val r = RectF(right - (pad * 2 + lw + gp + vw), cy - ph / 2, right, cy + ph / 2)
         p.style = Paint.Style.FILL; p.color = Color.argb(18, 255, 255, 255); canvas.drawRoundRect(r, ph / 2, ph / 2, p)
         stroke(Color.argb(34, 255, 255, 255), 1f); canvas.drawRoundRect(r, ph / 2, ph / 2, p)
@@ -8876,6 +8915,9 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val chipsTop = tilesTop - gap - chipH
         val dialTop = topY + headH
         val dialH = chipsTop - gap - dialTop
+        // split windows with the outside seat buttons hidden: the car is a big close-up of the cabin (see CloseUp)
+        val closeUp = l2 && use3d && hideSeatIcons && !floating && !compact
+        var hdrL = 0f; var hdrR = w                   // how far the title and the pills reach in from each side (the close-up car must not cover them)
 
         // ---- header: power, title, cabin and outside readings
         run {
@@ -8895,22 +8937,27 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             if (flip) text("Climate", powerRect.left - dp(12f), powerRect.centerY(), if (small) 18f else 22f, ink(), true, Paint.Align.RIGHT)
             else text("Climate", powerRect.right + dp(12f), powerRect.centerY(), if (small) 18f else 22f, ink(), true, Paint.Align.LEFT)
             val ph = dp(if (small) 26f else 32f)
+            p.typeface = Typeface.DEFAULT_BOLD; p.textSize = dp(if (small) 18f else 22f); val titleW = p.measureText("Climate")
+            val outLab = if (closeUp) "Out" else "Outside"
             if (flip) {
                 val out = temp(s.outsideC); val cab = temp(s.cabinC)
                 val pw = { lab: String, v: String -> p.typeface = Typeface.DEFAULT; p.textSize = dp(if (small) 11f else 12f); val a = p.measureText(lab)
-                    p.typeface = Typeface.DEFAULT_BOLD; p.textSize = dp(if (small) 13f else 15f); dp(12f) * 2 + a + dp(6f) + p.measureText(v) }
-                val oW = pw("Outside", out)
-                pill(m + oW, powerRect.centerY(), ph, "Outside", out, small)
-                pill(m + oW + dp(8f) + pw("Cabin", cab), powerRect.centerY(), ph, "Cabin", cab, small)
+                    p.typeface = Typeface.DEFAULT_BOLD; p.textSize = dp(if (small) 13f else 15f); dp(if (closeUp) 9f else 12f) * 2 + a + dp(if (closeUp) 5f else 6f) + p.measureText(v) }
+                val oW = pw(outLab, out)
+                pill(m + oW, powerRect.centerY(), ph, outLab, out, small, closeUp)
+                val rEdge = m + oW + dp(8f) + pw("Cabin", cab)
+                pill(rEdge, powerRect.centerY(), ph, "Cabin", cab, small, closeUp)
+                hdrL = rEdge; hdrR = powerRect.left - dp(12f) - titleW
             } else {
-                val l1 = pill(w - m, powerRect.centerY(), ph, "Outside", temp(s.outsideC), small)
-                pill(l1 - dp(8f), powerRect.centerY(), ph, "Cabin", temp(s.cabinC), small)
+                val l1 = pill(w - m, powerRect.centerY(), ph, outLab, temp(s.outsideC), small, closeUp)
+                hdrR = pill(l1 - dp(8f), powerRect.centerY(), ph, "Cabin", temp(s.cabinC), small, closeUp)
+                hdrL = powerRect.right + dp(12f) + titleW
             }
         }
 
         // ---- the two dials and the cabin between them
         tempBtns.clear(); tempBtnInfo.clear(); modeRects.clear(); seatRects.clear(); seatWho.clear()
-        val cabinW = w * 0.30f
+        val cabinW = if (closeUp) w * (if (small) 0.44f else 0.38f) else w * 0.30f
         val dialW = (w - cabinW - 3 * m) / 2f
         val drvRight = rhdSide
         seatRects.clear(); seatWho.clear()
@@ -8930,7 +8977,16 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         }
         dial(m, dialW, dialTop, dialH2, if (drvRight) "PASSENGER" else "DRIVER", if (drvRight) s.climPassT else s.climDrvT, !drvRight)
         dial(w - m - dialW, dialW, dialTop, dialH2, if (drvRight) "DRIVER" else "PASSENGER", if (drvRight) s.climDrvT else s.climPassT, drvRight)
-        cabin(w / 2f, dialTop, cabinW, dialH, s, small, dialH2)
+        var cu: CloseUp? = null
+        if (closeUp) {
+            val bH = (dialH * 0.15f).coerceIn(dp(20f), dp(40f)); val lH = dp(if (small) 16f else 20f)
+            val cTop = topY
+            val cBottom = if (small) dialTop + dialH else dialTop + dialH - bH - lH - dp(10f)
+            val room = minOf(w / 2f - hdrL, hdrR - w / 2f) - dp(8f)          // keep clear of the title and the pills
+            val kk = minOf((cBottom - cTop) / (CU_YB - CU_YA), (cabinW - (if (small) dp(58f) else 0f)) / 300f, room / 150f).coerceAtLeast(0.05f)
+            cu = CloseUp(kk, cTop, cBottom, small)
+        }
+        cabin(w / 2f, dialTop, cabinW, dialH, s, small, dialH2, cu)
 
         // ---- air direction (the driver's; the car has no separate passenger airflow)
         run {
@@ -9104,7 +9160,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         lastFanTap = System.currentTimeMillis()
         if (!fanControl) showNotice("Tick the climate control option in Settings to use the seat heating")
         else {
-            val next = (seatLevel(who, snap) + 1) % 4
+            val next = seatLevel(who, snap).let { if (it <= 0) 3 else it - 1 }     // first tap 3, then 2, 1, off
             seatOver[who] = next; seatOverAt[who] = System.currentTimeMillis(); postInvalidateDelayed(3600)
             onSeat?.invoke(who, next); invalidate()
         }
