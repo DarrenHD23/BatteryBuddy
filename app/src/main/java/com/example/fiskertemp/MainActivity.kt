@@ -7979,7 +7979,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             val lum = (0.299f * r + 0.587f * g + 0.114f * b) / 255f
             if (sat > 0.2f || lum < 0.3f) continue
             val wgt = (((lum - 0.3f) / 0.12f).coerceIn(0f, 1f)) * (1f - ((sat - 0.1f) / 0.1f).coerceIn(0f, 1f))
-            val shade = (lum / 0.62f).coerceIn(0.2f, 1.45f)
+            val shade = (lum / 0.55f).coerceIn(0.3f, 1.6f)        // a little brighter than before: the paint colour is the same, the shading is lifted
             val nr = (pr * shade).coerceIn(0f, 255f); val ng = (pg * shade).coerceIn(0f, 255f); val nb = (pb * shade).coerceIn(0f, 255f)
             px[i] = (a shl 24) or ((r + (nr - r) * wgt).toInt() shl 16) or ((g + (ng - g) * wgt).toInt() shl 8) or (b + (nb - b) * wgt).toInt()
         }
@@ -8001,6 +8001,8 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     var onPower: ((Boolean) -> Unit)? = null        // true = turn the climate system on, false = shut it down
     private val powerRect = RectF()
     // two fixed gradients of the car drawing, made once instead of on every frame
+    private val gradBody3 by lazy { LinearGradient(0f, -10f, 0f, 460f, 0xFF22345A.toInt(), 0xFF172746.toInt(), Shader.TileMode.CLAMP) }     // the brighter cabin of the 3D car
+    private val gradRoof3 by lazy { LinearGradient(0f, 64f, 0f, 134f, 0xFF3B5282.toInt(), 0xFF213560.toInt(), Shader.TileMode.CLAMP) }
     private val gradBody by lazy { LinearGradient(0f, -10f, 0f, 460f, 0xFF14213B.toInt(), 0xFF0B1426.toInt(), Shader.TileMode.CLAMP) }
     private val gradRoof by lazy { LinearGradient(0f, 64f, 0f, 134f, 0xFF26375A.toInt(), 0xFF121D35.toInt(), Shader.TileMode.CLAMP) }
     private var lastFanTap = 0L
@@ -8410,17 +8412,17 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
             canvas.translate(150f, 0f); canvas.scale(C3F, C3F / sy); canvas.translate(-150f, 166.55f)
             val d = c3Dest
             val lay = canvas.saveLayer(d.left, d.top, d.right, d.bottom, null)
-            p.style = Paint.Style.FILL; p.shader = gradBody
+            p.style = Paint.Style.FILL; p.shader = gradBody3
             canvas.drawRect(d.left, d.top, d.right, d.bottom, p); p.shader = null
             val wsP = Path()
             wsP.moveTo(36f, 64f); wsP.cubicTo(36f, 22f, 62f, -16f, 112f, -22f); wsP.quadTo(150f, -26f, 188f, -22f); wsP.cubicTo(238f, -16f, 264f, 22f, 264f, 64f); wsP.close()
             val rwP = Path(); rwP.moveTo(72f, 440f); rwP.lineTo(228f, 440f); rwP.lineTo(246f, 492f); rwP.lineTo(54f, 492f); rwP.close()
             // dash
             path.reset(); path.moveTo(38f, 64f); path.lineTo(262f, 64f); path.lineTo(262f, 122f); path.quadTo(150f, 136f, 38f, 122f); path.close()
-            p.style = Paint.Style.FILL; p.shader = gradRoof; canvas.drawPath(path, p); p.shader = null
-            strokeP(0xFF4A6190.toInt(), 1.4f); canvas.drawPath(path, p)
-            both(58f, 78f, 56f, 10f, 3f, 0xFF0A1220.toInt(), 0xFF5B7299.toInt(), 1f)
-            fillP(0xFF6F86AD.toInt()); for (vx in floatArrayOf(38f, 112f, 164f, 238f)) rr(vx, 72f, 24f, 5f, 2f); rr(137f, 62f, 26f, 5f, 2f)
+            p.style = Paint.Style.FILL; p.shader = gradRoof3; canvas.drawPath(path, p); p.shader = null
+            strokeP(0xFF7189BE.toInt(), 1.4f); canvas.drawPath(path, p)
+            both(58f, 78f, 56f, 10f, 3f, 0xFF16233B.toInt(), 0xFF8CA4D2.toInt(), 1f)
+            fillP(0xFFA5BADF.toInt()); for (vx in floatArrayOf(38f, 112f, 164f, 238f)) rr(vx, 72f, 24f, 5f, 2f); rr(137f, 62f, 26f, 5f, 2f)
             // steering wheel: round, flat along the bottom, with the Fisker badge in the middle
             val wx = if (rhdSide) 214f else 86f
             val wheelHot = s.climWheelOn()
@@ -8429,42 +8431,42 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
                 path.reset(); tmpR.set(wx - r, 116f - r, wx + r, 116f + r); path.arcTo(tmpR, 180f - al, 180f + 2f * al); path.close()
             }
             if (wheelHot) { fillP(Color.argb(70, 255, 60, 60)); ring(29f, 27f); canvas.drawPath(path, p) }
-            strokeP(if (wheelHot) Color.argb(235, 255, 80, 80) else 0xFF8AA0C6.toInt(), if (wheelHot) 4.6f else 4f); ring(24f, 22f); canvas.drawPath(path, p)
-            strokeP(if (wheelHot) Color.argb(190, 255, 80, 80) else 0xFF5B7299.toInt(), 3f)
+            strokeP(if (wheelHot) Color.argb(235, 255, 80, 80) else 0xFFE3ECFA.toInt(), if (wheelHot) 4.6f else 4f); ring(24f, 22f); canvas.drawPath(path, p)
+            strokeP(if (wheelHot) Color.argb(190, 255, 80, 80) else 0xFF8CA4D2.toInt(), 3f)
             canvas.drawLine(wx - 22f, 114f, wx - 9f, 114f, p); canvas.drawLine(wx + 9f, 114f, wx + 22f, 114f, p); canvas.drawLine(wx - 8f, 124f, wx + 8f, 124f, p)
-            fillP(0xFF161D30.toInt()); circ(wx, 114f, 8.5f)
-            strokeP(if (wheelHot) Color.argb(240, 255, 120, 120) else 0xFFC9D3E2.toInt(), 1.4f); circ(wx, 114f, 8.5f)
+            fillP(0xFF1E2A44.toInt()); circ(wx, 114f, 8.5f)
+            strokeP(if (wheelHot) Color.argb(240, 255, 120, 120) else 0xFFF2F6FB.toInt(), 1.4f); circ(wx, 114f, 8.5f)
             tmpR.set(wx - 5.95f, 114f - 5.95f, wx + 5.95f, 114f + 5.95f)
             fillP(0xFF4DB8FF.toInt()); canvas.drawArc(tmpR, 200f, 130f, true, p)
             fillP(0xFFFF9A2E.toInt()); canvas.drawArc(tmpR, 20f, 130f, true, p)
             carZone(wx - 30f, 92f, wx + 30f, 142f, 12)
-            both(135f, 83f, 30f, 47f, 5f, 0xFF0A1220.toInt(), 0xFF8AA0C6.toInt(), 1.4f)
+            both(135f, 83f, 30f, 47f, 5f, 0xFF16233B.toInt(), 0xFFE3ECFA.toInt(), 1.4f)
             // console
-            both(132f, 138f, 36f, 128f, 10f, 0xFF16233D.toInt(), 0xFF3D5280.toInt(), 1.2f)
-            fillP(0xFF0E182C.toInt()); rr(136f, 144f, 13f, 34f, 3f); rr(151f, 144f, 13f, 34f, 3f)
-            fillP(0xFF0A1220.toInt()); circ(143f, 172f, 8.5f); circ(157f, 172f, 8.5f); strokeP(0xFF4A6190.toInt(), 1f); circ(143f, 172f, 8.5f); circ(157f, 172f, 8.5f)
-            both(133f, 208f, 34f, 50f, 10f, 0xFF22335A.toInt(), 0xFF44597F.toInt(), 1.2f)
+            both(132f, 138f, 36f, 128f, 10f, 0xFF26385F.toInt(), 0xFF6F88BC.toInt(), 1.2f)
+            fillP(0xFF1A2A48.toInt()); rr(136f, 144f, 13f, 34f, 3f); rr(151f, 144f, 13f, 34f, 3f)
+            fillP(0xFF16233B.toInt()); circ(143f, 172f, 8.5f); circ(157f, 172f, 8.5f); strokeP(0xFF7189BE.toInt(), 1f); circ(143f, 172f, 8.5f); circ(157f, 172f, 8.5f)
+            both(133f, 208f, 34f, 50f, 10f, 0xFF355283.toInt(), 0xFF7F99CC.toInt(), 1.2f)
             fun seat(x0: Float, y0: Float, w: Float, hh: Float, r: Float) {
-                p.style = Paint.Style.FILL; p.shader = LinearGradient(x0, y0, x0 + w, y0 + hh, 0xFF2F4268.toInt(), 0xFF1A2744.toInt(), Shader.TileMode.CLAMP); rr(x0, y0, w, hh, r); p.shader = null
-                strokeP(0xFF44597F.toInt(), 1.2f); rr(x0, y0, w, hh, r)
+                p.style = Paint.Style.FILL; p.shader = LinearGradient(x0, y0, x0 + w, y0 + hh, 0xFF4C679E.toInt(), 0xFF33497A.toInt(), Shader.TileMode.CLAMP); rr(x0, y0, w, hh, r); p.shader = null
+                strokeP(0xFF7F99CC.toInt(), 1.2f); rr(x0, y0, w, hh, r)
             }
             for (x0 in floatArrayOf(45f, 169f)) { seat(x0, 158f, 86f, 72f, 14f); seat(x0 + 3f, 230f, 80f, 36f, 12f); seat(x0 + 27f, 266f, 32f, 15f, 6f) }
-            strokeP(Color.argb(140, 159, 184, 200), 2f); canvas.drawLine(88f, 162f, 88f, 260f, p); canvas.drawLine(212f, 162f, 212f, 260f, p)
-            fillP(Color.argb(235, 74, 95, 138))
+            strokeP(Color.argb(190, 175, 198, 215), 2f); canvas.drawLine(88f, 162f, 88f, 260f, p); canvas.drawLine(212f, 162f, 212f, 260f, p)
+            fillP(Color.argb(245, 112, 137, 190))
             for (hx in floatArrayOf(88f, 212f)) { tmpR.set(hx - 34f, 237f, hx + 34f, 259f); canvas.drawOval(tmpR, p); circ(hx, 270f, 10f) }
             canvas.save(); canvas.translate(0f, -36f)
             seat(46f, 324f, 68f, 66f, 12f); seat(116f, 324f, 68f, 66f, 8f); seat(186f, 324f, 68f, 66f, 12f)
             seat(46f, 390f, 68f, 30f, 10f); seat(116f, 390f, 68f, 30f, 8f); seat(186f, 390f, 68f, 30f, 10f)
             seat(64f, 420f, 32f, 13f, 6f); seat(134f, 420f, 32f, 13f, 6f); seat(204f, 420f, 32f, 13f, 6f)
-            strokeP(Color.argb(128, 159, 184, 200), 2f); canvas.drawLine(80f, 328f, 80f, 418f, p); canvas.drawLine(220f, 328f, 220f, 418f, p)
-            fillP(Color.argb(235, 74, 95, 138))
+            strokeP(Color.argb(175, 175, 198, 215), 2f); canvas.drawLine(80f, 328f, 80f, 418f, p); canvas.drawLine(220f, 328f, 220f, 418f, p)
+            fillP(Color.argb(245, 112, 137, 190))
             for (hx in floatArrayOf(80f, 220f)) { tmpR.set(hx - 24f, 395f, hx + 24f, 413f); canvas.drawOval(tmpR, p); circ(hx, 426f, 10f) }
             canvas.restore()
-            fillP(0xFF6F86AD.toInt()); rr(74f, 216f, 28f, 5f, 2f); rr(198f, 216f, 28f, 5f, 2f)
+            fillP(0xFFA5BADF.toInt()); rr(74f, 216f, 28f, 5f, 2f); rr(198f, 216f, 28f, 5f, 2f)
             // heated seats: a transparent red and three dots; the seat is the touch area
             val drvR = rhdSide
             fun heatDots(cxx: Float, cyy: Float, lvl: Int) {
-                for (i in 0 until 3) { fillP(if (i < lvl) Color.argb(255, 255, 110, 110) else Color.argb(90, 255, 255, 255)); circ(cxx + (i - 1) * 13f, cyy, 4.6f) }
+                for (i in 0 until 3) { fillP(if (i < lvl) Color.argb(255, 255, 110, 110) else Color.argb(130, 255, 255, 255)); circ(cxx + (i - 1) * 13f, cyy, 4.6f) }
             }
             fun seatHeat3(who: Int, front: Boolean, left: Boolean) {
                 val lvl = seatLevel(who, s)
