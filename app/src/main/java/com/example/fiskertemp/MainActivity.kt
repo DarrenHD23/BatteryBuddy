@@ -2739,7 +2739,9 @@ class MainActivity : Activity() {
             val b = RectF(); cardScreenBox(v, b)
             val g = cardGrip(b)
             b.offset(-oa[0].toFloat(), -oa[1].toFloat()); g.offset(-oa[0].toFloat(), -oa[1].toFloat())
-            out.add(CardGripOverlay.Info(b, g, cardMode >= 2 && cardView === v))
+            val sizing = cardMode == 3 && cardView === v
+            val gs = dp(GRID_DP.toInt()).toFloat()
+            out.add(CardGripOverlay.Info(b, g, cardMode >= 2 && cardView === v, if (sizing) Math.max(1, Math.round((b.width()) / gs)) else 0, if (sizing) Math.max(1, Math.round((b.height()) / gs)) else 0))
         }
         return out
     }
@@ -2853,9 +2855,8 @@ class MainActivity : Activity() {
                         var nw = (ev.x - cardGrabX) - cardBox0.left; var nh = (ev.y - cardGrabY) - cardBox0.top
                         run {       // the right and bottom edges snap to the grid
                             val g = dp(GRID_DP.toInt()).toFloat()
-                            val rb = RectF(); cardScreenBox(dashRoot, rb)
-                            nw = rb.left + Math.round((cardBox0.left + nw - rb.left) / g) * g - cardBox0.left
-                            nh = rb.top + Math.round((cardBox0.top + nh - rb.top) / g) * g - cardBox0.top
+                            // the size itself snaps to whole grid squares, so two cards can be given exactly the same size
+                            nw = Math.round(nw / g) * g; nh = Math.round(nh / g) * g
                             if (nw < g) nw = g; if (nh < g) nh = g
                         }
                         val lp = v.layoutParams as? FrameLayout.LayoutParams

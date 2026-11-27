@@ -15,7 +15,7 @@ import android.view.View
  */
 class CardGripOverlay(ctx: Context, private val provider: () -> List<Info>) : View(ctx) {
     /** [box] and [grip] are in this view's own coordinates. */
-    class Info(val box: RectF, val grip: RectF, val active: Boolean)
+    class Info(val box: RectF, val grip: RectF, val active: Boolean, val cols: Int = 0, val rows: Int = 0)
     private val d = ctx.resources.displayMetrics.density
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
@@ -38,6 +38,23 @@ class CardGripOverlay(ctx: Context, private val provider: () -> List<Info>) : Vi
                 p.style = Paint.Style.FILL; p.color = Color.argb(28, 120, 190, 255); c.drawRoundRect(g.box, 14 * d, 14 * d, p)
                 p.style = Paint.Style.STROKE; p.strokeWidth = 2f * d; p.color = Color.argb(230, 120, 190, 255); p.pathEffect = DashPathEffect(floatArrayOf(10 * d, 6 * d), 0f)
                 c.drawRoundRect(g.box, 14 * d, 14 * d, p); p.pathEffect = null
+            }
+            if (g.cols > 0 && g.rows > 0) {
+                // while resizing: a little picture of the grid squares the card covers, with the count (columns x rows), in the middle of the card
+                val cell = 4f * d; val gap = 1f * d
+                val shownC = minOf(g.cols, 16); val shownR = minOf(g.rows, 16)
+                val gw = shownC * (cell + gap) - gap; val gh = shownR * (cell + gap) - gap
+                val txt = "${g.cols} \u00D7 ${g.rows}"
+                p.style = Paint.Style.FILL; p.textSize = 18f * d; p.typeface = android.graphics.Typeface.DEFAULT_BOLD; p.textAlign = Paint.Align.LEFT
+                val tw = p.measureText(txt)
+                val pw = maxOf(gw, tw) + 24 * d; val ph = gh + 18f * d + 30 * d
+                val cx = g.box.centerX(); val cy = g.box.centerY()
+                val pr = RectF(cx - pw / 2, cy - ph / 2, cx + pw / 2, cy + ph / 2)
+                p.color = Color.argb(225, 16, 22, 36); c.drawRoundRect(pr, 12 * d, 12 * d, p)
+                p.color = Color.WHITE; c.drawText(txt, cx - tw / 2, pr.top + 12 * d + 16 * d, p)
+                val x0 = cx - gw / 2; val y0 = pr.top + 12 * d + 24 * d
+                p.color = Color.argb(235, 120, 190, 255)
+                for (ri in 0 until shownR) for (ci in 0 until shownC) c.drawRect(x0 + ci * (cell + gap), y0 + ri * (cell + gap), x0 + ci * (cell + gap) + cell, y0 + ri * (cell + gap) + cell, p)
             }
             // the grip: a small dark chip with three diagonal strokes
             val r = RectF(g.grip.right - 24 * d, g.grip.bottom - 24 * d, g.grip.right - 4 * d, g.grip.bottom - 4 * d)
