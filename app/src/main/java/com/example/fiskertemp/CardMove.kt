@@ -19,9 +19,20 @@ class CardGripOverlay(ctx: Context, private val provider: () -> List<Info>) : Vi
     private val d = ctx.resources.displayMetrics.density
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
+    /** The area to draw the faint snap grid over while a card is held (null when nothing is held). */
+    var gridProvider: (() -> RectF?)? = null
+    var gridStep = 0f
     init { isClickable = false; isFocusable = false; setWillNotDraw(false) }
 
     override fun onDraw(c: Canvas) {
+        val gb = gridProvider?.invoke()
+        if (gb != null && gridStep > 4f) {
+            p.style = Paint.Style.STROKE; p.strokeWidth = 1f; p.pathEffect = null; p.color = Color.argb(46, 255, 255, 255)
+            var x = gb.left; while (x <= gb.right + 1f) { c.drawLine(x, gb.top, x, gb.bottom, p); x += gridStep }
+            var y = gb.top; while (y <= gb.bottom + 1f) { c.drawLine(gb.left, y, gb.right, y, p); y += gridStep }
+            p.color = Color.argb(70, 255, 255, 255)
+            var i = 0; x = gb.left; while (x <= gb.right + 1f) { var j = 0; y = gb.top; while (y <= gb.bottom + 1f) { if (i % 4 == 0 && j % 4 == 0) c.drawCircle(x, y, 2.2f * d, p.apply { style = Paint.Style.FILL }); y += gridStep; j++ }; x += gridStep; i++ }
+        }
         for (g in provider()) {
             if (g.active) {
                 p.style = Paint.Style.FILL; p.color = Color.argb(28, 120, 190, 255); c.drawRoundRect(g.box, 14 * d, 14 * d, p)

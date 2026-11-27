@@ -2575,6 +2575,7 @@ class MainActivity : Activity() {
     // ---------------------------------------------------------- movable cards (Trip Information, compass, media)
     // A long press on a card picks it up and it follows the finger; the grip in its bottom-right corner resizes it (the card scales, text and all).
     // Every layout (1 or 2) and window size (full, 2/3, 50/50, 1/3) keeps its own positions, as an offset in dp from where the layout puts the card and a scale.
+    private val GRID_DP = 24f                      // the snap grid shown while a card is held
     private var cardMode = 0                       // 0 idle, 1 waiting for the long press, 2 dragging, 3 resizing
     private var cardName = ""
     private var cardView: View? = null
@@ -2752,6 +2753,17 @@ class MainActivity : Activity() {
                         root.set(root.left, root.top, root.left + dashRoot.width, root.top + dashRoot.height)
                         val keep = dp(48).toFloat()
                         var sx = ev.x - cardDownX; var sy = ev.y - cardDownY
+                        // snap to the grid: the card's left or right edge (whichever is nearer a line), and its top or bottom edge
+                        run {
+                            val g = dp(GRID_DP).toFloat()
+                            fun near(p: Float, o: Float) = root.let { val k = Math.round((p - o) / g); o + k * g }
+                            val l = cardBox0.left + sx; val r = cardBox0.right + sx
+                            val dl = near(l, root.left) - l; val dr = near(r, root.left) - r
+                            sx += if (Math.abs(dl) <= Math.abs(dr)) dl else dr
+                            val t = cardBox0.top + sy; val b = cardBox0.bottom + sy
+                            val dt = near(t, root.top) - t; val db = near(b, root.top) - b
+                            sy += if (Math.abs(dt) <= Math.abs(db)) dt else db
+                        }
                         // always leave a corner of the card on the screen
                         sx = sx.coerceIn(root.left + keep - cardBox0.right, root.right - keep - cardBox0.left)
                         sy = sy.coerceIn(root.top + keep - cardBox0.bottom, root.bottom - keep - cardBox0.top)
@@ -2761,7 +2773,14 @@ class MainActivity : Activity() {
                     }
                     3 -> {
                         if (v == null) return true
-                        val nw = (ev.x - cardGrabX) - cardBox0.left; val nh = (ev.y - cardGrabY) - cardBox0.top
+                        var nw = (ev.x - cardGrabX) - cardBox0.left; var nh = (ev.y - cardGrabY) - cardBox0.top
+                        run {       // the right and bottom edges snap to the grid
+                            val g = dp(GRID_DP).toFloat()
+                            val rb = RectF(); cardScreenBox(dashRoot, rb)
+                            nw = rb.left + Math.round((cardBox0.left + nw - rb.left) / g) * g - cardBox0.left
+                            nh = rb.top + Math.round((cardBox0.top + nh - rb.top) / g) * g - cardBox0.top
+                            if (nw < g) nw = g; if (nh < g) nh = g
+                        }
                         val lp = v.layoutParams as? FrameLayout.LayoutParams
                         if (v === mediaCard && lp != null) {
                             // free resize: width and height follow the finger separately
@@ -4001,6 +4020,14 @@ class MainActivity : Activity() {
         objView = ObjectsView(this, roadView)         // the other objects around the car: on top of everything
         f.addView(objView, FrameLayout.LayoutParams(-1, -1))
         cardOverlay = CardGripOverlay(this) { cardOverlayInfo() }
+        cardOverlay.gridProvider = {
+            if (cardMode >= 2 && ::dashRoot.isInitialized) {
+                val oa = IntArray(2); cardOverlay.getLocationInWindow(oa)
+                val r = RectF(); cardScreenBox(dashRoot, r)
+                RectF(r.left - oa[0], r.top - oa[1], r.left - oa[0] + dashRoot.width, r.top - oa[1] + dashRoot.height)
+            } else null
+        }
+        cardOverlay.gridStep = dp(GRID_DP).toFloat()
         cardOverlay.translationZ = dp(200).toFloat()       // above every elevated sibling, in any window size
         f.addView(cardOverlay, FrameLayout.LayoutParams(-1, -1))
         return f
