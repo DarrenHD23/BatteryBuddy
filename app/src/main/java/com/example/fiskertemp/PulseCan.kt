@@ -416,7 +416,28 @@ class PulseCan(
      * requests cleared ("not change") and only ICC_SWH_Req = 1 set, sent a few times on the bus where 0x528 was seen.
      * The request only has an "on" value, so it probably acts like the button press: watch 0x386 for the result.
      */
-    fun sendWheelHeat(): String = sendOn528()
+    fun sendWheelHeat(): String {
+        val msg = sendOn528()
+        if (!msg.contains(" on IBUS")) return msg
+        // The request acts like a button press, and the car sometimes drops it. So check the car's own status (0x386): if the wheel is not
+        // in the state the press should have given, press again (up to two more times), and say so when the car never confirms.
+        val before = snap.wheelHeat
+        if (before == null) return msg                      // no status from the car: nothing to check against
+        val want = !before
+        Thread {
+            try {
+                for (attempt in 1..3) {
+                    Thread.sleep(1500)
+                    val now = snap.wheelHeat ?: return@Thread
+                    if (now == want) { if (attempt > 1) onStatus("Heated wheel: confirmed by the car after ${attempt - 1} resend(s)"); return@Thread }
+                    if (attempt == 3) { onStatus("Heated wheel: the car did not confirm - tap again"); return@Thread }
+                    onStatus("Heated wheel: not confirmed yet, sending again")
+                    sendOn528()
+                }
+            } catch (e: Exception) { }
+        }.also { it.isDaemon = true }.start()
+        return msg
+    }
 
     /**
      * Test: climate system power. The frame is the car screen's own last 0x534 with every airflow button request cleared
