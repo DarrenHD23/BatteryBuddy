@@ -2673,7 +2673,13 @@ class MainActivity : Activity() {
         val a = sv.split(",").mapNotNull { it.toFloatOrNull() }
         return if (a.size == 3) floatArrayOf(a[0], a[1], a[2].coerceIn(0.4f, 2.6f)) else if (a.size == 5) floatArrayOf(a[0], a[1], a[2].coerceIn(0.4f, 2.6f), a[3], a[4]) else null
     }
-    private fun cardShown(v: View) = v.isShown && v.alpha > 0.1f && v.width > 0 && v.height > 0
+    /** Really on screen: visible, and not faded out by the card itself or by any view around it (the ADAS view fades the containers). */
+    private fun cardShown(v: View): Boolean {
+        if (!v.isShown || v.width <= 0 || v.height <= 0) return false
+        var a = 1f; var p: View? = v
+        while (p != null) { a *= p.alpha; p = p.parent as? View }
+        return a > 0.1f
+    }
     private fun cardScreenBox(v: View, out: RectF) {
         val a = IntArray(2); v.getLocationInWindow(a)
         out.set(a[0].toFloat(), a[1].toFloat(), a[0] + v.width * v.scaleX, a[1] + v.height * v.scaleY)
