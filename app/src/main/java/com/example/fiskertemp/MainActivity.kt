@@ -9573,11 +9573,12 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         val bp = dp(if (small) 6f else 10f)
         if (l2) {
             // Layout 2: a single Close, at the driver's side (left in left-hand drive, right in right-hand drive)
-            if (rhd) closeRect.set(w - m - cw, h - bp - xs, w - m, h - bp) else closeRect.set(m, h - bp - xs, m + cw, h - bp)
+            val gripClear = dp(44f)         // the card's resize grip sits in the bottom-right corner: the X stays clear of it
+            if (rhd) closeRect.set(w - m - cw - gripClear, h - bp - xs, w - m - gripClear, h - bp) else closeRect.set(m, h - bp - xs, m + cw, h - bp)
             closeRect2.set(1e4f, 1e4f, 1e4f + 1f, 1e4f + 1f)
         } else {
             closeRect.set(m, h - bp - xs, m + cw, h - bp)
-            closeRect2.set(w - m - cw, h - bp - xs, w - m, h - bp)
+            closeRect2.set(w - m - cw - dp(44f), h - bp - xs, w - m - dp(44f), h - bp)      // (clear of the resize grip)
         }
         for (cr in listOf(closeRect, closeRect2)) {
             if (cr.left > w) continue
