@@ -4061,6 +4061,7 @@ class MainActivity : Activity() {
             onSources = { ui.removeCallbacks(hideMediaPopup); showSources() }
             onFavs = { ui.removeCallbacks(hideMediaPopup); showFavorites() }
             onTap = { ui.removeCallbacks(hideMediaPopup); if (InApp.mode == InApp.EXTERNAL) openMusicApp(false) }   // the card stays on screen
+            onClose = { ui.removeCallbacks(hideMediaPopup); visibility = View.GONE }
         }
         f.addView(mediaPopup, FrameLayout.LayoutParams(-1, dp(132), Gravity.BOTTOM).apply { setMargins(dp(8), 0, dp(8), dp(66)) })
         mediaCard = MediaCardView(this).apply {
@@ -4071,6 +4072,7 @@ class MainActivity : Activity() {
             onSources = { showSources() }
             onFavs = { showFavorites() }
             onTap = { if (InApp.mode == InApp.EXTERNAL) openMusicApp(false) }
+            onClose = { if (l2Applied && l2MiniNow) mediaBtn.performClick() else { prefs().edit().putBoolean("fullMedia", false).apply(); relayoutDash() } }      // the same as pressing Media
         }
         f.addView(mediaCard, FrameLayout.LayoutParams(-1, dp(132), Gravity.BOTTOM).apply { setMargins(dp(8), 0, dp(8), dp(200)) })
         f.addOnLayoutChangeListener { v, _, top, _, bottom, _, _, _, _ ->
@@ -9567,7 +9569,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
 
         // ---- close buttons at both bottom corners, status between them
         val xs = dp(if (small) 34f else 38f)
-        val cw = dp(if (small) 84f else 96f)
+        val cw = maxOf(xs, dp(44f))                 // the Close buttons are round X buttons now: the touch area is at least 44 dp
         val bp = dp(if (small) 6f else 10f)
         if (l2) {
             // Layout 2: a single Close, at the driver's side (left in left-hand drive, right in right-hand drive)
@@ -9579,9 +9581,15 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         }
         for (cr in listOf(closeRect, closeRect2)) {
             if (cr.left > w) continue
-            p.style = Paint.Style.FILL; p.color = Color.argb(40, 255, 255, 255); c.drawRoundRect(cr, xs / 2, xs / 2, p)
-            stroke(Color.argb(100, 255, 255, 255), 1.4f); c.drawRoundRect(cr, xs / 2, xs / 2, p)
-            text("Close", cr.centerX(), cr.centerY(), if (small) 13f else 15f, ink(), true)
+            // a round X in the corner the old Close pill was in (the circle hugs the screen edge side of the touch area)
+            val cxr = if (cr.centerX() < w / 2) cr.left + xs / 2 else cr.right - xs / 2
+            val cyr = cr.centerY()
+            p.style = Paint.Style.FILL; p.color = Color.argb(40, 255, 255, 255); c.drawCircle(cxr, cyr, xs / 2, p)
+            stroke(Color.argb(100, 255, 255, 255), 1.4f); c.drawCircle(cxr, cyr, xs / 2, p)
+            stroke(ink(), if (small) 2.2f else 2.6f); p.strokeCap = Paint.Cap.ROUND
+            val xa = xs * 0.2f
+            c.drawLine(cxr - xa, cyr - xa, cxr + xa, cyr + xa, p); c.drawLine(cxr + xa, cyr - xa, cxr - xa, cyr + xa, p)
+            p.strokeCap = Paint.Cap.BUTT
         }
         val state = when (s.climState) { 0 -> "starting"; 1 -> "low-voltage"; 2 -> "high-voltage on"; 3 -> "charging"; 4 -> "remote"; 5 -> "HV discharge"; 6 -> "delay"; else -> "--" }
         val advice = when (s.climAdvice) { 1 -> "natural air"; 2 -> "cold air"; 3 -> "hot air"; else -> "" }
@@ -9949,6 +9957,8 @@ class MediaCardView(ctx: Context) : View(ctx) {
     var rhd = false                                   // right-hand drive: controls on the right
     var l2 = false                                    // Layout 2: the button column and star sit clear of the transport buttons
     var fullBleed = false                             // Layout 2: the art fills the card, the text sits centred over its lower part
+    var onClose: (() -> Unit)? = null                 // when set, a small X sits in a top corner of the card and closes it
+    private val closeBtn = RectF()
     private var title: String? = null
     private var artist: String? = null
     private var art: Bitmap? = null
@@ -10037,6 +10047,13 @@ class MediaCardView(ctx: Context) : View(ctx) {
         val small = w < dp(380f)                       // a narrow card: the text on top, the three buttons in a row underneath
         readViz()
         val wide = w >= dp(520f) && !small
+        // the close X: the top right corner (top left in right-hand drive on a wide card, where everything is mirrored)
+        closeBtn.setEmpty()
+        if (onClose != null) {
+            val xs = dp(if (small || h < dp(130f)) 24f else 28f); val inset = dp(6f)
+            if (wide && rhd) closeBtn.set(inset, inset, inset + xs, inset + xs) else closeBtn.set(w - inset - xs, inset, w - inset, inset + xs)
+        }
+        val xRight = onClose != null && !closeBtn.isEmpty && closeBtn.left > w / 2
         val vz = wide                                  // wide card: text and small buttons on one side, the visualizer area on the other (the layout stays the same when the visualizer is off)
         val vizDraw = wide && vizOn
         val colW = minOf(dp(250f), w * 0.38f)
@@ -10054,7 +10071,7 @@ class MediaCardView(ctx: Context) : View(ctx) {
 
         // title and artist on the other side
         val tx = if (small) dp(14f) else if (vz) colX else if (rhd) dp(20f) else rNext.right + dp(24f)
-        val maxW = if (small) w - dp(28f) else if (vz) colW - dp(26f) else if (rhd) rPrev.left - tx - dp(24f) else w - tx - dp(20f)
+        val maxW = (if (small) w - dp(28f) else if (vz) colW - dp(26f) else if (rhd) rPrev.left - tx - dp(24f) else w - tx - dp(20f)) - (if (xRight && (small || (!vz && !rhd))) dp(30f) else 0f)
         val bleed = fullBleed && small && hasSession && !title.isNullOrEmpty()
         val y1 = if (bleed) h * 0.52f else if (small) h * 0.17f else if (vz) h * 0.25f else h * 0.38f; val y2 = if (bleed) h * 0.64f else if (small) h * 0.35f else if (vz) h * 0.45f else h * 0.64f
         val s1 = if (small) 15f else if (vz) 17f else 20f; val s2 = if (small) 12f else if (vz) 13f else 14f
@@ -10136,11 +10153,13 @@ class MediaCardView(ctx: Context) : View(ctx) {
             val free = w - rNext.right
             var bs = dp(26f)
             val g3 = dp(3f); val pad = dp(6f)
-            if (4 * bs + 3 * g3 > h - 2 * pad) bs = ((h - 2 * pad - 3 * g3) / 4f).coerceAtLeast(dp(18f))
-            if (free >= bs + dp(16f) && 4 * bs + 3 * g3 <= h - dp(4f)) {
+            val topRoom = if (xRight) closeBtn.bottom + dp(4f) else pad       // the column starts below the close X
+            val availH = h - topRoom - pad
+            if (4 * bs + 3 * g3 > availH) bs = ((availH - 3 * g3) / 4f).coerceAtLeast(dp(18f))
+            if (free >= bs + dp(16f) && 4 * bs + 3 * g3 <= (if (xRight) availH else h - dp(4f))) {
                 // four buttons in one column beside the round ones: the favourites star on top, then the visualizer on / off, its colour, and Sources
                 val bx = rNext.right + free / 2 - bs / 2
-                var y = (h - (4 * bs + 3 * g3)) / 2
+                var y = maxOf(topRoom, (h - (4 * bs + 3 * g3)) / 2)
                 favBtn.set(bx, y, bx + bs, y + bs); y += bs + g3
                 vizBtn.set(bx, y, bx + bs, y + bs); y += bs + g3
                 vizColBtn.set(bx, y, bx + bs, y + bs); y += bs + g3
@@ -10159,6 +10178,20 @@ class MediaCardView(ctx: Context) : View(ctx) {
                 drawSrcFav(c, bs)
             }
         }
+        drawCloseX(c)
+    }
+
+    /** The small X that closes the card. */
+    private fun drawCloseX(c: Canvas) {
+        if (closeBtn.isEmpty) return
+        val r = closeBtn
+        p.shader = null; p.pathEffect = null; p.style = Paint.Style.FILL; p.color = Color.argb(150, 16, 22, 34); c.drawCircle(r.centerX(), r.centerY(), r.width() / 2, p)
+        p.style = Paint.Style.STROKE; p.strokeWidth = dp(1.4f); p.color = Color.argb(225, 255, 255, 255); c.drawCircle(r.centerX(), r.centerY(), r.width() / 2 - dp(0.7f), p)
+        p.strokeWidth = dp(2.2f); p.strokeCap = Paint.Cap.ROUND
+        val a = r.width() * 0.22f
+        c.drawLine(r.centerX() - a, r.centerY() - a, r.centerX() + a, r.centerY() + a, p)
+        c.drawLine(r.centerX() + a, r.centerY() - a, r.centerX() - a, r.centerY() + a, p)
+        p.strokeCap = Paint.Cap.BUTT; p.style = Paint.Style.FILL
     }
 
     /** The visualizer on / off and colour buttons of a narrow card, drawn on their rectangles. */
@@ -10244,6 +10277,7 @@ class MediaCardView(ctx: Context) : View(ctx) {
             val s = dp(8f)
             fun hit(r: RectF) = e.x >= r.left - s && e.x <= r.right + s && e.y >= r.top - s && e.y <= r.bottom + s
             when {
+                !closeBtn.isEmpty && e.x >= closeBtn.left - dp(10f) && e.x <= closeBtn.right + dp(10f) && e.y >= closeBtn.top - dp(10f) && e.y <= closeBtn.bottom + dp(10f) -> onClose?.invoke()
                 hit(rPlay) -> onToggle?.invoke(); hit(rPrev) -> onPrev?.invoke(); hit(rNext) -> onNext?.invoke()
                 !favBtn.isEmpty && favBtn.contains(e.x, e.y) -> onFavs?.invoke()
                 !srcBtn.isEmpty && srcBtn.contains(e.x, e.y) -> onSources?.invoke()
