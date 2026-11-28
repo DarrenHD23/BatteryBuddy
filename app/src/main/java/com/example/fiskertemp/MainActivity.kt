@@ -795,7 +795,7 @@ class MainActivity : Activity() {
         climateView = ClimateScreenView(this).apply {
             visibility = View.GONE; onClose = { visibility = View.GONE; if (l2Applied) l2ClimClosed = true else prefs().edit().putBoolean("l1Climate", false).apply() }      // Layout 1: remember that Climate was closed (presets and restarts keep it closed)
             onPower = { turnOn ->
-                val msg = pulse?.sendClimatePower(turnOn) ?: "CAN reader is not running"
+                val msg = climCmd() ?: pulse?.sendClimatePower(turnOn) ?: "CAN reader is not running"
                 toast(msg)
             }
             onTempTap = { toast("This control is off: tick the test box in Settings and restart") }
@@ -805,28 +805,29 @@ class MainActivity : Activity() {
                 val cur = sn.climDrvT ?: sn.climPassT
                 val base = if (now - tempPendingAt < 2500 && tempPending != null) tempPending!! else (if (driver) sn.climDrvT else sn.climPassT ?: cur) ?: 22.0
                 val target = (Math.round(base * 2) / 2.0 + dir * 0.5).coerceIn(18.0, 32.0)
-                tempPending = target; tempPendingAt = now
-                val msg = pulse?.sendTemp(driver, target, sn.climSync) ?: "CAN reader is not running"
+                val held = climCmd()
+                if (held == null) { tempPending = target; tempPendingAt = now }
+                val msg = held ?: pulse?.sendTemp(driver, target, sn.climSync) ?: "CAN reader is not running"
                 toast(msg)
             }
             onButton = { kind ->
-                val msg = pulse?.sendButton(kind) ?: "CAN reader is not running"
+                val msg = climCmd() ?: pulse?.sendButton(kind) ?: "CAN reader is not running"
                 toast(msg)
             }
             onMode = { mode ->
-                val msg = pulse?.sendAirMode(mode) ?: "CAN reader is not running"
+                val msg = climCmd() ?: pulse?.sendAirMode(mode) ?: "CAN reader is not running"
                 toast(msg)
             }
             onRearDefrost = { on ->
-                val msg = pulse?.sendRearDefrost(on) ?: "CAN reader is not running"
+                val msg = climCmd() ?: pulse?.sendRearDefrost(on) ?: "CAN reader is not running"
                 if (!msg.contains(" on IBUS")) toast(msg)
             }
             onWheel = {
-                val msg = pulse?.sendWheelHeat() ?: "CAN reader is not running"
+                val msg = climCmd() ?: pulse?.sendWheelHeat() ?: "CAN reader is not running"
                 toast(msg)
             }
             onSeat = { who, lvl ->
-                val msg = pulse?.sendSeatHeat(who, lvl) ?: "CAN reader is not running"
+                val msg = climCmd() ?: pulse?.sendSeatHeat(who, lvl) ?: "CAN reader is not running"
                 toast(msg)
             }
             hideSeatIcons = prefs().getBoolean("hideSeatIcons", false)
@@ -835,7 +836,7 @@ class MainActivity : Activity() {
             paintIdx = prefs().getInt("carPaint", 3)
             onPaint = { i -> setCarPaint(i) }
             onFan = { level ->
-                val msg = pulse?.sendFan(level) ?: "CAN reader is not running"
+                val msg = climCmd() ?: pulse?.sendFan(level) ?: "CAN reader is not running"
                 if (!msg.contains(" on IBUS")) toast(msg)       // only a failure is worth a message
             }
         }
@@ -1976,21 +1977,61 @@ class MainActivity : Activity() {
     private var climRestoreTries = 0
     private val climKeepRun = object : Runnable { override fun run() { keepClimate(); ui.postDelayed(this, 5000) } }
     private val climRestoreRun = Runnable { startClimateRestore() }
+    // the A/C unit sleeps with the car and can take a couple of minutes to answer
+    private var climStartAt = 0L
+    private var climRestoreAt = 0L
+    private var climAwake = false
+    private var climWakeAt = 0L
+    private var climGaveUp = false
+    private val climWakeRun = object : Runnable { override fun run() { if (isFinishing || isDestroyed) return; climWakeTick(); ui.postDelayed(this, 500) } }
+    private fun climWakeText(): String =
+        if (prefs().getBoolean("climRestoreOn", false) && prevClimate?.optInt("fan", 0).let { it != null && it > 0 })
+            "Car is waking up, please wait. Your previous settings will be restored."
+        else "Car is waking up, please wait..."
+    /** Non-null while a climate command has to be held back; this is also the message to show. */
+    private fun climHold(): String? = if (!climAwake && !climGaveUp && pulse != null) climWakeText() else null
+    /** For every command the user sends: held while asleep; otherwise it cancels a restore that has not started yet. */
+    private fun climCmd(): String? {
+        climHold()?.let { return it }
+        if (!climRestoreDone && !climRestoring) {
+            ui.removeCallbacks(climRestoreRun); climRestoreDone = true
+            EventLog.add("climate restore: cancelled, a setting was changed by hand")
+        }
+        return null
+    }
+    private fun climWakeTick() {
+        val pl = pulse
+        val now = System.currentTimeMillis()
+        val awake = pl != null && pl.eccAwake()
+        if (awake && !climAwake) {
+            climAwake = true; climWakeAt = now; climGaveUp = false
+            EventLog.add("A/C unit awake, ${(now - climStartAt) / 1000} s after the app started")
+            if (!climRestoreDone) showRestoreNotice()
+        }
+        if (!climAwake && !climGaveUp && pl != null && now - climStartAt > 180_000L) {
+            climGaveUp = true
+            EventLog.add("A/C unit did not wake within 3 minutes; commands are no longer held")
+            if (!climRestoreDone) { climRestoreDone = true; EventLog.add("climate restore: the A/C unit did not wake, nothing restored") }
+        }
+        val msg = when { climAwake -> null; climGaveUp -> "A/C unit is not responding"; pl == null -> null; else -> climWakeText() }
+        if (::climateView.isInitialized && climateView.wakeMsg != msg) { climateView.wakeMsg = msg; climateView.invalidate() }
+        if (climAwake && !climRestoreDone && !climRestoring && now >= maxOf(climRestoreAt, climWakeAt + 5000L)) startClimateRestore()
+    }
 
     private fun initClimateRestore() {
         prevClimate = try { org.json.JSONObject(prefs().getString("climLast", "") ?: "") } catch (e: Exception) { null }
         climRestoreDone = !prefs().getBoolean("climRestoreOn", false)
         ui.postDelayed(climKeepRun, 5000)
-        if (!climRestoreDone) {
-            val secs = prefs().getInt("climRestoreMin", 0) * 60 + prefs().getInt("climRestoreSec", 30)
-            ui.postDelayed(climRestoreRun, maxOf(secs * 1000L, 5000L))
-            ui.postDelayed({ showRestoreNotice() }, 1500)
-        }
+        climStartAt = System.currentTimeMillis()
+        val secs = prefs().getInt("climRestoreMin", 0) * 60 + prefs().getInt("climRestoreSec", 30)
+        climRestoreAt = climStartAt + maxOf(secs * 1000L, 5000L)       // restore runs at the later of this and (wake + 5 s)
+        ui.postDelayed(climWakeRun, 500)
     }
     /** A short note over the screen at start-up: the climate settings will be restored in so long. Shows 4 seconds, then fades away. */
     private fun showRestoreNotice() {
         if (isFinishing || isDestroyed || !::edgeBox.isInitialized) return
-        val m = prefs().getInt("climRestoreMin", 0); val sc = prefs().getInt("climRestoreSec", 30)
+        val left = (maxOf(climRestoreAt, climWakeAt + 5000L) - System.currentTimeMillis() + 999L).coerceAtLeast(1000L) / 1000L
+        val m = (left / 60).toInt(); val sc = (left % 60).toInt()
         val parts = ArrayList<String>()
         if (m > 0) parts.add("$m minute${if (m == 1) "" else "s"}")
         if (sc > 0 || m == 0) parts.add("$sc second${if (sc == 1) "" else "s"}")
@@ -2015,6 +2056,7 @@ class MainActivity : Activity() {
         if (!climRestoreDone || climRestoring) return
         val s = canSnap
         if (!s.climSeen || s.climFan <= 0) return
+        if (!climAwake || System.currentTimeMillis() - climWakeAt < 10_000L) return      // a sleeping unit's repeated frames are not real settings
         val j = climSnapJson(s).toString()
         if (j != prefs().getString("climLast", null)) prefs().edit().putString("climLast", j).apply()
     }
@@ -2024,11 +2066,7 @@ class MainActivity : Activity() {
         val p = prevClimate
         if (p == null) { EventLog.add("climate restore: nothing was saved yet"); climRestoreDone = true; return }
         val pl = pulse
-        if (pl == null || !canSnap.climSeen) {
-            // the A/C unit has not been heard yet: try again for about two minutes
-            if (++climRestoreTries <= 24) { ui.postDelayed(climRestoreRun, 5000); return }
-            EventLog.add("climate restore: the A/C unit was not seen, nothing restored"); climRestoreDone = true; return
-        }
+        if (pl == null || !canSnap.climSeen) { EventLog.add("climate restore: the A/C unit was not seen, nothing restored"); climRestoreDone = true; return }
         if (!prefs().getBoolean("climateTx", true)) { EventLog.add("climate restore: climate control is off in Settings"); climRestoreDone = true; return }
         if (p.optInt("fan", 0) <= 0) { EventLog.add("climate restore: the climate system was off last time, left as it is"); climRestoreDone = true; return }
         climRestoring = true
@@ -8471,6 +8509,7 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
     var fanControl = false                       // test: show - / + for the fan (sends CAN frames)
         set(v) { field = v; invalidate() }
     var onFan: ((Int) -> Unit)? = null
+    var wakeMsg: String? = null          // set while the car's A/C unit is still waking up (or not answering)
     var onWheel: (() -> Unit)? = null
     var onRearDefrost: ((Boolean) -> Unit)? = null     // true = switch the rear window heater on
     private var fanPend = -1; private var fanPendAt = 0L
@@ -9600,9 +9639,11 @@ class ClimateScreenView(ctx: Context) : View(ctx) {
         if (advice.isNotEmpty()) parts.add(advice)
         val fy = h - bp - xs / 2
         val footW = if (l2) w - 2 * (m + cw + dp(16f)) else closeRect2.left - closeRect.right - dp(16f)
-        if (!s.climSeen) fitText("Waiting for the A/C unit (no 0x373 frames yet)", w / 2, fy, if (small) 11f else 12f, warm, false, footW)
+        val wm = wakeMsg
+        if (wm != null) fitText(wm, w / 2, fy, if (small) 11f else 12f, warm, false, footW)
+        else if (!s.climSeen) fitText("Waiting for the A/C unit (no 0x373 frames yet)", w / 2, fy, if (small) 11f else 12f, warm, false, footW)
         else fitText(parts.joinToString("  ·  "), w / 2, fy - (if (s.climFault || s.climLimited || s.wheelHeat == null) dp(9f) else 0f), if (small) 11f else 12f, Color.argb(190, 255, 255, 255), false, footW)
-        if (s.climSeen) {
+        if (s.climSeen && wm == null) {
             if (s.climFault) text("Thermal system fault", w / 2, fy + dp(10f), 11f, Color.parseColor("#FF5A5A"), true)
             else if (s.climLimited) text("Thermal functions limited", w / 2, fy + dp(10f), 11f, warm, true)
             else if (s.wheelHeat == null) text("Heated wheel status not received", w / 2, fy + dp(10f), 10f, Color.argb(120, 255, 255, 255))

@@ -149,6 +149,18 @@ class PulseCan(
     @Volatile var lastChangeAt = 0L
         private set
 
+    // arrival times of the last six 0x373 frames (before the rate limit). Awake the unit sends one about every 100 ms;
+    // the helper's once-a-second repeats of the last frame (car asleep) are far slower than that.
+    private val eccT = LongArray(6)
+    private var eccN = 0
+    /** True when the A/C unit is really talking: six frames inside two seconds, the newest not older than 1.5 s. */
+    fun eccAwake(): Boolean = synchronized(eccT) {
+        if (eccN < 6) return false
+        val now = System.currentTimeMillis()
+        val newest = eccT[(eccN - 1) % 6]; val oldest = eccT[eccN % 6]
+        now - newest < 1500 && newest - oldest < 2000
+    }
+
     /** Set by the app: true if the pack current sign is the other way round (see Settings). */
     @Volatile var flipPower = false
     // energy put back while the car is moving (so plugging in to charge does not count)
@@ -710,6 +722,7 @@ class PulseCan(
         for (i in bytes.indices) bytes[i] = hex.substring(i * 2, i * 2 + 2).toIntOrNull(16) ?: return
 
         frames++
+        if (id == 0x373) synchronized(eccT) { eccT[eccN % 6] = System.currentTimeMillis(); eccN++ }
         if (id == 0x530 && bytes.size == 8) { last530[bus] = bytes; last530At[bus] = System.currentTimeMillis() }
         if (id == 0x534 && bytes.size == 8) { last534[bus] = bytes; last534At[bus] = System.currentTimeMillis() }
         if (id == 0x528 && bytes.size == 8) { last528[bus] = bytes; last528At[bus] = System.currentTimeMillis() }
