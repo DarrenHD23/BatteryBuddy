@@ -10185,9 +10185,10 @@ class MediaCardView(ctx: Context) : View(ctx) {
     private fun drawCloseX(c: Canvas) {
         if (closeBtn.isEmpty) return
         val r = closeBtn
-        p.shader = null; p.pathEffect = null; p.style = Paint.Style.FILL; p.color = Color.argb(150, 16, 22, 34); c.drawCircle(r.centerX(), r.centerY(), r.width() / 2, p)
-        p.style = Paint.Style.STROKE; p.strokeWidth = dp(1.4f); p.color = Color.argb(225, 255, 255, 255); c.drawCircle(r.centerX(), r.centerY(), r.width() / 2 - dp(0.7f), p)
-        p.strokeWidth = dp(2.2f); p.strokeCap = Paint.Cap.ROUND
+        // softer than the other buttons: a dark see-through disc keeps it readable over bright art and in the day or night skin, the X itself is about 60% white
+        p.shader = null; p.pathEffect = null; p.style = Paint.Style.FILL; p.color = Color.argb(105, 12, 18, 30); c.drawCircle(r.centerX(), r.centerY(), r.width() / 2, p)
+        p.style = Paint.Style.STROKE; p.strokeWidth = dp(1.2f); p.color = Color.argb(110, 255, 255, 255); c.drawCircle(r.centerX(), r.centerY(), r.width() / 2 - dp(0.6f), p)
+        p.strokeWidth = dp(2.0f); p.strokeCap = Paint.Cap.ROUND; p.color = Color.argb(160, 255, 255, 255)
         val a = r.width() * 0.22f
         c.drawLine(r.centerX() - a, r.centerY() - a, r.centerX() + a, r.centerY() + a, p)
         c.drawLine(r.centerX() + a, r.centerY() - a, r.centerX() - a, r.centerY() + a, p)
